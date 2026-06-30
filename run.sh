@@ -19,5 +19,5 @@ if ! python3 -c "import questionary, kokoro_onnx, soundfile" &>/dev/null; then
     pip install -r requirements.txt
 fi
 
-# Run the TUI
-python3 tui.py
+# Run the CLI
+python3 cli.py

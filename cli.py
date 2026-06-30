@@ -123,7 +123,7 @@ def batch_job_worker(job_config, progress_dict):
     import atexit
     import traceback
     
-    # Silence stdout/stderr to avoid TUI pollution
+    # Silence stdout/stderr to avoid CLI pollution
     sys.stdout = open(os.devnull, 'w')
     sys.stderr = open(os.devnull, 'w')
     

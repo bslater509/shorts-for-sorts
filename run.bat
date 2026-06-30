@@ -17,5 +17,5 @@ if errorlevel 1 (
     venv\Scripts\pip.exe install -r requirements.txt
 )
 
-:: Run the TUI
-venv\Scripts\python.exe tui.py
+:: Run the CLI
+venv\Scripts\python.exe cli.py
