@@ -15,8 +15,8 @@ class ProgressConsole:
         
     def print(self, *args, **kwargs):
         msg = " ".join(str(a) for a in args)
-        if "[1/4]" in msg:
-            self.p_dict[self.idx] = "Voiceover"
+        if "[1/4]" in msg or "Generating & transcribing" in msg:
+            self.p_dict[self.idx] = "Voice & Whisper"
         elif "[2/4]" in msg:
             self.p_dict[self.idx] = "Transcription"
         elif "[3/4]" in msg:
@@ -60,7 +60,7 @@ def display_progress_table(progress_dict, total_shorts, job_details):
         
     return table
 
-def batch_job_worker(job_config, progress_dict):
+def batch_job_worker(job_config, progress_dict, llm_lock=None):
     # Silence stdout/stderr to avoid CLI pollution
     sys.stdout = open(os.devnull, 'w')
     sys.stderr = open(os.devnull, 'w')
@@ -108,22 +108,33 @@ def batch_job_worker(job_config, progress_dict):
     console.clear = progress_console.clear
     
     try:
-        progress_dict[idx] = "LLM Script"
-        from openai import OpenAI
-        api_key = shared_state.settings.get("api_key") or os.environ.get("OPENAI_API_KEY")
-        base_url = shared_state.settings.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-        client = OpenAI(api_key=api_key, base_url=base_url)
-        
-        response = client.chat.completions.create(
-            model=job_config["model"],
-            messages=[
-                {"role": "system", "content": job_config["system_prompt"]},
-                {"role": "user", "content": job_config["prompt"]}
-            ],
-            temperature=job_config["script_temp"]
-        )
-        script_text = response.choices[0].message.content.strip()
+        def generate_script():
+            from openai import OpenAI
+            api_key = shared_state.settings.get("api_key") or os.environ.get("OPENAI_API_KEY")
+            base_url = shared_state.settings.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+            client = OpenAI(api_key=api_key, base_url=base_url)
+            
+            response = client.chat.completions.create(
+                model=job_config["model"],
+                messages=[
+                    {"role": "system", "content": job_config["system_prompt"]},
+                    {"role": "user", "content": job_config["prompt"]}
+                ],
+                temperature=job_config["script_temp"]
+            )
+            return response.choices[0].message.content.strip()
+
+        if llm_lock is not None:
+            progress_dict[idx] = "Waiting for LLM"
+            with llm_lock:
+                progress_dict[idx] = "LLM Script"
+                script_text = generate_script()
+        else:
+            progress_dict[idx] = "LLM Script"
+            script_text = generate_script()
+
         shared_state.state["script_text"] = script_text
+        progress_dict[idx] = "Compiling"
         
         success = compile_video_flow(skip_confirm=True, custom_output_filename=output_filename)
         if success:

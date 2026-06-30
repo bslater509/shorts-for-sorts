@@ -790,13 +790,14 @@ def generate_fully_random_short():
         try:
             with multiprocessing.Manager() as manager:
                 progress_dict = manager.dict()
+                llm_lock = manager.Lock()
                 for i in range(1, num_shorts + 1):
                     progress_dict[i] = "Queued"
                     
                 with ProcessPoolExecutor(max_workers=max_workers) as executor:
                     futures = []
                     for i in range(1, num_shorts + 1):
-                        futures.append(executor.submit(batch_job_worker, job_configs[i], progress_dict))
+                        futures.append(executor.submit(batch_job_worker, job_configs[i], progress_dict, llm_lock))
                         
                     with Live(display_progress_table(progress_dict, num_shorts, job_details), console=console, refresh_per_second=4) as live:
                         while not all(f.done() for f in futures):
