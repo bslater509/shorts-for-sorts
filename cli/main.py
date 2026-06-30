@@ -76,14 +76,14 @@ def main():
             questionary.Choice(title="3. Configure Background Video", value="bg"),
             questionary.Choice(title="4. Configure Background Music", value="music"),
             questionary.Choice(title="5. Compile TikTok Short", value="compile"),
-            questionary.Choice(title="6. Generate Fully Random Short", value="random_short"),
+            questionary.Choice(title="6. Batch Generate Random Shorts", value="random_short"),
             questionary.Choice(title="7. Configure App & API Settings", value="settings"),
             questionary.Choice(title="8. View History / Manage Videos", value="history"),
             questionary.Choice(title="9. Preset Templates", value="presets"),
             questionary.Choice(title="10. Exit", value="exit"),
         ]
         
-        choice = questionary.select("Select an action:", choices=menu_choices).ask()
+        choice = questionary.select("Select an action:", choices=menu_choices, default="random_short").ask()
         
         if choice == "exit" or choice is None:
             console.print("[bold green]Goodbye![/]")

@@ -338,7 +338,8 @@ def compile_video(
     music_volume: float = 0.15,
     bg_video_bottom_path: str = None,
     render_preset: str = 'veryfast',
-    render_resolution: str = '1080p'
+    render_resolution: str = '1080p',
+    progress_callback = None
 ):
     """
     Renders the final vertical video using FFmpeg.
@@ -489,17 +490,69 @@ def compile_video(
 
     # Run FFmpeg inside the folder where subtitles are stored so that relative path works flawlessly
     cwd = subs_dir if subs_dir else None
+    
+    stderr_lines = []
+    return_code = -1
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
+        import re
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=cwd,
+            bufsize=1,
+            encoding='utf-8',
+            errors='replace'
+        ) as process:
+            while True:
+                line = process.stderr.readline()
+                if not line:
+                    break
+                stderr_lines.append(line)
+                
+                # Parse progress: "time=00:00:05.12"
+                if "time=" in line:
+                    match = re.search(r"time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})", line)
+                    if match:
+                        hours = int(match.group(1))
+                        minutes = int(match.group(2))
+                        seconds = int(match.group(3))
+                        centiseconds = int(match.group(4))
+                        elapsed = hours * 3600 + minutes * 60 + seconds + centiseconds / 100.0
+                        if audio_duration > 0:
+                            pct = min(100.0, (elapsed / audio_duration) * 100.0)
+                            if progress_callback:
+                                try:
+                                    progress_callback(pct)
+                                except Exception:
+                                    pass
+                    else:
+                        match_sec = re.search(r"time=(\d{2}):(\d{2}):(\d{2})", line)
+                        if match_sec:
+                            hours = int(match_sec.group(1))
+                            minutes = int(match_sec.group(2))
+                            seconds = int(match_sec.group(3))
+                            elapsed = hours * 3600 + minutes * 60 + seconds
+                            if audio_duration > 0:
+                                pct = min(100.0, (elapsed / audio_duration) * 100.0)
+                                if progress_callback:
+                                    try:
+                                        progress_callback(pct)
+                                    except Exception:
+                                        pass
+            process.wait()
+            return_code = process.returncode
     except Exception as e:
         logger.error(f"Failed to execute FFmpeg command compiled via ffmpeg-python: {e}", exc_info=True)
         raise RuntimeError(f"FFmpeg execution failed: {e}") from e
     
-    if result.returncode != 0:
+    if return_code != 0:
+        full_stderr = "".join(stderr_lines)
         err_msg = (
-            f"FFmpeg compilation failed with exit code {result.returncode}.\n"
+            f"FFmpeg compilation failed with exit code {return_code}.\n"
             f"FFmpeg command: {' '.join(cmd)}\n"
-            f"Error details: {result.stderr.strip()}"
+            f"Error details: {full_stderr.strip()}"
         )
         logger.error(err_msg)
         raise RuntimeError(err_msg)

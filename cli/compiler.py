@@ -21,7 +21,7 @@ from cli.utils import discover_opencode_keys
 _WHISPER_MODEL = None
 _WHISPER_MODEL_NAME = None
 
-def compile_video_flow(skip_confirm=False, custom_output_filename=None):
+def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress_callback=None):
     global _WHISPER_MODEL, _WHISPER_MODEL_NAME
     
     console.print("[bold yellow]5. COMPILE TIKTOK SHORT[/]")
@@ -370,7 +370,8 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None):
             music_volume=music_vol,
             bg_video_bottom_path=resolved_bottom_path,
             render_preset=render_preset,
-            render_resolution=render_res
+            render_resolution=render_res,
+            progress_callback=progress_callback
         )
         
         console.print(f"\n[green]🎉 RENDER SUCCESSFUL! Saved to output/{output_filename}[/]\n")

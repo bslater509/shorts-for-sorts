@@ -3,6 +3,7 @@ import os
 import re
 import atexit
 import traceback
+import time
 from rich.table import Table
 
 from cli import state as shared_state
@@ -28,6 +29,12 @@ class ProgressConsole:
             self.p_dict[self.idx] = "Transcription"
         elif "[3/4]" in msg:
             self.p_dict[self.idx] = "Subtitles"
+        elif "FFmpeg Rendering" in msg:
+            match = re.search(r"(\d+\.?\d*)%", msg)
+            if match:
+                self.p_dict[self.idx] = f"FFmpeg Rendering ({match.group(1)}%)"
+            else:
+                self.p_dict[self.idx] = "FFmpeg Rendering"
         elif "[4/4]" in msg:
             self.p_dict[self.idx] = "FFmpeg Rendering"
         elif "ℹ️ Found cached" in msg:
@@ -35,6 +42,69 @@ class ProgressConsole:
             
     def clear(self):
         pass
+
+def get_progress_percentage(status):
+    if status == "Queued":
+        return 0
+    elif status == "Waiting for LLM":
+        return 5
+    elif status == "LLM Script":
+        return 10
+    elif status.startswith("Voice & Whisper"):
+        match = re.search(r"\((\d+)/(\d+)\)", status)
+        if match:
+            s_idx = int(match.group(1))
+            total = int(match.group(2))
+            if total > 0:
+                return 10 + int((s_idx / total) * 40)
+        return 30
+    elif status == "Reusing Cache (Voice/Whisper)":
+        return 50
+    elif status == "Compiling":
+        return 50
+    elif status == "Transcription":
+        return 52
+    elif status == "Subtitles":
+        return 55
+    elif status.startswith("FFmpeg Rendering"):
+        match = re.search(r"\((\d+\.?\d*)%\)", status)
+        if match:
+            pct = float(match.group(1))
+            return 55 + int((pct / 100) * 45)
+        return 75
+    elif status == "Done":
+        return 100
+    elif status.startswith("Failed"):
+        return None
+    return 0
+
+def make_progress_bar(percentage, status, width=15):
+    filled = int(width * percentage / 100)
+    filled = max(0, min(width, filled))
+    empty = width - filled
+    
+    if status == "Done":
+        bar_color = "green"
+        pct_color = "green"
+        desc = "[bold green]✓ Done[/]"
+    elif status == "Queued":
+        bar_color = "grey37"
+        pct_color = "grey37"
+        desc = "[dim]Queued...[/]"
+    else:
+        bar_color = "cyan"
+        pct_color = "yellow"
+        desc = f"[bold yellow]🔄 {status}...[/]"
+        
+    bar = f"[{bar_color}]" + "█" * filled + f"[/{bar_color}][grey37]" + "░" * empty + f"[/grey37]"
+    return f"{bar} [{pct_color}]{percentage:3d}%[/{pct_color}] {desc}"
+
+def format_elapsed(duration):
+    m = int(duration) // 60
+    s = int(duration) % 60
+    if m > 0:
+        return f"{m}m {s:02d}s"
+    return f"{s}s"
 
 def display_progress_table(progress_dict, total_shorts, job_details):
     table = Table(
@@ -47,6 +117,7 @@ def display_progress_table(progress_dict, total_shorts, job_details):
     table.add_column("Category & Topic", justify="left")
     table.add_column("Voice & Layout", justify="left")
     table.add_column("Status / Progress", justify="left")
+    table.add_column("Elapsed", justify="center", style="dim", width=12)
     
     for idx in range(1, total_shorts + 1):
         details = job_details.get(idx, {})
@@ -54,16 +125,28 @@ def display_progress_table(progress_dict, total_shorts, job_details):
         voice_layout = f"{details.get('voice', 'Unknown')} | {details.get('layout', 'Unknown')}"
         status = progress_dict.get(idx, "Queued")
         
-        if status == "Done":
-            status_str = "[bold green]✓ Done[/]"
-        elif status.startswith("Failed"):
+        # Calculate elapsed time
+        start_time = progress_dict.get(f"{idx}_start")
+        end_time = progress_dict.get(f"{idx}_end")
+        
+        elapsed_str = "--"
+        if start_time:
+            if end_time:
+                duration = end_time - start_time
+                elapsed_str = f"{format_elapsed(duration)} (Done)" if status == "Done" else format_elapsed(duration)
+            else:
+                duration = time.time() - start_time
+                elapsed_str = format_elapsed(duration)
+        
+        # Calculate percentage
+        pct = get_progress_percentage(status)
+        
+        if pct is None:
             status_str = f"[bold red]✗ {status}[/]"
-        elif status == "Queued":
-            status_str = "[dim]Queued...[/]"
         else:
-            status_str = f"[bold yellow]🔄 {status}...[/]"
+            status_str = make_progress_bar(pct, status)
             
-        table.add_row(f"#{idx}", topic, voice_layout, status_str)
+        table.add_row(f"#{idx}", topic, voice_layout, status_str, elapsed_str)
         
     return table
 
@@ -80,6 +163,8 @@ def batch_job_worker(job_config, progress_dict, llm_lock=None):
         
     idx = job_config["index"]
     output_filename = job_config["output_filename"]
+    
+    progress_dict[f"{idx}_start"] = time.time()
     
     # Update process-local state and settings dictionaries
     shared_state.state.clear()
@@ -143,15 +228,21 @@ def batch_job_worker(job_config, progress_dict, llm_lock=None):
         shared_state.state["script_text"] = script_text
         progress_dict[idx] = "Compiling"
         
-        success = compile_video_flow(skip_confirm=True, custom_output_filename=output_filename)
+        def ffmpeg_progress(pct):
+            console.print(f"FFmpeg Rendering ({pct:.1f}%)")
+
+        success = compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=ffmpeg_progress)
         if success:
             progress_dict[idx] = "Done"
+            progress_dict[f"{idx}_end"] = time.time()
             return (idx, True, output_filename)
         else:
             progress_dict[idx] = "Failed"
+            progress_dict[f"{idx}_end"] = time.time()
             return (idx, False, "Compilation failed (check logs/app.log)")
     except Exception as e:
         from cli.config import logger
         logger.error(f"Batch job {idx} exception: {e}\n{traceback.format_exc()}")
         progress_dict[idx] = f"Failed: {str(e)}"
+        progress_dict[f"{idx}_end"] = time.time()
         return (idx, False, str(e))

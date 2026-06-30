@@ -19,5 +19,6 @@
   "render_preset": "veryfast",
   "render_resolution": "1080p",
   "max_workers": 4,
-  "max_words": 130
+  "max_words": 130,
+  "default_batch_size": 5
 }

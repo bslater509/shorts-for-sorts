@@ -58,7 +58,35 @@ DEFAULT_PROMPTS = {
     "Stoicism & Mental Toughness": "Explain how to apply the ancient philosophy of Stoicism to manage modern stress and build mental resilience.",
     "How Caffeine Affects Your Brain": "Explain the science of what caffeine actually does to your brain and how to optimize your coffee intake.",
     "Hidden Symbols in Famous Logos": "Reveal the hidden meanings or visual secrets behind 3 famous company logos.",
-    "History of the Internet": "Explain a surprising, lesser-known story about how the internet was created or its earliest days."
+    "History of the Internet": "Explain a surprising, lesser-known story about how the internet was created or its earliest days.",
+    "The Betrayal That Ended an Empire": "Tell the dramatic story of Julius Caesar and Marcus Brutus, focusing on the ultimate betrayal and its shocking consequences.",
+    "Hollywood's Most Dramatic Feud": "Describe the intense, decade-long rivalry between Joan Crawford and Bette Davis, and the lengths they went to sabotage each other.",
+    "The Most Dramatic Royalty Scandal": "Tell the story of Edward VIII's decision to abdicate the British throne for Wallis Simpson, and the national crisis that followed.",
+    "Behind the Scenes Theater Drama": "Tell the historical, dramatic story of the Astor Place Riot of 1849, where a rivalry between two Shakespearean actors led to actual violence in the streets of New York.",
+    "The Mystery of the Missing Heiress": "Narrate the mysterious and dramatic disappearance of Dorothy Arnold in 1910, highlighting the shocking theories and family secrets.",
+    "Famous Art World Rivals": "Describe the dramatic rivalry between Leonardo da Vinci and Michelangelo, and how their mutual dislike fueled some of the greatest art in history.",
+    "The War of the Currents": "Tell the dramatic story of the brutal battle between Thomas Edison and Nikola Tesla over AC vs DC electricity, and the shocking PR stunts used to win.",
+    "The Curse of Tutankhamun": "Narrate the drama and mystery surrounding the opening of King Tut's tomb in 1922, highlighting the tragic fates of those involved.",
+    "The Poison Cup Duel": "Tell the dramatic, legendary story of the duel between two Renaissance doctors who tried to poison each other to prove whose antidote was superior.",
+    "The Shipwreck of the Medusa": "Describe the harrowing, dramatic survival story of the French frigate Méduse in 1816, and the scandalous government cover-up that followed.",
+    "The Duel of the Century": "Tell the intense, dramatic story of the fatal 1804 duel between Alexander Hamilton and Aaron Burr, focusing on the decades-long rivalry that led to it.",
+    "Reddit AITA Wedding Drama": "Write a dramatic Reddit-style 'Am I the Asshole' post about a bride who cancels her wedding at the altar after finding out a secret about her groom from the maid of honor.",
+    "Reddit Secret Inheritance": "Write a dramatic Reddit post from a user who discovered their late grandfather left a massive secret inheritance to them instead of their parents, causing a huge family feud.",
+    "Reddit Family DNA Scandal": "Write a suspenseful Reddit post about a person who bought DNA test kits for the family for Christmas, only to accidentally uncover a long-hidden family secret.",
+    "Reddit Malicious Compliance": "Write a dramatic Reddit story about a worker who used malicious compliance to expose their micromanaging boss, leading to a complete company restructure.",
+    "Reddit Neighbor Property Feud": "Write a dramatic Reddit post about an escalating petty war between two neighbors over a property line that ends in a hilarious, unexpected twist.",
+    "Reddit Entitled In-Laws": "Write a dramatic Reddit post about a spouse who finally stood up to their entitled in-laws who tried to take over their home, resulting in a dramatic confrontation.",
+    "Reddit Fake Resume Chaos": "Write a dramatic Reddit story about a coworker who lied on their entire resume, got hired for a high-level job, and caused absolute chaos before being spectacularly caught.",
+    "Reddit Secret Twin Revelation": "Write a suspenseful Reddit post about a person who discovered they had an identical twin they never knew about, leading to the exposure of a massive family cover-up.",
+    "Reddit HOA Revenge": "Write a satisfying Reddit post about a homeowner who took brilliant, malicious compliance revenge against an overreaching, power-tripping HOA board president.",
+    "Reddit Fake Lottery Ticket Prank": "Write a dramatic Reddit post about a prank that went way too far when a sibling gave their brother a fake winning lottery ticket, leading to a complete family breakdown.",
+    "Reddit AITA Exposing a Liar": "Write an engaging Reddit-style 'Am I the Asshole' post about a user who exposed their friend's fake lifestyle and lies at a group dinner party, causing a split in their friend group.",
+    "Reddit Wedding Dress Drama": "Write a dramatic Reddit post about a bride who discovered her future mother-in-law secretly bought a wedding dress identical to hers and planned to wear it to the ceremony.",
+    "Reddit Secret Passage Discovery": "Write a suspenseful Reddit story about a tenant who found a hidden door behind a bookshelf in their apartment leading to a secret room containing mysterious items.",
+    "Reddit Lottery Ticket Theft": "Write a dramatic Reddit post about a person who won a substantial lottery prize but had the ticket stolen by a trusted family member, resulting in a tense legal standoff.",
+    "Reddit High School Reunion Revenge": "Write a satisfying Reddit post about a user who attended their high school reunion and dramatically exposed a former bully who was trying to pitch a fraudulent investment scheme to the attendees.",
+    "Reddit Fake Sick Day Catastrophe": "Write a dramatic Reddit story about an employee who called in sick to attend a concert, only to be interviewed live on national television and spotted by their entire company.",
+    "Reddit AITA Gender Reveal": "Write an engaging Reddit-style 'Am I the Asshole' post about a guest who accidentally revealed the baby's gender before the official announcement, leading to a massive family fallout."
 }
 
 def print_header():
@@ -493,7 +521,8 @@ def generate_fully_random_short():
     download_default_assets_if_empty()
 
     # Ask how many shorts to generate
-    num_shorts_str = questionary.text("How many random shorts do you want to generate?", default="1").ask()
+    default_batch = str(shared_state.settings.get("default_batch_size", 5))
+    num_shorts_str = questionary.text("How many random shorts do you want to generate?", default=default_batch).ask()
     if not num_shorts_str:
         return
     try:
@@ -794,8 +823,9 @@ def generate_fully_random_short():
                 for i in range(1, num_shorts + 1):
                     progress_dict[i] = "Queued"
                     
-                with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                    futures = []
+                executor = ProcessPoolExecutor(max_workers=max_workers)
+                futures = []
+                try:
                     for i in range(1, num_shorts + 1):
                         futures.append(executor.submit(batch_job_worker, job_configs[i], progress_dict, llm_lock))
                         
@@ -816,6 +846,41 @@ def generate_fully_random_short():
                                 failed_videos.append(f"Short {idx} ({output_info})")
                         except Exception as e:
                             failed_videos.append(f"Execution error: {str(e)}")
+                    
+                    executor.shutdown(wait=True)
+                except KeyboardInterrupt:
+                    console.print("\n[bold red]Stopping batch generation... Terminating worker processes...[/]")
+                    for f in futures:
+                        f.cancel()
+                    if hasattr(executor, "_processes"):
+                        for p in list(executor._processes.values()):
+                            try:
+                                p.terminate()
+                            except Exception:
+                                pass
+                    try:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                    except Exception:
+                        pass
+                    
+                    if os.name == "nt":
+                        import subprocess
+                        try:
+                            subprocess.run(["taskkill", "/F", "/IM", "ffmpeg.exe"], capture_output=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except Exception:
+                            pass
+                            
+                    console.print("[red]Batch generation aborted by user.[/]")
+                    return
+                except Exception as e:
+                    try:
+                        executor.shutdown(wait=False)
+                    except Exception:
+                        pass
+                    raise e
+        except KeyboardInterrupt:
+            console.print("[red]Batch generation process interrupted.[/]")
+            return
         finally:
             # Restore state
             shared_state.state.clear()
@@ -1067,6 +1132,7 @@ def configure_settings():
         current_preset = shared_state.settings.get("render_preset", "veryfast")
         current_res = shared_state.settings.get("render_resolution", "1080p")
         current_max_workers = shared_state.settings.get("max_workers", os.cpu_count() or 1)
+        current_default_batch = shared_state.settings.get("default_batch_size", 5)
         
         render_preset = questionary.select(
             "Select FFmpeg rendering speed preset (faster presets compile quicker but have slightly larger size/lower quality):",
@@ -1094,6 +1160,11 @@ def configure_settings():
             f"Maximum parallel batch jobs (default is CPU count: {os.cpu_count()}):",
             default=str(current_max_workers)
         ).ask()
+
+        default_batch_size_str = questionary.text(
+            "Default number of shorts to generate in a batch:",
+            default=str(current_default_batch)
+        ).ask()
         
         if render_preset is not None:
             shared_state.settings["render_preset"] = render_preset
@@ -1102,6 +1173,11 @@ def configure_settings():
         if max_workers is not None:
             try:
                 shared_state.settings["max_workers"] = int(max_workers)
+            except ValueError:
+                pass
+        if default_batch_size_str is not None:
+            try:
+                shared_state.settings["default_batch_size"] = int(default_batch_size_str)
             except ValueError:
                 pass
 
