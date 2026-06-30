@@ -17,6 +17,7 @@
   "inactive_alpha": "66",
   "enable_emojis": true,
   "render_preset": "veryfast",
+  "video_encoder": "libx264",
   "render_resolution": "1080p",
   "max_workers": 4,
   "max_words": 130,

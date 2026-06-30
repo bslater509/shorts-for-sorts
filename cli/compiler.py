@@ -359,6 +359,7 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         console.print("[yellow][4/4] Rendering vertical video using FFmpeg (cropping 9:16, mixing audio, burning subtitles)...[/]")
         render_preset = settings.get("render_preset", "veryfast")
         render_res = settings.get("render_resolution", "1080p")
+        video_encoder = settings.get("video_encoder", "libx264")
         compile_video(
             bg_video_path=resolved_top_path,
             audio_path=audio_path,
@@ -371,6 +372,7 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             bg_video_bottom_path=resolved_bottom_path,
             render_preset=render_preset,
             render_resolution=render_res,
+            video_encoder=video_encoder,
             progress_callback=progress_callback
         )
         

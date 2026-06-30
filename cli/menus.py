@@ -1131,9 +1131,22 @@ def configure_settings():
     elif settings_cat == "rendering":
         current_preset = shared_state.settings.get("render_preset", "veryfast")
         current_res = shared_state.settings.get("render_resolution", "1080p")
+        current_encoder = shared_state.settings.get("video_encoder", "libx264")
         current_max_workers = shared_state.settings.get("max_workers", os.cpu_count() or 1)
         current_default_batch = shared_state.settings.get("default_batch_size", 5)
         
+        video_encoder = questionary.select(
+            "Select FFmpeg Video Encoder (CPU or AMD/NVIDIA/Intel GPU acceleration):",
+            choices=[
+                questionary.Choice("libx264 (CPU - Default standard compatibility)", "libx264"),
+                questionary.Choice("h264_amf (AMD GPU Acceleration - H.264 - Recommended for your RX 6700 XT)", "h264_amf"),
+                questionary.Choice("hevc_amf (AMD GPU Acceleration - HEVC)", "hevc_amf"),
+                questionary.Choice("h264_nvenc (NVIDIA GPU Acceleration)", "h264_nvenc"),
+                questionary.Choice("h264_qsv (Intel GPU Acceleration)", "h264_qsv")
+            ],
+            default=current_encoder
+        ).ask()
+
         render_preset = questionary.select(
             "Select FFmpeg rendering speed preset (faster presets compile quicker but have slightly larger size/lower quality):",
             choices=[
@@ -1166,6 +1179,8 @@ def configure_settings():
             default=str(current_default_batch)
         ).ask()
         
+        if video_encoder is not None:
+            shared_state.settings["video_encoder"] = video_encoder
         if render_preset is not None:
             shared_state.settings["render_preset"] = render_preset
         if render_resolution is not None:

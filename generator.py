@@ -57,6 +57,38 @@ def format_time(seconds: float) -> str:
 _KOKORO_SESSION = None
 _KOKORO_INSTANCE = None
 
+def init_kokoro_session(force_cpu: bool = False):
+    global _KOKORO_SESSION, _KOKORO_INSTANCE
+    import onnxruntime as rt
+    from kokoro_onnx import Kokoro
+    
+    sess_opts = rt.SessionOptions()
+    num_threads = os.cpu_count() or 1
+    sess_opts.intra_op_num_threads = num_threads
+    sess_opts.inter_op_num_threads = num_threads
+    
+    if force_cpu:
+        providers = ["CPUExecutionProvider"]
+    else:
+        # Check if execution providers include GPU accelerators (DirectML or CUDA)
+        available_providers = rt.get_available_providers()
+        providers = []
+        if "DmlExecutionProvider" in available_providers:
+            providers.append("DmlExecutionProvider")
+            # DirectML optimizations to avoid ConvTranspose / memory pattern issues
+            sess_opts.execution_mode = rt.ExecutionMode.ORT_SEQUENTIAL
+            sess_opts.enable_mem_pattern = False
+        if "CUDAExecutionProvider" in available_providers:
+            providers.append("CUDAExecutionProvider")
+        providers.append("CPUExecutionProvider")
+            
+        env_provider = os.getenv("ONNX_PROVIDER")
+        if env_provider:
+            providers = [env_provider]
+            
+    _KOKORO_SESSION = rt.InferenceSession(MODEL_PATH, sess_options=sess_opts, providers=providers)
+    _KOKORO_INSTANCE = Kokoro.from_session(_KOKORO_SESSION, VOICES_PATH)
+
 async def generate_voice(text: str, voice: str, output_path: str):
     """
     Generates local voice audio from text using Kokoro ONNX.
@@ -85,34 +117,13 @@ async def generate_voice(text: str, voice: str, output_path: str):
         
     if _KOKORO_INSTANCE is None:
         try:
-            import onnxruntime as rt
-            from kokoro_onnx import Kokoro
-            
-            # Configure SessionOptions to explicitly set threads and avoid affinity errors
-            sess_opts = rt.SessionOptions()
-            num_threads = os.cpu_count() or 1
-            sess_opts.intra_op_num_threads = num_threads
-            sess_opts.inter_op_num_threads = num_threads
-            
-            # Check if kokoro-onnx installed with kokoro-onnx[gpu] feature or ONNX_PROVIDER is set
-            providers = ["CPUExecutionProvider"]
-            import importlib.util
-            gpu_enabled = importlib.util.find_spec("onnxruntime-gpu")
-            if gpu_enabled:
-                providers = rt.get_available_providers()
-                
-            env_provider = os.getenv("ONNX_PROVIDER")
-            if env_provider:
-                providers = [env_provider]
-                
-            _KOKORO_SESSION = rt.InferenceSession(MODEL_PATH, sess_options=sess_opts, providers=providers)
-            _KOKORO_INSTANCE = Kokoro.from_session(_KOKORO_SESSION, VOICES_PATH)
+            init_kokoro_session(force_cpu=False)
         except Exception as e:
             logger.error(f"Failed to initialize Kokoro ONNX model: {e}", exc_info=True)
             raise RuntimeError(f"Failed to initialize Kokoro ONNX model: {e}") from e
         
     try:
-        # Run the CPU-bound Kokoro model creation
+        # Run the Kokoro model creation
         samples, sample_rate = _KOKORO_INSTANCE.create(
             text,
             voice=voice,
@@ -121,6 +132,27 @@ async def generate_voice(text: str, voice: str, output_path: str):
         )
         sf.write(output_path, samples, sample_rate)
     except Exception as e:
+        # Check if we were using a GPU execution provider. If so, attempt fallback to CPU.
+        current_providers = _KOKORO_SESSION.get_providers() if _KOKORO_SESSION else []
+        is_gpu = any(p in current_providers for p in ["DmlExecutionProvider", "CUDAExecutionProvider"])
+        
+        if is_gpu:
+            logger.warning(f"Kokoro GPU execution failed: {e}. Falling back to CPU...")
+            print(f"\n[WARNING] Kokoro GPU execution failed: {e}. Falling back to CPU...")
+            try:
+                init_kokoro_session(force_cpu=True)
+                samples, sample_rate = _KOKORO_INSTANCE.create(
+                    text,
+                    voice=voice,
+                    speed=1.0,
+                    lang=lang
+                )
+                sf.write(output_path, samples, sample_rate)
+                return
+            except Exception as fallback_err:
+                logger.error(f"Kokoro CPU fallback failed: {fallback_err}", exc_info=True)
+                raise RuntimeError(f"Failed to generate voice audio on CPU fallback: {fallback_err}") from fallback_err
+        
         logger.error(f"Error during audio generation or saving: {e}", exc_info=True)
         raise RuntimeError(f"Failed to generate/save voice audio: {e}") from e
 
@@ -339,6 +371,7 @@ def compile_video(
     bg_video_bottom_path: str = None,
     render_preset: str = 'veryfast',
     render_resolution: str = '1080p',
+    video_encoder: str = 'libx264',
     progress_callback = None
 ):
     """
@@ -473,16 +506,49 @@ def compile_video(
         a_stream = voice_audio
 
     # 4. output node
+    output_args = {
+        'vcodec': video_encoder,
+        'acodec': 'aac',
+        'audio_bitrate': '192k',
+        't': f"{audio_duration:.2f}"
+    }
+
+    # Handle encoder-specific options
+    is_hw_encoder = any(video_encoder.endswith(suffix) for suffix in ['_amf', '_nvenc', '_qsv', '_videotoolbox'])
+    
+    if is_hw_encoder:
+        if 'amf' in video_encoder:
+            # AMD AMF options (speed, balanced, quality)
+            if render_preset in ['ultrafast', 'superfast', 'veryfast', 'faster']:
+                output_args['preset'] = 'speed'
+            elif render_preset in ['fast']:
+                output_args['preset'] = 'balanced'
+            else:
+                output_args['preset'] = 'quality'
+        elif 'nvenc' in video_encoder:
+            # NVIDIA NVENC options
+            if render_preset in ['ultrafast', 'superfast']:
+                output_args['preset'] = 'p1'
+            elif render_preset in ['veryfast', 'faster']:
+                output_args['preset'] = 'p3'
+            elif render_preset in ['fast']:
+                output_args['preset'] = 'p4'
+            else:
+                output_args['preset'] = 'p7'
+        else:
+            # For other hardware encoders, let's pass a generic preset or none
+            pass
+        # Do not include crf for HW encoders (they don't support it)
+    else:
+        # Standard software encoder (e.g. libx264)
+        output_args['preset'] = render_preset
+        output_args['crf'] = 23
+
     out = ffmpeg.output(
         v_stream,
         a_stream,
         output_path,
-        vcodec='libx264',
-        preset=render_preset,
-        crf=23,
-        acodec='aac',
-        audio_bitrate='192k',
-        t=f"{audio_duration:.2f}"
+        **output_args
     )
 
     # Compile ffmpeg-python stream spec to command line arguments list
