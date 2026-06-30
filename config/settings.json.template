@@ -18,5 +18,6 @@
   "enable_emojis": true,
   "render_preset": "veryfast",
   "render_resolution": "1080p",
-  "max_workers": 4
+  "max_workers": 4,
+  "max_words": 130
 }
