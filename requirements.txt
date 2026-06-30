@@ -1,0 +1,11 @@
+textual
+questionary
+kokoro-onnx
+soundfile
+yt-dlp
+openai
+ffmpeg-python
+onnxruntime
+faster-whisper
+torch
+rich

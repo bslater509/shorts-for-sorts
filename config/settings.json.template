@@ -1,0 +1,22 @@
+{
+  "api_key": "YOUR_API_KEY_HERE",
+  "base_url": "https://opencode.ai/zen/go/v1",
+  "model": "deepseek-v4-flash",
+  "whisper_api_key": "",
+  "whisper_base_url": "",
+  "sub_font": "Arial",
+  "sub_size": 80,
+  "sub_color": "#FFFFFF",
+  "sub_highlight": "#00FF00",
+  "sub_outline": "#000000",
+  "sub_outline_width": 6,
+  "sub_bold": true,
+  "word_pop": true,
+  "word_pop_scale": 1.2,
+  "inactive_dim": true,
+  "inactive_alpha": "66",
+  "enable_emojis": true,
+  "render_preset": "veryfast",
+  "render_resolution": "1080p",
+  "max_workers": 4
+}

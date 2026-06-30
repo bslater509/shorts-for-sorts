@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# Environment variables / configuration secrets
+.env
+.env.local
+config/settings.json
+
+# Virtual environments & IDEs
+.vscode/
+.idea/
+.DS_Store
+
+# Project-specific caches and generated assets
+cache/
+logs/
+models/
+output/
+videos/
+
+# Media and temporary test files
+*.wav
+*.mp3
+*.mp4
+*.tmp
