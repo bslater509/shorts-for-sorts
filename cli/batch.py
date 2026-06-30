@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import atexit
 import traceback
 from rich.table import Table
@@ -15,7 +16,13 @@ class ProgressConsole:
         
     def print(self, *args, **kwargs):
         msg = " ".join(str(a) for a in args)
-        if "[1/4]" in msg or "Generating & transcribing" in msg:
+        if "Generating & transcribing sentence" in msg:
+            match = re.search(r"sentence (\d+/\d+)", msg)
+            if match:
+                self.p_dict[self.idx] = f"Voice & Whisper ({match.group(1)})"
+            else:
+                self.p_dict[self.idx] = "Voice & Whisper"
+        elif "[1/4]" in msg or "Generating & transcribing" in msg:
             self.p_dict[self.idx] = "Voice & Whisper"
         elif "[2/4]" in msg:
             self.p_dict[self.idx] = "Transcription"

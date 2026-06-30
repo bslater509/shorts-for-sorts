@@ -46,8 +46,13 @@ console = Console()
 
 def clear_cache():
     if os.path.exists(CACHE_DIR):
+        prefixes = (
+            "cached_audio_", "cached_words_",
+            "sentence_audio_", "sentence_words_",
+            "s_temp_", "audio_", "subs_"
+        )
         for f in os.listdir(CACHE_DIR):
-            if f.startswith("cached_audio_") or f.startswith("cached_words_"):
+            if any(f.startswith(p) for p in prefixes):
                 fp = os.path.join(CACHE_DIR, f)
                 if os.path.isfile(fp):
                     try:
