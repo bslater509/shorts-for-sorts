@@ -13,7 +13,7 @@ from cli.utils import (
 from cli.config import (
     CONFIG_DIR, VIDEOS_DIR, MUSIC_DIR, OUTPUT_DIR,
     load_settings, save_settings, load_presets, save_custom_preset, delete_custom_preset,
-    clear_temp
+    clear_cache
 )
 import cli.state as shared_state
 from pydantic import BaseModel
@@ -98,7 +98,7 @@ sys.stderr = WebStdoutRedirector(original_stderr)
 def init_app_state():
     """Initializes the backend settings, dependencies, and default state."""
     # Ensure default folders and settings are loaded
-    clear_temp()
+    clear_cache()
     try:
         check_system_dependencies()
     except Exception as e:
@@ -257,6 +257,10 @@ class PexelsDownloadRequest(BaseModel):
     keyword: str
     position: str  # "top" or "bottom"
 
+class YoutubeDownloadRequest(BaseModel):
+    url: str
+    downscale: bool = False
+
 # REST Endpoints
 
 
@@ -278,7 +282,7 @@ def get_api_settings():
 @app.post("/api/settings")
 def save_api_settings(data: SettingsModel):
     # Convert model to dict
-    settings_dict = data.dict()
+    settings_dict = data.model_dump()
     # If key was default pattern, replace with blank
     if settings_dict.get("api_key") == "YOUR_API_KEY_HERE":
         settings_dict["api_key"] = ""
@@ -300,7 +304,7 @@ def get_api_presets():
 
 @app.post("/api/presets")
 def save_api_preset(data: PresetModel):
-    preset_dict = data.dict()
+    preset_dict = data.model_dump()
     name = preset_dict.pop("name")
     success = save_custom_preset(name, preset_dict)
     if success:
@@ -327,7 +331,7 @@ def get_api_state():
 @app.post("/api/state")
 def save_api_state(data: StateModel):
     # Update global shared state
-    for k, v in data.dict().items():
+    for k, v in data.model_dump().items():
         shared_state.state[k] = v
 
     # Persist gui state to disk
@@ -598,6 +602,39 @@ def download_pexels_video(data: PexelsDownloadRequest, background_tasks: Backgro
         download_job, data.download_url, dest_path, data.position)
     return {"status": "pending", "message": "Download started in background.", "filename": filename}
 
+@app.post("/api/youtube/download")
+def download_youtube_video(data: YoutubeDownloadRequest, background_tasks: BackgroundTasks):
+    url = data.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="YouTube URL is missing.")
+
+    def download_job(yt_url, downscale):
+        try:
+            print(f"[YouTube] Starting download for {yt_url} (downscale: {downscale})", file=original_stdout)
+            import subprocess
+            import time
+            timestamp = int(time.time())
+            filename_template = f"youtube_{timestamp}_%(title)s.%(ext)s"
+            dest_path = os.path.join(VIDEOS_DIR, filename_template)
+            
+            cmd = ["yt-dlp", "--merge-output-format", "mp4", "--restrict-filenames"]
+            if downscale:
+                cmd.extend(["-f", "bestvideo[height<=720]+bestaudio/best[height<=720]/best"])
+            else:
+                cmd.extend(["-f", "bestvideo+bestaudio/best"])
+            
+            cmd.extend(["-o", dest_path, yt_url])
+            
+            process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if process.returncode != 0:
+                print(f"[YouTube] Error downloading: {process.stderr}", file=original_stderr)
+            else:
+                print(f"[YouTube] Successfully downloaded {yt_url}", file=original_stdout)
+        except Exception as e:
+            print(f"[YouTube] Error downloading video: {e}", file=original_stderr)
+
+    background_tasks.add_task(download_job, url, data.downscale)
+    return {"status": "pending", "message": "YouTube download started in background."}
 
 @app.post("/api/pexels/extract-keyword")
 def extract_keyword_api():

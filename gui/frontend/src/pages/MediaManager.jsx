@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Video, Music, Globe, Upload, Trash2, Search, Download, Loader2 } from 'lucide-react'
+import { Video, Music, Globe, Upload, Trash2, Search, Download, Loader2, PlaySquare } from 'lucide-react'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +13,11 @@ export default function MediaManager() {
   const [pexelsResults, setPexelsResults] = useState([])
   const [isSearching, setIsSearching] = useState(false)
   const [downloadingId, setDownloadingId] = useState(null)
+
+  // YouTube State
+  const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [youtubeDownscale, setYoutubeDownscale] = useState(true)
+  const [isYoutubeDownloading, setIsYoutubeDownloading] = useState(false)
 
   const [isUploading, setIsUploading] = useState(false)
 
@@ -89,6 +94,20 @@ export default function MediaManager() {
     }
   }
 
+  const handleYoutubeDownload = async () => {
+    if (!youtubeUrl.trim()) return
+    setIsYoutubeDownloading(true)
+    try {
+      await api.downloadYoutubeVideo(youtubeUrl, youtubeDownscale)
+      alert('YouTube download started! It will appear in your library when finished.')
+      setYoutubeUrl('')
+    } catch (err) {
+      alert(`YouTube download failed: ${err.message}`)
+    } finally {
+      setIsYoutubeDownloading(false)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col md:h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)] max-w-6xl mx-auto">
       <header className="shrink-0">
@@ -115,6 +134,12 @@ export default function MediaManager() {
           className={cn("px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2", activeTab === 'pexels' ? "border-emerald-500 text-emerald-500" : "border-transparent text-muted-foreground hover:text-foreground")}
         >
           <Globe size={16} /> Pexels Downloader
+        </button>
+        <button 
+          onClick={() => setActiveTab('youtube')}
+          className={cn("px-4 py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2", activeTab === 'youtube' ? "border-red-500 text-red-500" : "border-transparent text-muted-foreground hover:text-foreground")}
+        >
+          <PlaySquare size={16} /> YouTube Downloader
         </button>
       </div>
 
@@ -249,6 +274,60 @@ export default function MediaManager() {
               {pexelsResults.length === 0 && !isSearching && (
                 <p className="col-span-full text-center text-muted-foreground py-12">Enter a visual concept above to search Pexels videos.</p>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* YOUTUBE TAB */}
+        {activeTab === 'youtube' && (
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 flex flex-col h-full animate-in fade-in">
+            <div className="max-w-2xl mx-auto w-full space-y-6 pt-10">
+              <div className="text-center space-y-2">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-500/10 mb-4">
+                  <PlaySquare size={32} className="text-red-500" />
+                </div>
+                <h3 className="text-xl font-bold">Download from YouTube</h3>
+                <p className="text-muted-foreground">Enter a YouTube URL to download the video directly into your background video library.</p>
+              </div>
+              
+              <div className="bg-secondary/50 border border-border rounded-xl p-6 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">YouTube Video URL</label>
+                  <input 
+                    type="text" 
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="w-full bg-background border border-border rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/50 shadow-sm"
+                    value={youtubeUrl}
+                    onChange={e => setYoutubeUrl(e.target.value)}
+                  />
+                </div>
+                
+                <div className="flex items-center gap-3">
+                  <input 
+                    type="checkbox" 
+                    id="youtubeDownscale" 
+                    className="w-4 h-4 rounded border-gray-300 text-red-500 focus:ring-red-500"
+                    checked={youtubeDownscale}
+                    onChange={e => setYoutubeDownscale(e.target.checked)}
+                  />
+                  <label htmlFor="youtubeDownscale" className="text-sm font-medium cursor-pointer">
+                    Downscale to 720p (Recommended for saving space)
+                  </label>
+                </div>
+                
+                <button 
+                  onClick={handleYoutubeDownload}
+                  disabled={isYoutubeDownloading || !youtubeUrl.trim()}
+                  className="w-full py-3 rounded-lg font-medium text-sm transition-all bg-red-500 hover:bg-red-600 text-white shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isYoutubeDownloading ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                  {isYoutubeDownloading ? "Starting Download..." : "Download Video"}
+                </button>
+              </div>
+              
+              <p className="text-xs text-center text-muted-foreground pt-4">
+                Note: Downloads happen in the background. Check your Videos library after a few moments.
+              </p>
             </div>
           </div>
         )}

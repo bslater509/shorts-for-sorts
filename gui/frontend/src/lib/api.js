@@ -116,6 +116,17 @@ export async function downloadPexelsVideo(downloadUrl, videoId, keyword, positio
   });
 }
 
+export async function downloadYoutubeVideo(url, downscale) {
+  return await apiFetch('/api/youtube/download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      url: url,
+      downscale: downscale
+    })
+  });
+}
+
 export async function extractKeyword() {
   return await apiFetch('/api/pexels/extract-keyword', { method: 'POST' });
 }
