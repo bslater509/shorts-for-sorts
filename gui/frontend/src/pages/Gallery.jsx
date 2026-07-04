@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Film, RefreshCw, Trash2, Download, PlayCircle } from 'lucide-react'
+import { Film, RefreshCw, Trash2, Download, PlayCircle, Share2 } from 'lucide-react'
 import * as api from '@/lib/api'
 
 export default function Gallery() {
@@ -29,6 +29,35 @@ export default function Gallery() {
       await loadGallery()
     } catch (err) {
       alert(`Failed to delete video: ${err.message}`)
+    }
+  }
+
+  const handleShare = async (video) => {
+    try {
+      const response = await fetch(video.url)
+      const blob = await response.blob()
+      const file = new File([blob], video.filename, { type: blob.type || 'video/mp4' })
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: video.filename,
+          text: 'Check out this video!',
+          files: [file]
+        })
+      } else {
+        alert("Native file sharing is not supported on your browser. Downloading the file instead.")
+        const link = document.createElement('a')
+        link.href = video.url
+        link.download = video.filename
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error("Error sharing video:", err)
+        alert("An error occurred while sharing the video.")
+      }
     }
   }
 
@@ -102,6 +131,13 @@ export default function Gallery() {
                   </div>
                   
                   <div className="flex items-center gap-2 mt-auto pt-2">
+                    <button 
+                      onClick={() => handleShare(v)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-xs font-semibold transition-colors"
+                      title="Share Video"
+                    >
+                      <Share2 size={14} /> Share
+                    </button>
                     <a 
                       href={v.url} 
                       download={v.filename}
