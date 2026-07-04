@@ -793,6 +793,7 @@ def generate_fully_random_short():
                 "word_pop_scale": word_pop_scale,
                 "inactive_dim": inactive_dim,
                 "inactive_alpha": inactive_alpha,
+                "voice_speed": preset.get("voice_speed"),
                 "script_temp": script_temp,
                 "output_filename": output_filename,
                 "model": model,

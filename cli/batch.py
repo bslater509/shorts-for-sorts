@@ -188,6 +188,7 @@ def batch_job_worker(job_config, progress_dict, llm_lock=None):
         "word_pop_scale": job_config["word_pop_scale"],
         "inactive_dim": job_config["inactive_dim"],
         "inactive_alpha": job_config["inactive_alpha"],
+        "voice_speed": job_config.get("voice_speed", 1.0),
         "loaded_preset_name": "Randomized Batch Job",
     })
     

@@ -142,6 +142,10 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         music_vol = current_state["music_volume"]
         if music_vol is None:
             music_vol = settings.get("music_volume", 0.15)
+        
+        voice_speed = current_state.get("voice_speed")
+        if voice_speed is None:
+            voice_speed = settings.get("voice_speed", 1.0)
 
         words = []
         

@@ -835,7 +835,7 @@ def batch_worker_thread(num_shorts):
 
     try:
         from cli.menus import load_prompt_templates
-        from cli.batch import batch_job_worker, batch_job_orchestrator
+        from cli.batch import batch_job_worker
 
         templates = load_prompt_templates()
         presets = load_presets()
@@ -947,6 +947,7 @@ def batch_worker_thread(num_shorts):
                 "enable_emojis": enable_emojis, "word_pop": word_pop,
                 "word_pop_scale": word_pop_scale, "inactive_dim": inactive_dim,
                 "inactive_alpha": inactive_alpha, "sub_uppercase": preset.get("sub_uppercase", True),
+                "voice_speed": preset.get("voice_speed"),
                 "sub_border_style": preset.get("sub_border_style", 1),
                 "sub_shadow_width": preset.get("sub_shadow_width", 0),
                 "sub_bg_color": preset.get("sub_bg_color", "#000000"),
@@ -987,13 +988,13 @@ def batch_worker_thread(num_shorts):
             batch_state["shared_progress"][i] = "Queued"
 
         batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers)
-        batch_state["llm_executor"] = ThreadPoolExecutor(max_workers=llm_max_workers)
-        batch_state["orchestrator_executor"] = ThreadPoolExecutor(max_workers=num_shorts)
+        
+        llm_lock = batch_state["manager"].Semaphore(llm_max_workers)
         batch_state["futures"] = []
 
         for i in range(1, num_shorts + 1):
-            f = batch_state["orchestrator_executor"].submit(
-                batch_job_orchestrator, job_configs[i], batch_state["shared_progress"], batch_state["llm_executor"], batch_state["executor"])
+            f = batch_state["executor"].submit(
+                batch_job_worker, job_configs[i], batch_state["shared_progress"], llm_lock)
             batch_state["futures"].append(f)
 
         # Polling loop
