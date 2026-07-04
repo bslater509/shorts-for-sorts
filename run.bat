@@ -1,21 +1,41 @@
 @echo off
-:: Navigate to the script's directory
 cd /d "%~dp0"
 
-:: Check if Windows virtual environment exists
-if not exist "venv\Scripts" (
-    echo Error: Windows virtual environment 'venv\Scripts' not found.
-    echo Please set up the project for Windows first by running:
-    echo   python -m venv venv
+REM Check if virtual environment exists
+if not exist "venv" (
+    echo Error: Virtual environment 'venv' not found.
+    echo Please set up the project first or run 'python -m venv venv' and install requirements.
     exit /b 1
 )
 
-:: Check if required packages are installed
-venv\Scripts\python.exe -c "import questionary, kokoro_onnx, soundfile" >nul 2>&1
+REM Activate virtual environment
+call venv\Scripts\activate.bat
+
+REM Install Python deps if needed
+python -c "import fastapi, uvicorn, multipart, kokoro_onnx, soundfile" >nul 2>&1
 if errorlevel 1 (
-    echo Installing missing dependencies...
-    venv\Scripts\pip.exe install -r requirements.txt
+    echo Installing missing Python dependencies...
+    pip install -r requirements.txt
 )
 
-:: Run the CLI
-venv\Scripts\python.exe cli.py
+REM Build frontend if npm available and gui\frontend exists
+if exist "gui\frontend" (
+    where npm >nul 2>&1
+    if not errorlevel 1 (
+        echo Building frontend...
+        pushd gui\frontend
+        if not exist "node_modules" (
+            call npm install
+        )
+        call npm run build
+        popd
+    )
+)
+
+echo ==========================================================
+echo  Starting Shorts Creator Web GUI Server...
+echo  Access the interface locally at: http://localhost:5000
+echo ==========================================================
+echo.
+
+python gui\server.py

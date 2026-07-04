@@ -89,12 +89,16 @@ def init_kokoro_session(force_cpu: bool = False):
     _KOKORO_SESSION = rt.InferenceSession(MODEL_PATH, sess_options=sess_opts, providers=providers)
     _KOKORO_INSTANCE = Kokoro.from_session(_KOKORO_SESSION, VOICES_PATH)
 
-async def generate_voice(text: str, voice: str, output_path: str):
+async def generate_voice(text: str, voice: str, output_path: str, default_speed: float = 1.0):
     """
     Generates local voice audio from text using Kokoro ONNX.
+    Supports bracket tags like [slow], [fast], [excited], [normal], [speed=1.15],
+    [voice=af_bella], [pause=0.5] to dynamically change parameters.
     Downloads the model files if they are not present.
     """
     global _KOKORO_SESSION, _KOKORO_INSTANCE
+    import re
+    import numpy as np
     
     try:
         if not os.path.exists(MODEL_PATH):
@@ -110,10 +114,6 @@ async def generate_voice(text: str, voice: str, output_path: str):
     except ImportError as e:
         logger.error("Failed to import 'soundfile'. Ensure it is installed.", exc_info=True)
         raise RuntimeError("Failed to import 'soundfile'. Please run 'pip install soundfile' to install it.") from e
-    
-    lang = "en-us"
-    if voice.startswith("bf_") or voice.startswith("bm_"):
-        lang = "en-gb"
         
     if _KOKORO_INSTANCE is None:
         try:
@@ -121,40 +121,121 @@ async def generate_voice(text: str, voice: str, output_path: str):
         except Exception as e:
             logger.error(f"Failed to initialize Kokoro ONNX model: {e}", exc_info=True)
             raise RuntimeError(f"Failed to initialize Kokoro ONNX model: {e}") from e
+ 
+    VALID_VOICES = {
+        'af_alloy', 'af_aoede', 'af_bella', 'af_heart', 'af_jessica', 'af_kore', 'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 
+        'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx', 'am_puck', 'am_santa', 
+        'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily', 
+        'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis'
+    }
+ 
+    tokens = re.split(r'(\[[^\]]+\])', text)
+    active_voice = voice
+    active_speed = default_speed
+    audio_buffers = []
+    sample_rate = 24000  # Default sample rate for Kokoro ONNX
+
+    def create_chunk(chunk_text: str, chunk_voice: str, chunk_speed: float, chunk_lang: str):
+        nonlocal sample_rate
+        samples, sr = _KOKORO_INSTANCE.create(
+            chunk_text,
+            voice=chunk_voice,
+            speed=chunk_speed,
+            lang=chunk_lang
+        )
+        sample_rate = sr
+        return samples
+
+    def create_chunk_with_fallback(chunk_text: str, chunk_voice: str, chunk_speed: float, chunk_lang: str):
+        global _KOKORO_SESSION, _KOKORO_INSTANCE
+        try:
+            return create_chunk(chunk_text, chunk_voice, chunk_speed, chunk_lang)
+        except Exception as e:
+            current_providers = _KOKORO_SESSION.get_providers() if _KOKORO_SESSION else []
+            is_gpu = any(p in current_providers for p in ["DmlExecutionProvider", "CUDAExecutionProvider"])
+            
+            if is_gpu:
+                logger.warning(f"Kokoro GPU execution failed on chunk: {e}. Falling back to CPU...")
+                print(f"\n[WARNING] Kokoro GPU execution failed. Falling back to CPU...")
+                try:
+                    init_kokoro_session(force_cpu=True)
+                    return create_chunk(chunk_text, chunk_voice, chunk_speed, chunk_lang)
+                except Exception as fallback_err:
+                    logger.error(f"Kokoro CPU fallback failed: {fallback_err}", exc_info=True)
+                    raise RuntimeError(f"Failed to generate voice audio on CPU fallback: {fallback_err}") from fallback_err
+            
+            logger.error(f"Error during audio chunk generation: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to generate voice audio: {e}") from e
+
+    for token in tokens:
+        if not token:
+            continue
+            
+        if token.startswith('[') and token.endswith(']'):
+            tag_content = token[1:-1].strip()
+            items = [item.strip() for item in tag_content.split(',') if item.strip()]
+            
+            for item in items:
+                if '=' in item:
+                    key, val = item.split('=', 1)
+                    key = key.strip().lower()
+                    val = val.strip()
+                    
+                    if key == 'voice':
+                        if val in VALID_VOICES:
+                            active_voice = val
+                        else:
+                            logger.warning(f"Invalid voice tag '{val}' ignored. Falling back to default '{voice}' for this segment.")
+                            print(f"\n[WARNING] Invalid voice tag '{val}' ignored. Falling back to default '{voice}'.")
+                            active_voice = voice
+                    elif key == 'speed':
+                        try:
+                            active_speed = float(val)
+                        except ValueError:
+                            logger.warning(f"Invalid speed value '{val}' ignored.")
+                    elif key in ('pause', 'silence'):
+                        try:
+                            pause_sec = float(val)
+                            silence_samples = np.zeros(int(pause_sec * sample_rate), dtype=np.float32)
+                            audio_buffers.append(silence_samples)
+                        except ValueError:
+                            logger.warning(f"Invalid pause value '{val}' ignored.")
+                else:
+                    val = item.lower()
+                    if val == 'slow':
+                        active_speed = 0.8
+                    elif val == 'fast':
+                        active_speed = 1.3
+                    elif val == 'excited':
+                        active_speed = 1.25
+                    elif val == 'normal':
+                        active_speed = 1.0
+                    elif val in ('pause', 'silence'):
+                        silence_samples = np.zeros(int(0.5 * sample_rate), dtype=np.float32)
+                        audio_buffers.append(silence_samples)
+        else:
+            clean_text = token.strip()
+            if not clean_text:
+                continue
+                
+            lang = "en-us"
+            if active_voice.startswith("bf_") or active_voice.startswith("bm_"):
+                lang = "en-gb"
+                
+            samples = create_chunk_with_fallback(clean_text, active_voice, active_speed, lang)
+            audio_buffers.append(samples)
+            
+    if audio_buffers:
+        final_audio = np.concatenate(audio_buffers)
+    else:
+        # fallback to a tiny bit of silence if nothing was generated
+        final_audio = np.zeros(sample_rate, dtype=np.float32)
         
     try:
-        # Run the Kokoro model creation
-        samples, sample_rate = _KOKORO_INSTANCE.create(
-            text,
-            voice=voice,
-            speed=1.0,
-            lang=lang
-        )
-        sf.write(output_path, samples, sample_rate)
+        sf.write(output_path, final_audio, sample_rate)
     except Exception as e:
-        # Check if we were using a GPU execution provider. If so, attempt fallback to CPU.
-        current_providers = _KOKORO_SESSION.get_providers() if _KOKORO_SESSION else []
-        is_gpu = any(p in current_providers for p in ["DmlExecutionProvider", "CUDAExecutionProvider"])
-        
-        if is_gpu:
-            logger.warning(f"Kokoro GPU execution failed: {e}. Falling back to CPU...")
-            print(f"\n[WARNING] Kokoro GPU execution failed: {e}. Falling back to CPU...")
-            try:
-                init_kokoro_session(force_cpu=True)
-                samples, sample_rate = _KOKORO_INSTANCE.create(
-                    text,
-                    voice=voice,
-                    speed=1.0,
-                    lang=lang
-                )
-                sf.write(output_path, samples, sample_rate)
-                return
-            except Exception as fallback_err:
-                logger.error(f"Kokoro CPU fallback failed: {fallback_err}", exc_info=True)
-                raise RuntimeError(f"Failed to generate voice audio on CPU fallback: {fallback_err}") from fallback_err
-        
-        logger.error(f"Error during audio generation or saving: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to generate/save voice audio: {e}") from e
+        logger.error(f"Failed to write voice audio to '{output_path}': {e}", exc_info=True)
+        raise RuntimeError(f"Failed to save voice audio: {e}") from e
 
 def get_video_info(video_path: str) -> dict:
     """
@@ -234,6 +315,26 @@ def find_emoji_for_word(word: str, emoji_map: dict) -> str:
             return emoji_map[key]
     return ""
 
+def hex_and_alpha_to_ass(hex_str: str, alpha_str: str = "00") -> str:
+    """
+    Converts a HEX color (e.g. #000000) and alpha transparency (e.g. 00-FF)
+    to ASS color format with alpha (&HAABBGGRR).
+    """
+    hex_str = hex_str.strip().lstrip('#')
+    if len(hex_str) == 6:
+        r = hex_str[0:2]
+        g = hex_str[2:4]
+        b = hex_str[4:6]
+    else:
+        r, g, b = "00", "00", "00"
+    
+    alpha = alpha_str.strip()
+    if not alpha:
+        alpha = "00"
+    elif len(alpha) == 1:
+        alpha = "0" + alpha
+    return f"&H{alpha}{b}{g}{r}"
+
 def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = None, emoji_map: dict = None):
     """
     Groups words into short phrases and writes a styled ASS subtitle file
@@ -259,17 +360,44 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
     inactive_alpha = style_opts.get("inactive_alpha", "88")
     enable_emojis = style_opts.get("enable_emojis", True)
 
+    # New styling options
+    uppercase = style_opts.get("uppercase", True)
+    border_style = style_opts.get("border_style", 1)  # 1: Outline+Shadow, 3: Opaque Box
+    shadow_width = style_opts.get("shadow_width", 0)
+    back_color = style_opts.get("back_color", "#000000")
+    back_alpha = style_opts.get("back_alpha", "00")
+    single_word_mode = style_opts.get("single_word_mode", False)
+    emoji_position = style_opts.get("emoji_position", "above") if enable_emojis else "none"
+    emoji_font = style_opts.get("emoji_font", "Symbola")
+    animation_style = style_opts.get("sub_animation_style", "tiktok_pop")
+
     scale_pct = int(word_pop_scale * 100)
 
     ass_primary = hex_to_ass_color(primary_color)
     ass_highlight = hex_to_ass_color(highlight_color)
     ass_outline = hex_to_ass_color(outline_color)
+    ass_back = hex_and_alpha_to_ass(back_color, back_alpha)
+
+    # Animation style colors for style setup
+    if animation_style in ("karaoke_sweep", "typewriter_swipe"):
+        primary_style_color = ass_highlight
+        if animation_style == "typewriter_swipe":
+            secondary_style_color = "&HFF000000"  # Fully transparent for upcoming words
+        elif inactive_dim:
+            secondary_style_color = hex_and_alpha_to_ass(primary_color, inactive_alpha)
+        else:
+            secondary_style_color = ass_primary
+    else:
+        primary_style_color = ass_primary
+        secondary_style_color = "&H00FFFF" # default secondary
 
     phrases = []
     current_phrase = []
     
     for word_info in words:
         word = word_info["word"].strip()
+        if uppercase:
+            word = word.upper()
         start = word_info["start"]
         end = word_info["end"]
         
@@ -280,8 +408,8 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
             time_span = end - current_phrase[0]["start"]
             gap = start - prev["end"]
             
-            # Group into max 3 words, max 1.5 seconds, max gap 0.3s
-            if len(current_phrase) < 3 and time_span < 1.5 and gap < 0.3:
+            # Group into max 3 words, max 1.5 seconds, max gap 0.3s (unless single word mode is on)
+            if not single_word_mode and len(current_phrase) < 3 and time_span < 1.5 and gap < 0.3:
                 current_phrase.append({"word": word, "start": start, "end": end})
             else:
                 phrases.append(current_phrase)
@@ -297,60 +425,130 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        # Alignment 5 = Middle center
-        f"Style: Default,{font_name},{font_size},{ass_primary},&H00FFFF,{ass_outline},&H000000,{bold_val},0,0,0,100,100,0,0,1,{outline_width},0,{alignment},10,10,{margin_v},1",
+        # Custom border style, outline width, shadow width, and back color (shadow/box background color)
+        f"Style: Default,{font_name},{font_size},{primary_style_color},{secondary_style_color},{ass_outline},{ass_back},{bold_val},0,0,0,100,100,0,0,{border_style},{outline_width},{shadow_width},{alignment},10,10,{margin_v},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
     ]
     
-    for phrase in phrases:
-        phrase_words = [p["word"] for p in phrase]
-        
-        # Determine if any word in the phrase has an emoji
-        phrase_emojis = []
-        has_any_emoji = False
-        for word_info in phrase:
-            w_emoji = find_emoji_for_word(word_info["word"], emoji_map) if (enable_emojis and emoji_map) else ""
-            phrase_emojis.append(w_emoji)
-            if w_emoji:
-                has_any_emoji = True
-
-        for idx, active_word_info in enumerate(phrase):
-            start_str = format_time(active_word_info["start"])
-            
-            # Stretch the end time to the next word's start to prevent subtitle blinking
-            if idx < len(phrase) - 1:
-                end_str = format_time(phrase[idx + 1]["start"])
+    if animation_style in ("karaoke_sweep", "typewriter_swipe"):
+        for p_idx, phrase in enumerate(phrases):
+            phrase_start_str = format_time(phrase[0]["start"])
+            if p_idx < len(phrases) - 1:
+                phrase_end_str = format_time(phrases[p_idx + 1][0]["start"])
             else:
-                end_str = format_time(active_word_info["end"])
+                phrase_end_str = format_time(phrase[-1]["end"])
                 
+            # Determine if any word in the phrase has an emoji
+            phrase_emojis = []
+            first_emoji = ""
+            for word_info in phrase:
+                w_emoji = find_emoji_for_word(word_info["word"], emoji_map) if emoji_position != "none" and emoji_map else ""
+                phrase_emojis.append(w_emoji)
+                if w_emoji and not first_emoji:
+                    first_emoji = w_emoji
+                    
             text_parts = []
-            for w_idx, w in enumerate(phrase_words):
-                if w_idx == idx:
-                    # Active word: pop and full opacity with highlight color
-                    active_tags = "\\alpha&H00&"
-                    if word_pop:
-                        active_tags += f"\\fscx{scale_pct}\\fscy{scale_pct}"
-                    active_tags += f"\\c{ass_highlight}&"
-                    text_parts.append(f"{{{active_tags}}}{w}{{\\r}}")
+            last_end = phrase[0]["start"]
+            for idx, w_info in enumerate(phrase):
+                w = w_info["word"]
+                start = w_info["start"]
+                end = w_info["end"]
+                
+                # Check for gap between words
+                if start > last_end:
+                    gap_cs = int(round((start - last_end) * 100))
+                    if gap_cs > 0:
+                        text_parts.append(f"{{\\kf{gap_cs}}}")
+                
+                word_dur = end - start
+                word_cs = int(round(word_dur * 100))
+                if word_cs <= 0:
+                    word_cs = 1
+                
+                w_text = w
+                if emoji_position == "same_line" and phrase_emojis[idx]:
+                    wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                    w_text = f"{wrapped_emoji} {w_text}"
+                
+                if idx < len(phrase) - 1:
+                    text_parts.append(f"{{\\kf{word_cs}}}{w_text} ")
                 else:
-                    # Inactive word: dim if enabled
-                    if inactive_dim:
-                        text_parts.append(f"{{\\alpha&H{inactive_alpha}&}}{w}{{\\r}}")
-                    else:
-                        text_parts.append(w)
+                    text_parts.append(f"{{\\kf{word_cs}}}{w_text}")
+                last_end = end
+                
+            phrase_text = "".join(text_parts)
             
-            phrase_text = " ".join(text_parts)
-            
-            if has_any_emoji:
-                # If there's an emoji for the active word, display it, otherwise use \h to preserve vertical height
-                emoji_top = phrase_emojis[idx] if phrase_emojis[idx] else "\\h"
+            if emoji_position == "above" and first_emoji:
+                emoji_top = f"{{\\fn{emoji_font}}}{first_emoji}{{\\fn}}"
                 dialogue_text = f"{emoji_top}\\N{phrase_text}"
             else:
                 dialogue_text = phrase_text
                 
-            lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{dialogue_text}")
+            lines.append(f"Dialogue: 0,{phrase_start_str},{phrase_end_str},Default,,0,0,0,,{dialogue_text}")
+    else:
+        for phrase in phrases:
+            phrase_words = [p["word"] for p in phrase]
+            
+            # Determine if any word in the phrase has an emoji
+            phrase_emojis = []
+            for word_info in phrase:
+                w_emoji = find_emoji_for_word(word_info["word"], emoji_map) if emoji_position != "none" and emoji_map else ""
+                phrase_emojis.append(w_emoji)
+    
+            for idx, active_word_info in enumerate(phrase):
+                start_str = format_time(active_word_info["start"])
+                
+                # Stretch the end time to the next word's start to prevent subtitle blinking
+                if idx < len(phrase) - 1:
+                    end_str = format_time(phrase[idx + 1]["start"])
+                else:
+                    end_str = format_time(active_word_info["end"])
+                    
+                text_parts = []
+                for w_idx, w in enumerate(phrase_words):
+                    if w_idx == idx:
+                        # Determine active_tags based on style
+                        if animation_style == "bouncy_bounce":
+                            active_tags = f"\\alpha&H00&\\c{ass_highlight}&\\fscx100\\fscy100\\t(0,80,\\fscx135\\fscy135)\\t(80,180,\\fscx100\\fscy100)"
+                        elif animation_style == "cinematic_zoom":
+                            active_tags = f"\\c{ass_highlight}&\\fscx70\\fscy70\\alpha&HAA&\\t(0,120,\\fscx100\\fscy100\\alpha&H00&)"
+                        elif animation_style == "glow_shake":
+                            active_tags = f"\\alpha&H00&\\c{ass_highlight}&\\frz-6\\t(0,100,\\frz6)\\t(100,200,\\frz0)"
+                        elif animation_style == "neon_flicker":
+                            active_tags = f"\\alpha&H00&\\c{ass_highlight}&\\t(0,50,\\3c{ass_highlight}&\\3a&H33&)\\t(50,150,\\3c{ass_outline}&\\3a&H00&)\\t(150,200,\\3c{ass_highlight}&\\3a&H33&)"
+                        elif animation_style == "pulse_grow":
+                            active_tags = f"\\alpha&H00&\\c{ass_highlight}&\\fscx100\\fscy100\\frz0\\t(0,70,\\fscx140\\fscy140\\frz-5)\\t(70,140,\\fscx95\\fscy95\\frz5)\\t(140,200,\\fscx105\\fscy105\\frz0)"
+                        elif animation_style == "fade_in_slide":
+                            active_tags = f"\\alpha&HFF&\\fscy60\\t(0,120,\\alpha&H00&\\fscy100)"
+                        else:  # tiktok_pop
+                            active_tags = "\\alpha&H00&"
+                            if word_pop:
+                                active_tags += f"\\fscx{scale_pct}\\fscy{scale_pct}"
+                            active_tags += f"\\c{ass_highlight}&"
+                            
+                        w_text = w
+                        if emoji_position == "same_line" and phrase_emojis[idx]:
+                            wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                            w_text = f"{wrapped_emoji} {w_text}"
+                        text_parts.append(f"{{{active_tags}}}{w_text}{{\\r}}")
+                    else:
+                        # Inactive word: dim if enabled
+                        if inactive_dim:
+                            text_parts.append(f"{{\\alpha&H{inactive_alpha}&}}{w}{{\\r}}")
+                        else:
+                            text_parts.append(w)
+                
+                phrase_text = " ".join(text_parts)
+                
+                if emoji_position == "above" and phrase_emojis[idx]:
+                    emoji_top = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                    dialogue_text = f"{emoji_top}\\N{phrase_text}"
+                else:
+                    dialogue_text = phrase_text
+                    
+                lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{dialogue_text}")
             
     try:
         with open(output_path, "w", encoding="utf-8") as f:
@@ -464,6 +662,7 @@ def compile_video(
     subs_dir = os.path.dirname(subs_path)
 
     # 2. Build input streams
+    bg_video_path = os.path.abspath(bg_video_path)
     input_args_top = {"stream_loop": -1}
     if start_offset_top > 0.0:
         input_args_top["ss"] = f"{start_offset_top:.2f}"
@@ -474,6 +673,7 @@ def compile_video(
     target_h = 1920 if render_resolution == '1080p' else 1280
 
     if is_split:
+        bg_video_bottom_path = os.path.abspath(bg_video_bottom_path)
         input_args_bottom = {"stream_loop": -1}
         if start_offset_bottom > 0.0:
             input_args_bottom["ss"] = f"{start_offset_bottom:.2f}"
@@ -486,18 +686,22 @@ def compile_video(
     else:
         v_stream = top_video_in.filter('crop', crop_w, crop_h, offset_x, offset_y).filter('scale', target_w, target_h)
 
-    # Apply subtitles to the video stream
-    v_stream = v_stream.filter('subtitles', filename=subs_filename)
+    # Apply subtitles to the video stream (look for fonts in the fonts folder)
+    fonts_dir = os.path.join(BASE_DIR, "fonts")
+    os.makedirs(fonts_dir, exist_ok=True)
+    v_stream = v_stream.filter('subtitles', filename=subs_filename, fontsdir=fonts_dir)
 
     # Add smooth transitions: Video Fade-in / Fade-out (0.5s duration)
     v_stream = v_stream.filter('fade', type='in', start_time=0, duration=0.5)
     v_stream = v_stream.filter('fade', type='out', start_time=audio_duration - 0.5, duration=0.5)
 
     # 3. Audio Streams Setup
+    audio_path = os.path.abspath(audio_path)
     voice_audio = ffmpeg.input(audio_path).audio.filter('volume', voice_volume)
 
     has_music = music_path and os.path.exists(music_path)
     if has_music:
+        music_path = os.path.abspath(music_path)
         music_audio = ffmpeg.input(music_path, stream_loop=-1).audio.filter('volume', music_volume)
         
         # Mix voice and music
@@ -505,6 +709,7 @@ def compile_video(
     else:
         a_stream = voice_audio
 
+    output_path = os.path.abspath(output_path)
     # 4. output node
     output_args = {
         'vcodec': video_encoder,
@@ -543,6 +748,9 @@ def compile_video(
         # Standard software encoder (e.g. libx264)
         output_args['preset'] = render_preset
         output_args['crf'] = 23
+
+    # Limit threads to avoid pegging the CPU
+    output_args['threads'] = 2
 
     out = ffmpeg.output(
         v_stream,

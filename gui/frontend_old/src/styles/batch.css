@@ -1,0 +1,126 @@
+.batch-jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  padding: 8px 0;
+}
+
+.batch-job-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.batch-job-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-hover);
+}
+
+.batch-job-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.batch-job-id {
+  font-family: monospace;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.batch-job-elapsed {
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.batch-job-topic {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.batch-job-details {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.batch-job-status-container {
+  margin-top: auto;
+}
+
+.batch-job-status-text {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+.batch-progress-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.batch-progress-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-hover);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.batch-progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.batch-progress-bar-fill.pulsing {
+  animation: progressPulse 1.5s infinite;
+}
+
+.batch-progress-percent {
+  font-size: 0.85rem;
+  font-family: monospace;
+  color: var(--accent);
+  font-weight: 600;
+  width: 40px;
+  text-align: right;
+}
+
+@keyframes progressPulse {
+  0% { opacity: 0.8; }
+  50% { opacity: 1; box-shadow: 0 0 8px var(--accent); }
+  100% { opacity: 0.8; }
+}
+
+@media (max-width: 768px) {
+  .batch-jobs-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .batch-config-card .card-body {
+    flex-direction: column !important;
+  }
+  
+  .batch-config-card .input-field {
+    max-width: 100% !important;
+  }
+  
+  .batch-config-card .btn-primary {
+    max-width: 100% !important;
+    width: 100%;
+  }
+}

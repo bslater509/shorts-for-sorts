@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 250 67% 7%;
+    --foreground: 240 20% 95%;
+
+    --card: 250 40% 15%;
+    --card-foreground: 240 20% 95%;
+
+    --popover: 250 40% 15%;
+    --popover-foreground: 240 20% 95%;
+
+    --primary: 273 67% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 271 85% 23%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 250 40% 20%;
+    --muted-foreground: 250 20% 75%;
+
+    --accent: 190 90% 50%;
+    --accent-foreground: 0 0% 0%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 270 50% 30%;
+    --input: 270 50% 30%;
+    --ring: 273 67% 58%;
+
+    --radius: 1rem;
+  }
+
+  .dark {
+    --background: 250 67% 7%;
+    --foreground: 240 20% 95%;
+
+    --card: 250 40% 15%;
+    --card-foreground: 240 20% 95%;
+
+    --popover: 250 40% 15%;
+    --popover-foreground: 240 20% 95%;
+
+    --primary: 273 67% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 271 85% 23%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 250 40% 20%;
+    --muted-foreground: 250 20% 75%;
+
+    --accent: 190 90% 50%;
+    --accent-foreground: 0 0% 0%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 270 50% 30%;
+    --input: 270 50% 30%;
+    --ring: 273 67% 58%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background-image: radial-gradient(circle at top center, rgba(157, 78, 221, 0.15) 0%, transparent 60%),
+                      radial-gradient(circle at bottom left, rgba(60, 9, 108, 0.2) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+}
+
+@layer components {
+  .input-base {
+    @apply flex h-10 w-full rounded-md border border-input bg-background/50 px-3 py-2 text-sm text-foreground ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-card/60 backdrop-blur-xl border border-white/10 shadow-2xl;
+  }
+}
