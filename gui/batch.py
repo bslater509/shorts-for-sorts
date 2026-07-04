@@ -6,9 +6,9 @@ import traceback
 import time
 from rich.table import Table
 
-from cli import state as shared_state
-from cli.config import console, clear_cache
-from cli.compiler import compile_video_flow
+from gui import state as shared_state
+from gui.config import console, clear_cache
+from gui.compiler import compile_video_flow
 
 class ProgressConsole:
     def __init__(self, idx, p_dict):
@@ -50,6 +50,8 @@ def get_progress_percentage(status):
         return 5
     elif status == "LLM Script":
         return 10
+    elif status == "Waiting for Compilation":
+        return 20
     elif status.startswith("Voice & Whisper"):
         match = re.search(r"\((\d+)/(\d+)\)", status)
         if match:
@@ -150,8 +152,57 @@ def display_progress_table(progress_dict, total_shorts, job_details):
         
     return table
 
-def batch_job_worker(job_config, progress_dict, llm_lock=None):
-    # Silence stdout/stderr to avoid CLI pollution
+def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executor):
+    idx = job_config["index"]
+    progress_dict[f"{idx}_start"] = time.time()
+    try:
+        progress_dict[idx] = "Waiting for LLM"
+        
+        # 1. Run LLM in ThreadPool
+        future_llm = llm_executor.submit(llm_job_worker, job_config, progress_dict)
+        success, script_text, err_msg = future_llm.result()
+        
+        if not success:
+            progress_dict[idx] = f"Failed: {err_msg}"
+            progress_dict[f"{idx}_end"] = time.time()
+            return (idx, False, err_msg)
+            
+        job_config["script_text"] = script_text
+        
+        progress_dict[idx] = "Waiting for Compilation"
+        
+        # 2. Run Video Generation in ProcessPool
+        future_video = video_executor.submit(video_job_worker, job_config, progress_dict)
+        return future_video.result()
+        
+    except Exception as e:
+        progress_dict[idx] = f"Failed: {str(e)}"
+        progress_dict[f"{idx}_end"] = time.time()
+        return (idx, False, str(e))
+
+def llm_job_worker(job_config, progress_dict):
+    idx = job_config["index"]
+    progress_dict[idx] = "LLM Script"
+    try:
+        from openai import OpenAI
+        api_key = job_config["settings"].get("api_key") or os.environ.get("OPENAI_API_KEY")
+        base_url = job_config["settings"].get("base_url") or os.environ.get("OPENAI_BASE_URL")
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        
+        response = client.chat.completions.create(
+            model=job_config["model"],
+            messages=[
+                {"role": "system", "content": job_config["system_prompt"]},
+                {"role": "user", "content": job_config["prompt"]}
+            ],
+            temperature=job_config["script_temp"]
+        )
+        return True, response.choices[0].message.content.strip(), None
+    except Exception as e:
+        return False, None, str(e)
+
+def video_job_worker(job_config, progress_dict):
+    # Silence stdout/stderr to avoid console pollution
     sys.stdout = open(os.devnull, 'w')
     sys.stderr = open(os.devnull, 'w')
     
@@ -164,12 +215,10 @@ def batch_job_worker(job_config, progress_dict, llm_lock=None):
     idx = job_config["index"]
     output_filename = job_config["output_filename"]
     
-    progress_dict[f"{idx}_start"] = time.time()
-    
     # Update process-local state and settings dictionaries
     shared_state.state.clear()
     shared_state.state.update({
-        "script_text": "",
+        "script_text": job_config["script_text"],
         "selected_voice": job_config["voice_id"],
         "bg_video_path": job_config["bg_video_path"],
         "bg_video_bottom_path": job_config["bg_video_bottom_path"],
@@ -201,32 +250,6 @@ def batch_job_worker(job_config, progress_dict, llm_lock=None):
     console.clear = progress_console.clear
     
     try:
-        def generate_script():
-            from openai import OpenAI
-            api_key = shared_state.settings.get("api_key") or os.environ.get("OPENAI_API_KEY")
-            base_url = shared_state.settings.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-            client = OpenAI(api_key=api_key, base_url=base_url)
-            
-            response = client.chat.completions.create(
-                model=job_config["model"],
-                messages=[
-                    {"role": "system", "content": job_config["system_prompt"]},
-                    {"role": "user", "content": job_config["prompt"]}
-                ],
-                temperature=job_config["script_temp"]
-            )
-            return response.choices[0].message.content.strip()
-
-        if llm_lock is not None:
-            progress_dict[idx] = "Waiting for LLM"
-            with llm_lock:
-                progress_dict[idx] = "LLM Script"
-                script_text = generate_script()
-        else:
-            progress_dict[idx] = "LLM Script"
-            script_text = generate_script()
-
-        shared_state.state["script_text"] = script_text
         progress_dict[idx] = "Compiling"
         
         def ffmpeg_progress(pct):
@@ -242,7 +265,7 @@ def batch_job_worker(job_config, progress_dict, llm_lock=None):
             progress_dict[f"{idx}_end"] = time.time()
             return (idx, False, "Compilation failed (check logs/app.log)")
     except Exception as e:
-        from cli.config import logger
+        from gui.config import logger
         logger.error(f"Batch job {idx} exception: {e}\n{traceback.format_exc()}")
         progress_dict[idx] = f"Failed: {str(e)}"
         progress_dict[f"{idx}_end"] = time.time()

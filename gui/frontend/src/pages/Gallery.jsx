@@ -40,18 +40,18 @@ export default function Gallery() {
 
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
-          title: video.filename,
-          text: 'Check out this video!',
           files: [file]
         })
       } else {
         alert("Native file sharing is not supported on your browser. Downloading the file instead.")
+        const blobUrl = URL.createObjectURL(blob)
         const link = document.createElement('a')
-        link.href = video.url
+        link.href = blobUrl
         link.download = video.filename
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
       }
     } catch (err) {
       if (err.name !== 'AbortError') {

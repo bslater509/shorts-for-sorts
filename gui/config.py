@@ -5,13 +5,13 @@ import atexit
 from logging.handlers import RotatingFileHandler
 from rich.console import Console
 
-from cli.state import settings
+from gui.state import settings
 
 # Directories Setup
-# Since config.py is inside c:\Users\Brad\Documents\shorts-for-sorts\cli\,
-# BASE_DIR should resolve to the project root c:\Users\Brad\Documents\shorts-for-sorts
-CLI_DIR = os.path.dirname(os.path.abspath(__file__))
-BASE_DIR = os.path.dirname(CLI_DIR)
+# Since config.py is inside gui,
+# BASE_DIR should resolve to the project root
+GUI_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(GUI_DIR)
 
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
@@ -27,22 +27,42 @@ os.makedirs(VIDEOS_DIR, exist_ok=True)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
 
+from rich.logging import RichHandler
+
+console = Console()
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_record = {
+            "time": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "name": record.name,
+            "message": record.getMessage()
+        }
+        if record.exc_info:
+            log_record["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(log_record)
+
 # Logger Initialization
 logger = logging.getLogger("shorts_creator")
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 if not logger.handlers:
-    log_file = os.path.join(LOGS_DIR, "app.log")
-    handler = RotatingFileHandler(log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    # Rich console handler
+    rich_handler = RichHandler(console=console, rich_tracebacks=True, show_path=False)
+    rich_handler.setLevel(logging.INFO)
+    logger.addHandler(rich_handler)
+
+    # JSON File handler
+    json_log_file = os.path.join(LOGS_DIR, "server.json.log")
+    json_handler = RotatingFileHandler(json_log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    json_handler.setFormatter(JSONFormatter())
+    json_handler.setLevel(logging.INFO)
+    logger.addHandler(json_handler)
 
 SETTINGS_FILE = os.path.join(CONFIG_DIR, "settings.json")
 PRESETS_FILE = os.path.join(CONFIG_DIR, "presets.json")
 PROMPTS_FILE = os.path.join(CONFIG_DIR, "prompts.json")
 EMOJIS_FILE = os.path.join(CONFIG_DIR, "emojis.json")
-
-console = Console()
 
 def clear_cache():
     if os.path.exists(CACHE_DIR):
@@ -384,3 +404,68 @@ def save_settings(settings_dict):
         logger.warning(f"Failed to save settings to {SETTINGS_FILE}: {e}", exc_info=True)
         return False
 
+DEFAULT_PROMPTS = {
+    "History's Coolest Coincidences": "Tell the story of one of the most unbelievable coincidences in history that shaped the world.",
+    "Space Is Way Bigger Than You Think": "Explain the scale of the universe using mind-bending analogies that will make the viewer feel tiny.",
+    "Signs of High Intelligence": "Highlight 3 unusual behavioral traits or habits that are scientifically linked to high intelligence.",
+    "The Mandela Effect Cases": "Explain the Mandela Effect and share 3 famous examples that will make viewers question their own memory.",
+    "Unusual Jobs That Pay Well": "Introduce 3 weird or lesser-known jobs that pay surprisingly high salaries.",
+    "How To Read Body Language": "Teach 3 quick tips to read someone's body language instantly, like detecting if they are lying or interested.",
+    "Hidden Easter Eggs in Famous Art": "Reveal 3 hidden messages or secrets painted into famous historical artworks like the Mona Lisa or The Last Supper.",
+    "The Origin of Common Phrases": "Explain the fascinating, sometimes dark origins of 3 everyday phrases we use without thinking.",
+    "Why Time Feels Faster as We Age": "Explain the psychological theory of why years seem to speed up as we grow older, and how to slow it down.",
+    "Incredible Animal Superpowers": "Describe 3 animals with incredible, real-life superpowers that seem straight out of comic books.",
+    "Quick Memory Improvement Tricks": "Teach 2 memory techniques (like the Memory Palace) that anyone can use to remember lists or names instantly.",
+    "Fascinating Psychological Phenomena": "Explain a strange psychological phenomenon, like the Baader-Meinhof phenomenon or Placebo Effect, with a cool example.",
+    "Bizarre Science Theories": "Explain a mind-bending, scientifically plausible physics or cosmological theory (like the simulation hypothesis or multiverse) in a simple way.",
+    "Ancient Mythological Beasts": "Describe 3 of the most terrifying or fascinating mythical creatures from ancient folklore and their origins.",
+    "Stoicism & Mental Toughness": "Explain how to apply the ancient philosophy of Stoicism to manage modern stress and build mental resilience.",
+    "How Caffeine Affects Your Brain": "Explain the science of what caffeine actually does to your brain and how to optimize your coffee intake.",
+    "Hidden Symbols in Famous Logos": "Reveal the hidden meanings or visual secrets behind 3 famous company logos.",
+    "History of the Internet": "Explain a surprising, lesser-known story about how the internet was created or its earliest days.",
+    "The Betrayal That Ended an Empire": "Tell the dramatic story of Julius Caesar and Marcus Brutus, focusing on the ultimate betrayal and its shocking consequences.",
+    "Hollywood's Most Dramatic Feud": "Describe the intense, decade-long rivalry between Joan Crawford and Bette Davis, and the lengths they went to sabotage each other.",
+    "The Most Dramatic Royalty Scandal": "Tell the story of Edward VIII's decision to abdicate the British throne for Wallis Simpson, and the national crisis that followed.",
+    "Behind the Scenes Theater Drama": "Tell the historical, dramatic story of the Astor Place Riot of 1849, where a rivalry between two Shakespearean actors led to actual violence in the streets of New York.",
+    "The Mystery of the Missing Heiress": "Narrate the mysterious and dramatic disappearance of Dorothy Arnold in 1910, highlighting the shocking theories and family secrets.",
+    "Famous Art World Rivals": "Describe the dramatic rivalry between Leonardo da Vinci and Michelangelo, and how their mutual dislike fueled some of the greatest art in history.",
+    "The War of the Currents": "Tell the dramatic story of the brutal battle between Thomas Edison and Nikola Tesla over AC vs DC electricity, and the shocking PR stunts used to win.",
+    "The Curse of Tutankhamun": "Narrate the drama and mystery surrounding the opening of King Tut's tomb in 1922, highlighting the tragic fates of those involved.",
+    "The Poison Cup Duel": "Tell the dramatic, legendary story of the duel between two Renaissance doctors who tried to poison each other to prove whose antidote was superior.",
+    "The Shipwreck of the Medusa": "Describe the harrowing, dramatic survival story of the French frigate Méduse in 1816, and the scandalous government cover-up that followed.",
+    "The Duel of the Century": "Tell the intense, dramatic story of the fatal 1804 duel between Alexander Hamilton and Aaron Burr, focusing on the decades-long rivalry that led to it.",
+    "Reddit AITA Wedding Drama": "Write a dramatic Reddit-style 'Am I the Asshole' post about a bride who cancels her wedding at the altar after finding out a secret about her groom from the maid of honor.",
+    "Reddit Secret Inheritance": "Write a dramatic Reddit post from a user who discovered their late grandfather left a massive secret inheritance to them instead of their parents, causing a huge family feud.",
+    "Reddit Family DNA Scandal": "Write a suspenseful Reddit post about a person who bought DNA test kits for the family for Christmas, only to accidentally uncover a long-hidden family secret.",
+    "Reddit Malicious Compliance": "Write a dramatic Reddit story about a worker who used malicious compliance to expose their micromanaging boss, leading to a complete company restructure.",
+    "Reddit Neighbor Property Feud": "Write a dramatic Reddit post about an escalating petty war between two neighbors over a property line that ends in a hilarious, unexpected twist.",
+    "Reddit Entitled In-Laws": "Write a dramatic Reddit post about a spouse who finally stood up to their entitled in-laws who tried to take over their home, resulting in a dramatic confrontation.",
+    "Reddit Fake Resume Chaos": "Write a dramatic Reddit story about a coworker who lied on their entire resume, got hired for a high-level job, and caused absolute chaos before being spectacularly caught.",
+    "Reddit Secret Twin Revelation": "Write a suspenseful Reddit post about a person who discovered they had an identical twin they never knew about, leading to the exposure of a massive family cover-up.",
+    "Reddit HOA Revenge": "Write a satisfying Reddit post about a homeowner who took brilliant, malicious compliance revenge against an overreaching, power-tripping HOA board president.",
+    "Reddit Fake Lottery Ticket Prank": "Write a dramatic Reddit post about a prank that went way too far when a sibling gave their brother a fake winning lottery ticket, leading to a complete family breakdown.",
+    "Reddit AITA Exposing a Liar": "Write an engaging Reddit-style 'Am I the Asshole' post about a user who exposed their friend's fake lifestyle and lies at a group dinner party, causing a split in their friend group.",
+    "Reddit Wedding Dress Drama": "Write a dramatic Reddit post about a bride who discovered her future mother-in-law secretly bought a wedding dress identical to hers and planned to wear it to the ceremony.",
+    "Reddit Secret Passage Discovery": "Write a suspenseful Reddit story about a tenant who found a hidden door behind a bookshelf in their apartment leading to a secret room containing mysterious items.",
+    "Reddit Lottery Ticket Theft": "Write a dramatic Reddit post about a person who won a substantial lottery prize but had the ticket stolen by a trusted family member, resulting in a tense legal standoff.",
+    "Reddit High School Reunion Revenge": "Write a satisfying Reddit post about a user who attended their high school reunion and dramatically exposed a former bully who was trying to pitch a fraudulent investment scheme to the attendees.",
+    "Reddit Fake Sick Day Catastrophe": "Write a dramatic Reddit story about an employee who called in sick to attend a concert, only to be interviewed live on national television and spotted by their entire company.",
+    "Reddit AITA Gender Reveal": "Write an engaging Reddit-style 'Am I the Asshole' post about a guest who accidentally revealed the baby's gender before the official announcement, leading to a massive family fallout."
+}
+
+def load_prompt_templates():
+    if not os.path.exists(PROMPTS_FILE):
+        try:
+            with open(PROMPTS_FILE, "w") as f:
+                json.dump(DEFAULT_PROMPTS, f, indent=4)
+        except Exception as e:
+            logger.warning(f"Could not initialize prompts file {PROMPTS_FILE}: {e}", exc_info=True)
+            console.print(f"[red]Warning: Could not initialize prompts file: {e}[/]")
+            return DEFAULT_PROMPTS
+    try:
+        with open(PROMPTS_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Could not load prompts file {PROMPTS_FILE}: {e}", exc_info=True)
+        console.print(f"[red]Warning: Could not load prompts file, using defaults: {e}[/]")
+        return DEFAULT_PROMPTS

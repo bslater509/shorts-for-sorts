@@ -10,13 +10,14 @@ import numpy as np
 import soundfile as sf
 from openai import OpenAI
 import questionary
+import nltk
 
 from generator import generate_voice, generate_ass_subtitles, compile_video
-from cli.state import state, settings
-from cli.config import (
+from gui.state import state, settings
+from gui.config import (
     CACHE_DIR, OUTPUT_DIR, VIDEOS_DIR, logger, console, load_emoji_map
 )
-from cli.utils import discover_opencode_keys
+from gui.utils import discover_opencode_keys
 
 _WHISPER_MODEL = None
 _WHISPER_MODEL_NAME = None
@@ -149,8 +150,13 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
 
         words = []
         
-        # Split script into sentences
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script) if s.strip()]
+        # Split script into sentences using nltk
+        try:
+            nltk.data.find('tokenizers/punkt_tab')
+        except LookupError:
+            nltk.download('punkt_tab', quiet=True)
+            
+        sentences = [s.strip() for s in nltk.sent_tokenize(script) if s.strip()]
         if not sentences:
             sentences = [script]
             

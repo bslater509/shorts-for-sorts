@@ -9,8 +9,8 @@ import subprocess
 from openai import OpenAI
 import questionary
 
-from cli.state import state, settings
-from cli.config import (
+from gui.state import state, settings
+from gui.config import (
     BASE_DIR, VIDEOS_DIR, MUSIC_DIR, logger, console,
     save_settings
 )

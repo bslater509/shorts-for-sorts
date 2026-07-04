@@ -6,16 +6,16 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from cli.utils import (
+from gui.utils import (
     check_system_dependencies, download_default_assets_if_empty,
     extract_keywords_from_script, discover_opencode_keys
 )
-from cli.config import (
+from gui.config import (
     CONFIG_DIR, VIDEOS_DIR, MUSIC_DIR, OUTPUT_DIR,
     load_settings, save_settings, load_presets, save_custom_preset, delete_custom_preset,
     clear_cache
 )
-import cli.state as shared_state
+import gui.state as shared_state
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -102,8 +102,7 @@ def init_app_state():
     try:
         check_system_dependencies()
     except Exception as e:
-        print(
-            f"[Warning] System dependencies check failed: {e}", file=original_stderr)
+        logger.warning(f"System dependencies check failed: {e}")
 
     load_settings()
     download_default_assets_if_empty()
@@ -118,7 +117,7 @@ def init_app_state():
                     if k in shared_state.state:
                         shared_state.state[k] = v
         except Exception as e:
-            print(f"Failed to load gui_state.json: {e}", file=original_stderr)
+            logger.error(f"Failed to load gui_state.json: {e}")
 
 
 init_app_state()
@@ -339,7 +338,7 @@ def save_api_state(data: StateModel):
         with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(shared_state.state, f, indent=2)
     except Exception as e:
-        print(f"Failed to save gui_state.json: {e}", file=original_stderr)
+        logger.error(f"Failed to save gui_state.json: {e}")
 
     return {"status": "success", "data": shared_state.state}
 
@@ -482,7 +481,7 @@ def list_gallery_videos():
             duration = None
             try:
                 from generator import get_video_info
-                info = get_video_info(fp)
+                info = get_video_info(fp, suppress_errors=True)
                 duration = info.get("duration")
             except Exception:
                 pass
@@ -592,11 +591,9 @@ def download_pexels_video(data: PexelsDownloadRequest, background_tasks: Backgro
             with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump(shared_state.state, f, indent=2)
 
-            print(
-                f"[Pexels Download] Successfully downloaded to {dest_path} and set as {pos} video.", file=original_stdout)
+            logger.info(f"[Pexels Download] Successfully downloaded to {dest_path} and set as {pos} video.")
         except Exception as e:
-            print(
-                f"[Pexels Download] Error downloading video: {e}", file=original_stderr)
+            logger.error(f"[Pexels Download] Error downloading video: {e}")
 
     background_tasks.add_task(
         download_job, data.download_url, dest_path, data.position)
@@ -610,7 +607,7 @@ def download_youtube_video(data: YoutubeDownloadRequest, background_tasks: Backg
 
     def download_job(yt_url, downscale):
         try:
-            print(f"[YouTube] Starting download for {yt_url} (downscale: {downscale})", file=original_stdout)
+            logger.info(f"[YouTube] Starting download for {yt_url} (downscale: {downscale})")
             import subprocess
             import time
             timestamp = int(time.time())
@@ -627,11 +624,11 @@ def download_youtube_video(data: YoutubeDownloadRequest, background_tasks: Backg
             
             process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             if process.returncode != 0:
-                print(f"[YouTube] Error downloading: {process.stderr}", file=original_stderr)
+                logger.error(f"[YouTube] Error downloading: {process.stderr}")
             else:
-                print(f"[YouTube] Successfully downloaded {yt_url}", file=original_stdout)
+                logger.info(f"[YouTube] Successfully downloaded {yt_url}")
         except Exception as e:
-            print(f"[YouTube] Error downloading video: {e}", file=original_stderr)
+            logger.error(f"[YouTube] Error downloading video: {e}")
 
     background_tasks.add_task(download_job, url, data.downscale)
     return {"status": "pending", "message": "YouTube download started in background."}
@@ -681,8 +678,7 @@ def generate_viral_script(data: ScriptGenerateRequest):
         shared_state.state["selected_voice"] = data.selected_voice
         shared_state.state["loaded_preset_name"] = None
 
-    print(
-        f"[AI Script] Generating script with model '{model}' for prompt: '{data.prompt}'", file=original_stdout)
+    logger.info(f"[AI Script] Generating script with model '{model}' for prompt: '{data.prompt}'")
 
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url=base_url)
@@ -736,25 +732,25 @@ def compile_worker():
         
         # Add a visual separator instead of clearing logs for every queued job
         if len(compilation_logs) > 0:
-            print("\\n" + "="*50 + "\\n", file=original_stdout)
+            logger.info("\\n" + "="*50 + "\\n")
         else:
             compilation_logs.clear()
 
-        print(f"[Compile Thread] Starting video compilation process (Queue size: {compilation_queue.qsize()})...", file=original_stdout)
+        logger.info(f"[Compile Thread] Starting video compilation process (Queue size: {compilation_queue.qsize()})...")
         try:
-            from cli.compiler import compile_video_flow
+            from gui.compiler import compile_video_flow
             # run compilation flow with skip_confirm=True
             success = compile_video_flow(
                 skip_confirm=True, custom_output_filename=custom_filename, state_override=state_snapshot)
             compilation_success = success
             if success:
-                print("[Compile Thread] Compilation finished successfully!", file=original_stdout)
+                logger.info("[Compile Thread] Compilation finished successfully!")
             else:
-                print("[Compile Thread] Compilation failed (returned False). Check logs above.", file=original_stderr)
+                logger.error("[Compile Thread] Compilation failed (returned False). Check logs above.")
         except Exception as e:
-            print(f"[Compile Thread] Crash during compilation: {e}", file=original_stderr)
+            logger.error(f"[Compile Thread] Crash during compilation: {e}")
             import traceback
-            traceback.print_exc(file=original_stdout)
+            logger.exception("Exception occurred")
             compilation_success = False
         finally:
             compilation_in_progress = False
@@ -807,7 +803,7 @@ def cancel_compilation():
     # In a real app we'd have a cancel flag, but compile_video does ffmpeg processes.
     # We can try to kill running ffmpeg subprocesses if we want, but letting it finish or notifying is safer.
     # We will log cancellation attempt.
-    print("[Compile Thread] Compilation cancellation requested (note: background processes will terminate on completion/next cycle).", file=original_stdout)
+    logger.info("[Compile Thread] Compilation cancellation requested (note: background processes will terminate on completion/next cycle).")
     return {"status": "success", "message": "Cancellation request received."}
 
 # =========================================================
@@ -824,8 +820,7 @@ batch_state = {
     "futures": [],
     "executor": None,
     "manager": None,
-    "shared_progress": None,
-    "llm_lock": None
+    "shared_progress": None
 }
 
 
@@ -834,8 +829,8 @@ def batch_worker_thread(num_shorts):
     batch_state["should_cancel"] = False
 
     try:
-        from cli.menus import load_prompt_templates
-        from cli.batch import batch_job_worker
+        from gui.config import load_prompt_templates
+        from gui.batch import orchestrate_batch_job
 
         templates = load_prompt_templates()
         presets = load_presets()
@@ -988,13 +983,19 @@ def batch_worker_thread(num_shorts):
             batch_state["shared_progress"][i] = "Queued"
 
         batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers)
+        batch_state["llm_executor"] = ThreadPoolExecutor(max_workers=llm_max_workers)
+        batch_state["orchestrator_executor"] = ThreadPoolExecutor(max_workers=num_shorts)
         
-        llm_lock = batch_state["manager"].Semaphore(llm_max_workers)
         batch_state["futures"] = []
 
         for i in range(1, num_shorts + 1):
-            f = batch_state["executor"].submit(
-                batch_job_worker, job_configs[i], batch_state["shared_progress"], llm_lock)
+            f = batch_state["orchestrator_executor"].submit(
+                orchestrate_batch_job, 
+                job_configs[i], 
+                batch_state["shared_progress"],
+                batch_state["llm_executor"],
+                batch_state["executor"]
+            )
             batch_state["futures"].append(f)
 
         # Polling loop
@@ -1025,8 +1026,8 @@ def batch_worker_thread(num_shorts):
                 batch_state["progress_dict"][f"{i}_end"] = batch_state["shared_progress"][f"{i}_end"]
 
     except Exception as e:
-        print(f"[Batch Thread] Crash: {e}", file=original_stderr)
-        traceback.print_exc(file=original_stdout)
+        logger.error(f"[Batch Thread] Crash: {e}")
+        logger.exception("Exception occurred")
     finally:
         if batch_state.get("executor"):
             batch_state["executor"].shutdown(wait=False)
@@ -1065,7 +1066,7 @@ def start_batch(data: BatchStartRequest):
 
 @app.get("/api/batch/status")
 def get_batch_status():
-    from cli.batch import get_progress_percentage, format_elapsed
+    from gui.batch import get_progress_percentage, format_elapsed
 
     jobs = []
     for i in range(1, batch_state["num_shorts"] + 1):
@@ -1126,12 +1127,20 @@ if __name__ == "__main__":
             try:
                 for conn in proc.connections(kind='inet'):
                     if conn.laddr.port == 5000:
-                        print(f"Killing process {proc.pid} ({proc.name()}) using port 5000")
+                        logger.info(f"Killing process {proc.pid} ({proc.name()}) using port 5000")
                         proc.kill()
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
     except Exception as e:
-        print(f"Error while trying to free port 5000: {e}")
+        logger.info(f"Error while trying to free port 5000: {e}")
 
     # Load config port or default to 5000
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    ssl_kwargs = {}
+    if "--https" in sys.argv:
+        if os.path.exists("cert.pem") and os.path.exists("key.pem"):
+            ssl_kwargs["ssl_certfile"] = "cert.pem"
+            ssl_kwargs["ssl_keyfile"] = "key.pem"
+        else:
+            logger.info("HTTPS requested but cert.pem or key.pem not found. Running in HTTP mode.")
+
+    uvicorn.run(app, host="0.0.0.0", port=5000, **ssl_kwargs)

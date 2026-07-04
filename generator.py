@@ -237,12 +237,12 @@ async def generate_voice(text: str, voice: str, output_path: str, default_speed:
         logger.error(f"Failed to write voice audio to '{output_path}': {e}", exc_info=True)
         raise RuntimeError(f"Failed to save voice audio: {e}") from e
 
-def get_video_info(video_path: str) -> dict:
+def get_video_info(video_path: str, suppress_errors: bool = False) -> dict:
     """
     Queries ffprobe for video width, height, and duration.
     """
     if not os.path.exists(video_path):
-        raise FileNotFoundError(f"Background video file not found at: {video_path}")
+        raise FileNotFoundError(f"Video file not found at: {video_path}")
         
     cmd = [
         "ffprobe",
@@ -256,15 +256,17 @@ def get_video_info(video_path: str) -> dict:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
         err_msg = (
-            f"FFprobe failed to analyze background video '{os.path.basename(video_path)}'. "
+            f"FFprobe failed to analyze video '{os.path.basename(video_path)}'. "
             f"The video file may be corrupt or in an unsupported format.\n"
             f"Command run: {' '.join(cmd)}\n"
             f"Error details: {e.stderr.strip()}"
         )
-        logger.error(err_msg, exc_info=True)
+        if not suppress_errors:
+            logger.error(err_msg, exc_info=True)
         raise RuntimeError(err_msg) from e
     except Exception as e:
-        logger.error(f"An unexpected error occurred while running ffprobe on '{video_path}': {e}", exc_info=True)
+        if not suppress_errors:
+            logger.error(f"An unexpected error occurred while running ffprobe on '{video_path}': {e}", exc_info=True)
         raise RuntimeError(f"An unexpected error occurred while running ffprobe on '{video_path}': {e}") from e
 
     try:
@@ -749,8 +751,8 @@ def compile_video(
         output_args['preset'] = render_preset
         output_args['crf'] = 23
 
-    # Limit threads to avoid pegging the CPU
-    output_args['threads'] = 2
+    # Allow FFmpeg to use optimal number of threads based on available cores
+    output_args['threads'] = 0
 
     out = ffmpeg.output(
         v_stream,
