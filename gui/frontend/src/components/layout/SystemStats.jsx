@@ -8,8 +8,11 @@ export default function SystemStats() {
   useEffect(() => {
     let ws = null
     let reconnectTimer = null
+    // cancelled flag prevents the onclose handler from scheduling reconnects after unmount
+    let cancelled = false
 
     const connect = () => {
+      if (cancelled) return
       // Use wss:// if https://, ws:// if http://
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
       // We assume the API is on the same host:port
@@ -31,8 +34,10 @@ export default function SystemStats() {
 
       ws.onclose = () => {
         setConnected(false)
-        // Reconnect after 3 seconds
-        reconnectTimer = setTimeout(connect, 3000)
+        // Only schedule reconnect if the component is still mounted
+        if (!cancelled) {
+          reconnectTimer = setTimeout(connect, 3000)
+        }
       }
 
       ws.onerror = (err) => {
@@ -44,6 +49,7 @@ export default function SystemStats() {
     connect()
 
     return () => {
+      cancelled = true  // Prevent onclose from scheduling more reconnects
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (ws) ws.close()
     }
@@ -59,34 +65,36 @@ export default function SystemStats() {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 h-8 bg-zinc-950 border-t border-white/5 flex items-center justify-end px-4 z-50 text-xs font-mono text-zinc-400 gap-6">
-      <div className="flex items-center gap-2">
-        <span>CPU</span>
-        <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
-          <div 
-            className={`h-full transition-all duration-500 ease-out ${getUsageColor(stats.cpu_percent)}`}
-            style={{ width: `${Math.min(100, stats.cpu_percent)}%` }}
-          />
-        </div>
-        <span className="w-8 text-right">{stats.cpu_percent.toFixed(1)}%</span>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <span>MEM</span>
-        <div className="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
-          <div 
-            className={`h-full transition-all duration-500 ease-out ${getUsageColor(stats.memory_percent)}`}
-            style={{ width: `${Math.min(100, stats.memory_percent)}%` }}
-          />
-        </div>
-        <span className="w-8 text-right text-zinc-300">{stats.memory_percent.toFixed(1)}%</span>
-      </div>
-      
-      {!connected && (
-        <div className="flex items-center gap-1 text-red-400">
-          <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+    <div className="mt-2 bg-secondary/50 rounded-lg p-3 text-xs font-mono flex flex-col gap-2">
+      {!connected ? (
+        <div className="flex items-center justify-center gap-2 text-red-400 font-medium py-1">
+          <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
           Offline
         </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="w-8 text-zinc-400 text-left">CPU</span>
+            <div className="flex-1 h-1.5 bg-background rounded-full overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-500 ease-out ${getUsageColor(stats.cpu_percent)}`}
+                style={{ width: `${Math.min(100, stats.cpu_percent)}%` }}
+              />
+            </div>
+            <span className="w-10 text-right text-zinc-300">{stats.cpu_percent.toFixed(1)}%</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="w-8 text-zinc-400 text-left">MEM</span>
+            <div className="flex-1 h-1.5 bg-background rounded-full overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-500 ease-out ${getUsageColor(stats.memory_percent)}`}
+                style={{ width: `${Math.min(100, stats.memory_percent)}%` }}
+              />
+            </div>
+            <span className="w-10 text-right text-zinc-300">{stats.memory_percent.toFixed(1)}%</span>
+          </div>
+        </>
       )}
     </div>
   )

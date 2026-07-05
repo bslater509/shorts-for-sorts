@@ -17,28 +17,29 @@ class ProgressConsole:
         
     def print(self, *args, **kwargs):
         msg = " ".join(str(a) for a in args)
-        if "Generating & transcribing sentence" in msg:
-            match = re.search(r"sentence (\d+/\d+)", msg)
-            if match:
-                self.p_dict[self.idx] = f"Voice & Whisper ({match.group(1)})"
-            else:
-                self.p_dict[self.idx] = "Voice & Whisper"
-        elif "[1/4]" in msg or "Generating & transcribing" in msg:
-            self.p_dict[self.idx] = "Voice & Whisper"
-        elif "[2/4]" in msg:
-            self.p_dict[self.idx] = "Transcription"
-        elif "[3/4]" in msg:
-            self.p_dict[self.idx] = "Subtitles"
-        elif "FFmpeg Rendering" in msg:
-            match = re.search(r"(\d+\.?\d*)%", msg)
-            if match:
-                self.p_dict[self.idx] = f"FFmpeg Rendering ({match.group(1)}%)"
-            else:
+        try:
+            if "Generating voice for sentence" in msg:
+                match = re.search(r"sentence (\d+/\d+)", msg)
+                if match:
+                    self.p_dict[self.idx] = f"Voice Generation ({match.group(1)})"
+                else:
+                    self.p_dict[self.idx] = "Voice Generation"
+            elif "Transcribing full audio file" in msg:
+                self.p_dict[self.idx] = "Transcription"
+            elif "[3/4]" in msg:
+                self.p_dict[self.idx] = "Subtitles"
+            elif "FFmpeg Rendering" in msg:
+                match = re.search(r"(\d+\.?\d*)%", msg)
+                if match:
+                    self.p_dict[self.idx] = f"FFmpeg Rendering ({match.group(1)}%)"
+                else:
+                    self.p_dict[self.idx] = "FFmpeg Rendering"
+            elif "[4/4]" in msg:
                 self.p_dict[self.idx] = "FFmpeg Rendering"
-        elif "[4/4]" in msg:
-            self.p_dict[self.idx] = "FFmpeg Rendering"
-        elif "ℹ️ Found cached" in msg:
-            self.p_dict[self.idx] = "Reusing Cache (Voice/Whisper)"
+            elif "ℹ️ Found cached" in msg:
+                self.p_dict[self.idx] = "Reusing Cache (Voice)"
+        except Exception:
+            pass
             
     def clear(self):
         pass
@@ -52,20 +53,20 @@ def get_progress_percentage(status):
         return 10
     elif status == "Waiting for Compilation":
         return 20
-    elif status.startswith("Voice & Whisper"):
+    elif status.startswith("Voice Generation"):
         match = re.search(r"\((\d+)/(\d+)\)", status)
         if match:
             s_idx = int(match.group(1))
             total = int(match.group(2))
             if total > 0:
-                return 10 + int((s_idx / total) * 40)
+                return 20 + int((s_idx / total) * 25)
         return 30
-    elif status == "Reusing Cache (Voice/Whisper)":
-        return 50
+    elif status == "Reusing Cache (Voice)":
+        return 45
     elif status == "Compiling":
-        return 50
+        return 28
     elif status == "Transcription":
-        return 52
+        return 48
     elif status == "Subtitles":
         return 55
     elif status.startswith("FFmpeg Rendering"):
@@ -185,8 +186,19 @@ def llm_job_worker(job_config, progress_dict):
     progress_dict[idx] = "LLM Script"
     try:
         from openai import OpenAI
+        from gui.utils import discover_opencode_keys
+        
         api_key = job_config["settings"].get("api_key") or os.environ.get("OPENAI_API_KEY")
         base_url = job_config["settings"].get("base_url") or os.environ.get("OPENAI_BASE_URL")
+        
+        opencode_key, _ = discover_opencode_keys()
+        if not api_key:
+            api_key = opencode_key
+            if api_key and not base_url:
+                base_url = "https://opencode.ai/zen/go/v1"
+                if job_config.get("model") in [None, "", "gpt-4o-mini"]:
+                    job_config["model"] = "deepseek-v4-flash"
+                
         client = OpenAI(api_key=api_key, base_url=base_url)
         
         response = client.chat.completions.create(
@@ -202,9 +214,10 @@ def llm_job_worker(job_config, progress_dict):
         return False, None, str(e)
 
 def video_job_worker(job_config, progress_dict):
-    # Silence stdout/stderr to avoid console pollution
-    sys.stdout = open(os.devnull, 'w')
-    sys.stderr = open(os.devnull, 'w')
+    # Silence stdout/stderr to avoid console pollution in batch worker processes
+    _devnull = open(os.devnull, 'w')  # noqa: WPS515 — closed explicitly in finally
+    sys.stdout = _devnull
+    sys.stderr = _devnull
     
     # Disable cache clearing on exit for this process
     try:
@@ -250,23 +263,36 @@ def video_job_worker(job_config, progress_dict):
     console.clear = progress_console.clear
     
     try:
-        progress_dict[idx] = "Compiling"
+        try: progress_dict[idx] = "Compiling"
+        except Exception: pass
         
         def ffmpeg_progress(pct):
             console.print(f"FFmpeg Rendering ({pct:.1f}%)")
 
         success = compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=ffmpeg_progress)
         if success:
-            progress_dict[idx] = "Done"
-            progress_dict[f"{idx}_end"] = time.time()
+            try:
+                progress_dict[idx] = "Done"
+                progress_dict[f"{idx}_end"] = time.time()
+            except Exception: pass
             return (idx, True, output_filename)
         else:
-            progress_dict[idx] = "Failed"
-            progress_dict[f"{idx}_end"] = time.time()
+            try:
+                progress_dict[idx] = "Failed"
+                progress_dict[f"{idx}_end"] = time.time()
+            except Exception: pass
             return (idx, False, "Compilation failed (check logs/app.log)")
     except Exception as e:
         from gui.config import logger
         logger.error(f"Batch job {idx} exception: {e}\n{traceback.format_exc()}")
-        progress_dict[idx] = f"Failed: {str(e)}"
-        progress_dict[f"{idx}_end"] = time.time()
+        try:
+            progress_dict[idx] = f"Failed: {str(e)}"
+            progress_dict[f"{idx}_end"] = time.time()
+        except Exception: pass
         return (idx, False, str(e))
+    finally:
+        # Close the /dev/null handles to prevent file descriptor leaks
+        try:
+            _devnull.close()
+        except Exception:
+            pass

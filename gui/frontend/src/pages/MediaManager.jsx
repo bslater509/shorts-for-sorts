@@ -27,8 +27,8 @@ export default function MediaManager() {
         api.fetchVideos(),
         api.fetchMusic()
       ])
-      setVideos(vids.videos || [])
-      setMusic(mus.music || [])
+      setVideos(Array.isArray(vids) ? vids : (vids.videos || []))
+      setMusic(Array.isArray(mus) ? mus : (mus.music || []))
     } catch (err) {
       console.error("Failed to load assets", err)
     }
@@ -166,13 +166,13 @@ export default function MediaManager() {
 
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
               {videos.map(v => (
-                <div key={v.name} className="group relative bg-secondary rounded-xl border border-border overflow-hidden aspect-[9/16] flex flex-col">
+                <div key={v.filename} className="group relative bg-secondary rounded-xl border border-border overflow-hidden aspect-[9/16] flex flex-col">
                   {/* Since these are server paths, we need to construct a url. We can just use the backend static route if available, or just show the name. */}
                   <div className="flex-1 flex items-center justify-center bg-black/10 p-4 text-center break-all text-xs font-mono text-muted-foreground">
-                    {v.name}
+                    {v.filename}
                   </div>
                   <button 
-                    onClick={() => handleDelete(v.name, 'video')}
+                    onClick={() => handleDelete(v.filename, 'video')}
                     className="absolute top-2 right-2 bg-black/60 hover:bg-red-500 text-white p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-all backdrop-blur-sm"
                   >
                     <Trash2 size={16} />
@@ -206,15 +206,15 @@ export default function MediaManager() {
 
             <div className="grid gap-3">
               {music.map(m => (
-                <div key={m.name} className="group flex items-center justify-between bg-secondary/50 border border-border rounded-lg p-4 transition-colors hover:bg-secondary">
+                <div key={m.filename} className="group flex items-center justify-between bg-secondary/50 border border-border rounded-lg p-4 transition-colors hover:bg-secondary">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-md bg-emerald-500/10 flex items-center justify-center">
                       <Music size={20} className="text-emerald-500" />
                     </div>
-                    <span className="font-medium text-sm">{m.name}</span>
+                    <span className="font-medium text-sm">{m.filename}</span>
                   </div>
                   <button 
-                    onClick={() => handleDelete(m.name, 'music')}
+                    onClick={() => handleDelete(m.filename, 'music')}
                     className="text-muted-foreground hover:text-red-500 transition-colors p-2"
                   >
                     <Trash2 size={18} />

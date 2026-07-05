@@ -1,15 +1,14 @@
 import json
 
-try:
-    with open('models/voices-v1.0.bin', 'rb') as f:
-        # voices.bin in kokoro-onnx is actually just a json file containing the voice tensors or parameters
-        # Wait, it might be a binary file. Let's try loading it with python.
-        # It's better to just use kokoro-onnx library to list voices if possible.
-        pass
-except Exception as e:
-    pass
-
-import onnxruntime
-import kokoro_onnx
+print("XTTSv2 supports many voices, but we use the built-in speaker profiles.")
+print("The list of default speakers available in the XTTSv2 model:")
+voices = [
+    "Claribel Dervla", "Daisy Studious", "Gracie Wise", "Tammie Ema", "Alison DietI", "Ana Florence",
+    "Annmarie Nele", "Asya Anara", "Brenda Stern", "Gitta Nikolina", "Henriette Usha", "Sofia Hellen",
+    "Tammy Grit", "Tanya Linda", "Zacharie Julian", "Badr Odhiambo", "Craig Gutsy", "Damien Black",
+    "Jared Fakhri", "Marvelous Chau", "Rocco Venda"
+]
+for v in voices:
+    print(f"- {v}")
 
 print("Loaded modules.")

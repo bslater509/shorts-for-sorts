@@ -12,13 +12,15 @@ logger = logging.getLogger("shorts_creator.generator")
 if not logger.handlers and not logging.getLogger("shorts_creator").handlers:
     logger.addHandler(logging.NullHandler())
 
+logging.getLogger("asyncio").setLevel(logging.ERROR)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 MODEL_PATH = os.path.join(MODELS_DIR, "kokoro-v1.0.onnx")
-VOICES_PATH = os.path.join(MODELS_DIR, "voices-v1.0.bin")
+VOICES_PATH = os.path.join(MODELS_DIR, "voices.json")
 
 MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"
-VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin"
+VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.json"
 
 def download_file(url: str, dest: str, description: str):
     print(f"Downloading {description} from {url}...")
@@ -54,188 +56,109 @@ def format_time(seconds: float) -> str:
                 h += 1
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
-_KOKORO_SESSION = None
-_KOKORO_INSTANCE = None
+_TTS_INSTANCE = None
 
-def init_kokoro_session(force_cpu: bool = False):
-    global _KOKORO_SESSION, _KOKORO_INSTANCE
-    import onnxruntime as rt
-    from kokoro_onnx import Kokoro
-    
-    sess_opts = rt.SessionOptions()
-    num_threads = os.cpu_count() or 1
-    sess_opts.intra_op_num_threads = num_threads
-    sess_opts.inter_op_num_threads = num_threads
-    
-    if force_cpu:
-        providers = ["CPUExecutionProvider"]
-    else:
-        # Check if execution providers include GPU accelerators (DirectML or CUDA)
-        available_providers = rt.get_available_providers()
-        providers = []
-        if "DmlExecutionProvider" in available_providers:
-            providers.append("DmlExecutionProvider")
-            # DirectML optimizations to avoid ConvTranspose / memory pattern issues
-            sess_opts.execution_mode = rt.ExecutionMode.ORT_SEQUENTIAL
-            sess_opts.enable_mem_pattern = False
-        if "CUDAExecutionProvider" in available_providers:
-            providers.append("CUDAExecutionProvider")
-        providers.append("CPUExecutionProvider")
-            
-        env_provider = os.getenv("ONNX_PROVIDER")
-        if env_provider:
-            providers = [env_provider]
-            
-    _KOKORO_SESSION = rt.InferenceSession(MODEL_PATH, sess_options=sess_opts, providers=providers)
-    _KOKORO_INSTANCE = Kokoro.from_session(_KOKORO_SESSION, VOICES_PATH)
+import threading
+# Use RLock (reentrant lock) so the same thread can acquire the lock multiple times.
+# This prevents a deadlock where generate_voice holds the lock and calls
+# init_tts_session(), which also tries to acquire the same lock.
+_TTS_LOCK = threading.RLock()
 
-async def generate_voice(text: str, voice: str, output_path: str, default_speed: float = 1.0):
+def init_tts_session():
+    global _TTS_INSTANCE
+    with _TTS_LOCK:
+        if _TTS_INSTANCE is not None:
+            return
+            
+        if not os.path.exists(MODEL_PATH):
+            download_file(MODEL_URL, MODEL_PATH, "Kokoro ONNX Model")
+        if not os.path.exists(VOICES_PATH):
+            download_file(VOICES_URL, VOICES_PATH, "Kokoro Voices Profile")
+            
+        try:
+            from kokoro_onnx import Kokoro
+        except ImportError as e:
+            logger.error("Failed to import 'kokoro_onnx'. Ensure it is installed.", exc_info=True)
+            raise RuntimeError("Failed to import 'kokoro_onnx'. Please run 'pip install kokoro-onnx' to install it.") from e
+            
+        logger.info(f"Loading Kokoro TTS model (CPU ONNX)...")
+        try:
+            _TTS_INSTANCE = Kokoro(MODEL_PATH, VOICES_PATH)
+            logger.info("Kokoro model loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Kokoro model: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to initialize Kokoro model: {e}") from e
+
+def unload_tts_model():
+    """Unloads the TTS model from memory to free it up for batch processes."""
+    global _TTS_INSTANCE
+    with _TTS_LOCK:
+        if _TTS_INSTANCE is not None:
+            import gc
+            del _TTS_INSTANCE
+            _TTS_INSTANCE = None
+            gc.collect()
+            logger.info("Kokoro model unloaded from memory.")
+
+def generate_voice(text: str, voice: str, output_path: str, default_speed: float = 1.0):
     """
-    Generates local voice audio from text using Kokoro ONNX.
-    Supports bracket tags like [slow], [fast], [excited], [normal], [speed=1.15],
-    [voice=af_bella], [pause=0.5] to dynamically change parameters.
-    Downloads the model files if they are not present.
+    Generates local voice audio from text using Kokoro TTS.
     """
-    global _KOKORO_SESSION, _KOKORO_INSTANCE
+    global _TTS_INSTANCE
     import re
     import numpy as np
+    import soundfile as sf
+    import os
+    
+    # Double-checked locking: check inside the lock to prevent race between threads
+    with _TTS_LOCK:
+        if _TTS_INSTANCE is None:
+            init_tts_session()
+        
+    # Convert pause tags to ellipses for natural pauses.
+    text_with_pauses = re.sub(r'\[(pause|silence)=.*?\]', '... ', text)
+    # Strip any other remaining tags like [slow], [voice=...]
+    clean_text = re.sub(r'\[.*?\]', '', text_with_pauses).strip()
+    
+    if not clean_text:
+        # fallback to a tiny bit of silence if nothing was generated
+        sample_rate = 24000
+        final_audio = np.zeros(sample_rate, dtype=np.float32)
+        sf.write(output_path, final_audio, sample_rate)
+        return
     
     try:
-        if not os.path.exists(MODEL_PATH):
-            download_file(MODEL_URL, MODEL_PATH, "Kokoro ONNX model (82MB)")
-        if not os.path.exists(VOICES_PATH):
-            download_file(VOICES_URL, VOICES_PATH, "Kokoro voices data (25MB)")
-    except Exception as e:
-        logger.error(f"Voice generation failed during dependency download: {e}", exc_info=True)
-        raise
+        import tempfile
+        import ffmpeg
         
-    try:
-        import soundfile as sf
-    except ImportError as e:
-        logger.error("Failed to import 'soundfile'. Ensure it is installed.", exc_info=True)
-        raise RuntimeError("Failed to import 'soundfile'. Please run 'pip install soundfile' to install it.") from e
-        
-    if _KOKORO_INSTANCE is None:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
+            tmp_path = tmp_audio.name
+            
         try:
-            init_kokoro_session(force_cpu=False)
-        except Exception as e:
-            logger.error(f"Failed to initialize Kokoro ONNX model: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to initialize Kokoro ONNX model: {e}") from e
- 
-    VALID_VOICES = {
-        'af_alloy', 'af_aoede', 'af_bella', 'af_heart', 'af_jessica', 'af_kore', 'af_nicole', 'af_nova', 'af_river', 'af_sarah', 'af_sky', 
-        'am_adam', 'am_echo', 'am_eric', 'am_fenrir', 'am_liam', 'am_michael', 'am_onyx', 'am_puck', 'am_santa', 
-        'bf_alice', 'bf_emma', 'bf_isabella', 'bf_lily', 
-        'bm_daniel', 'bm_fable', 'bm_george', 'bm_lewis'
-    }
- 
-    tokens = re.split(r'(\[[^\]]+\])', text)
-    active_voice = voice
-    active_speed = default_speed
-    audio_buffers = []
-    sample_rate = 24000  # Default sample rate for Kokoro ONNX
-
-    def create_chunk(chunk_text: str, chunk_voice: str, chunk_speed: float, chunk_lang: str):
-        nonlocal sample_rate
-        samples, sr = _KOKORO_INSTANCE.create(
-            chunk_text,
-            voice=chunk_voice,
-            speed=chunk_speed,
-            lang=chunk_lang
-        )
-        sample_rate = sr
-        return samples
-
-    def create_chunk_with_fallback(chunk_text: str, chunk_voice: str, chunk_speed: float, chunk_lang: str):
-        global _KOKORO_SESSION, _KOKORO_INSTANCE
-        try:
-            return create_chunk(chunk_text, chunk_voice, chunk_speed, chunk_lang)
-        except Exception as e:
-            current_providers = _KOKORO_SESSION.get_providers() if _KOKORO_SESSION else []
-            is_gpu = any(p in current_providers for p in ["DmlExecutionProvider", "CUDAExecutionProvider"])
+            with _TTS_LOCK:
+                # Provide a fallback voice if the specified voice is not recognized by Kokoro
+                target_voice = voice if voice else "af_bella"
+                samples, sample_rate = _TTS_INSTANCE.create(clean_text, voice=target_voice, speed=default_speed, lang="en-us")
+                sf.write(tmp_path, samples, sample_rate)
             
-            if is_gpu:
-                logger.warning(f"Kokoro GPU execution failed on chunk: {e}. Falling back to CPU...")
-                print(f"\n[WARNING] Kokoro GPU execution failed. Falling back to CPU...")
-                try:
-                    init_kokoro_session(force_cpu=True)
-                    return create_chunk(chunk_text, chunk_voice, chunk_speed, chunk_lang)
-                except Exception as fallback_err:
-                    logger.error(f"Kokoro CPU fallback failed: {fallback_err}", exc_info=True)
-                    raise RuntimeError(f"Failed to generate voice audio on CPU fallback: {fallback_err}") from fallback_err
+            # Apply FFmpeg post-processing: EQ
+            stream = ffmpeg.input(tmp_path)
             
-            logger.error(f"Error during audio chunk generation: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to generate voice audio: {e}") from e
-
-    for token in tokens:
-        if not token:
-            continue
-            
-        if token.startswith('[') and token.endswith(']'):
-            tag_content = token[1:-1].strip()
-            items = [item.strip() for item in tag_content.split(',') if item.strip()]
-            
-            for item in items:
-                if '=' in item:
-                    key, val = item.split('=', 1)
-                    key = key.strip().lower()
-                    val = val.strip()
-                    
-                    if key == 'voice':
-                        if val in VALID_VOICES:
-                            active_voice = val
-                        else:
-                            logger.warning(f"Invalid voice tag '{val}' ignored. Falling back to default '{voice}' for this segment.")
-                            print(f"\n[WARNING] Invalid voice tag '{val}' ignored. Falling back to default '{voice}'.")
-                            active_voice = voice
-                    elif key == 'speed':
-                        try:
-                            active_speed = float(val)
-                        except ValueError:
-                            logger.warning(f"Invalid speed value '{val}' ignored.")
-                    elif key in ('pause', 'silence'):
-                        try:
-                            pause_sec = float(val)
-                            silence_samples = np.zeros(int(pause_sec * sample_rate), dtype=np.float32)
-                            audio_buffers.append(silence_samples)
-                        except ValueError:
-                            logger.warning(f"Invalid pause value '{val}' ignored.")
-                else:
-                    val = item.lower()
-                    if val == 'slow':
-                        active_speed = 0.8
-                    elif val == 'fast':
-                        active_speed = 1.3
-                    elif val == 'excited':
-                        active_speed = 1.25
-                    elif val == 'normal':
-                        active_speed = 1.0
-                    elif val in ('pause', 'silence'):
-                        silence_samples = np.zeros(int(0.5 * sample_rate), dtype=np.float32)
-                        audio_buffers.append(silence_samples)
-        else:
-            clean_text = token.strip()
-            if not clean_text:
-                continue
+            # Radio/Podcast EQ: High-pass at 80Hz, boost bass at 200Hz, boost treble at 3000Hz
+            stream = ffmpeg.filter(stream, 'highpass', f=80)
+            stream = ffmpeg.filter(stream, 'lowshelf', g=3, f=200)
+            stream = ffmpeg.filter(stream, 'highshelf', g=4, f=3000)
                 
-            lang = "en-us"
-            if active_voice.startswith("bf_") or active_voice.startswith("bm_"):
-                lang = "en-gb"
-                
-            samples = create_chunk_with_fallback(clean_text, active_voice, active_speed, lang)
-            audio_buffers.append(samples)
+            stream = ffmpeg.output(stream, output_path, loglevel="error")
+            ffmpeg.run(stream, overwrite_output=True)
             
-    if audio_buffers:
-        final_audio = np.concatenate(audio_buffers)
-    else:
-        # fallback to a tiny bit of silence if nothing was generated
-        final_audio = np.zeros(sample_rate, dtype=np.float32)
-        
-    try:
-        sf.write(output_path, final_audio, sample_rate)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
     except Exception as e:
-        logger.error(f"Failed to write voice audio to '{output_path}': {e}", exc_info=True)
-        raise RuntimeError(f"Failed to save voice audio: {e}") from e
+        logger.error(f"Error during Kokoro voice generation: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to generate voice audio with Kokoro: {e}") from e
+
 
 def get_video_info(video_path: str, suppress_errors: bool = False) -> dict:
     """
@@ -302,6 +225,7 @@ def hex_to_ass_color(hex_str: str) -> str:
         b = hex_str[4:6]
         a = hex_str[6:8]
         return f"&H{a}{b}{g}{r}"
+    logger.warning(f"hex_to_ass_color: malformed hex input '{hex_str}' — defaulting to white")
     return "&HFFFFFF"
 
 def find_emoji_for_word(word: str, emoji_map: dict) -> str:
@@ -368,7 +292,7 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
     shadow_width = style_opts.get("shadow_width", 0)
     back_color = style_opts.get("back_color", "#000000")
     back_alpha = style_opts.get("back_alpha", "00")
-    single_word_mode = style_opts.get("single_word_mode", False)
+    words_per_screen = str(style_opts.get("words_per_screen", "3"))
     emoji_position = style_opts.get("emoji_position", "above") if enable_emojis else "none"
     emoji_font = style_opts.get("emoji_font", "Symbola")
     animation_style = style_opts.get("sub_animation_style", "tiktok_pop")
@@ -403,19 +327,37 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
         start = word_info["start"]
         end = word_info["end"]
         
+        word_dict = {"word": word, "start": start, "end": end}
+        if "sentence_idx" in word_info:
+            word_dict["sentence_idx"] = word_info["sentence_idx"]
+
         if not current_phrase:
-            current_phrase.append({"word": word, "start": start, "end": end})
+            current_phrase.append(word_dict)
         else:
             prev = current_phrase[-1]
             time_span = end - current_phrase[0]["start"]
             gap = start - prev["end"]
             
-            # Group into max 3 words, max 1.5 seconds, max gap 0.3s (unless single word mode is on)
-            if not single_word_mode and len(current_phrase) < 3 and time_span < 1.5 and gap < 0.3:
-                current_phrase.append({"word": word, "start": start, "end": end})
+            same_sentence = False
+            if "sentence_idx" in word_info and "sentence_idx" in current_phrase[0]:
+                same_sentence = (word_info["sentence_idx"] == current_phrase[0]["sentence_idx"])
+            
+            if words_per_screen == "1":
+                should_group = False
+            elif words_per_screen == "3":
+                should_group = len(current_phrase) < 3 and gap < 0.5
+            else:
+                # "sentence" or default
+                if "sentence_idx" in word_info:
+                    should_group = same_sentence
+                else:
+                    should_group = time_span < 10.0 and gap < 0.5
+
+            if should_group:
+                current_phrase.append(word_dict)
             else:
                 phrases.append(current_phrase)
-                current_phrase = [{"word": word, "start": start, "end": end}]
+                current_phrase = [word_dict]
     if current_phrase:
         phrases.append(current_phrase)
         
@@ -424,11 +366,12 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
         "ScriptType: v4.00+",
         "PlayResX: 1080",
         "PlayResY: 1920",
+        "WrapStyle: 1",
         "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         # Custom border style, outline width, shadow width, and back color (shadow/box background color)
-        f"Style: Default,{font_name},{font_size},{primary_style_color},{secondary_style_color},{ass_outline},{ass_back},{bold_val},0,0,0,100,100,0,0,{border_style},{outline_width},{shadow_width},{alignment},10,10,{margin_v},1",
+        f"Style: Default,{font_name},{font_size},{primary_style_color},{secondary_style_color},{ass_outline},{ass_back},{bold_val},0,0,0,100,100,0,0,{border_style},{outline_width},{shadow_width},{alignment},60,60,{margin_v},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
@@ -691,7 +634,7 @@ def compile_video(
     # Apply subtitles to the video stream (look for fonts in the fonts folder)
     fonts_dir = os.path.join(BASE_DIR, "fonts")
     os.makedirs(fonts_dir, exist_ok=True)
-    v_stream = v_stream.filter('subtitles', filename=subs_filename, fontsdir=fonts_dir)
+    v_stream = v_stream.filter('subtitles', filename=os.path.abspath(subs_path), fontsdir=fonts_dir)
 
     # Add smooth transitions: Video Fade-in / Fade-out (0.5s duration)
     v_stream = v_stream.filter('fade', type='in', start_time=0, duration=0.5)

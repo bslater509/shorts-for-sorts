@@ -1,8 +1,16 @@
 async function apiFetch(url, options = {}) {
   const res = await fetch(url, options);
-  const data = await res.json();
+  // Parse JSON safely — non-JSON responses (e.g. HTML 502 from proxy) would otherwise
+  // throw a confusing SyntaxError that masks the real HTTP error.
+  let data;
+  try {
+    data = await res.json();
+  } catch {
+    if (!res.ok) throw new Error(`Request failed: ${res.status} ${res.statusText}`);
+    throw new Error('Invalid JSON response from server');
+  }
   if (!res.ok) {
-    throw new Error(data.detail || `Request failed: ${res.status}`);
+    throw new Error(data?.detail || `Request failed: ${res.status}`);
   }
   return data;
 }

@@ -4,6 +4,7 @@ import logging
 import atexit
 from logging.handlers import RotatingFileHandler
 from rich.console import Console
+import sentry_sdk
 
 from gui.state import settings
 
@@ -19,6 +20,7 @@ CONFIG_DIR = os.path.join(BASE_DIR, "config")
 VIDEOS_DIR = os.path.join(BASE_DIR, "videos")
 MUSIC_DIR = os.path.join(BASE_DIR, "music")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
+TEMP_DIR = os.path.join(BASE_DIR, "temp")
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -26,6 +28,7 @@ os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(VIDEOS_DIR, exist_ok=True)
 os.makedirs(MUSIC_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 from rich.logging import RichHandler
 
@@ -85,7 +88,7 @@ atexit.register(clear_cache)
 BUILTIN_PRESETS = {
     "Split-Screen Chill (Yellow Highlight)": {
         "name": "Split-Screen Chill (Yellow Highlight)",
-        "selected_voice": "am_adam",
+        "selected_voice": "Craig Gutsy",
         "bg_video_path": "random",
         "bg_video_bottom_path": "random",
         "bg_music_path": "music/default_music.mp3",
@@ -106,7 +109,7 @@ BUILTIN_PRESETS = {
     },
     "Lofi Storyteller (Cyan Highlight)": {
         "name": "Lofi Storyteller (Cyan Highlight)",
-        "selected_voice": "af_bella",
+        "selected_voice": "Ana Florence",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -127,7 +130,7 @@ BUILTIN_PRESETS = {
     },
     "Fast-Paced Promo (Magenta Highlight)": {
         "name": "Fast-Paced Promo (Magenta Highlight)",
-        "selected_voice": "bm_george",
+        "selected_voice": "Zacharie Julian",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -148,7 +151,7 @@ BUILTIN_PRESETS = {
     },
     "TikTok Kinetic Pop (Green Highlight)": {
         "name": "TikTok Kinetic Pop (Green Highlight)",
-        "selected_voice": "af_sarah",
+        "selected_voice": "Claribel Dervla",
         "bg_video_path": "random",
         "bg_video_bottom_path": "random",
         "bg_music_path": "music/default_music.mp3",
@@ -169,7 +172,7 @@ BUILTIN_PRESETS = {
     },
     "Retro Synthwave (Purple Highlight)": {
         "name": "Retro Synthwave (Purple Highlight)",
-        "selected_voice": "af_sky",
+        "selected_voice": "Gracie Wise",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -190,7 +193,7 @@ BUILTIN_PRESETS = {
     },
     "Cinematic Documentary (Gold Highlight)": {
         "name": "Cinematic Documentary (Gold Highlight)",
-        "selected_voice": "am_michael",
+        "selected_voice": "Badr Odhiambo",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -211,7 +214,7 @@ BUILTIN_PRESETS = {
     },
     "Cyberpunk Red (Red Highlight)": {
         "name": "Cyberpunk Red (Red Highlight)",
-        "selected_voice": "am_fenrir",
+        "selected_voice": "Damien Black",
         "bg_video_path": "random",
         "bg_video_bottom_path": "random",
         "bg_music_path": "music/default_music.mp3",
@@ -232,7 +235,7 @@ BUILTIN_PRESETS = {
     },
     "Classic Serif Storyteller (Amber Highlight)": {
         "name": "Classic Serif Storyteller (Amber Highlight)",
-        "selected_voice": "bf_emma",
+        "selected_voice": "Tammie Ema",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -389,6 +392,19 @@ def load_settings():
                 json.dump(settings, f, indent=2)
         except Exception as e:
             logger.warning(f"Failed to write default settings to {SETTINGS_FILE}: {e}", exc_info=True)
+            
+    sentry_dsn = settings.get("sentry_dsn")
+    if sentry_dsn:
+        import multiprocessing
+        if multiprocessing.current_process().name == 'MainProcess':
+            try:
+                sentry_sdk.init(
+                    dsn=sentry_dsn,
+                    traces_sample_rate=1.0,
+                    profiles_sample_rate=1.0
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize Sentry: {e}")
             
     return settings
 

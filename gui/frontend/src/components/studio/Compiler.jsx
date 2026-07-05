@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Terminal, Video, RefreshCw, XCircle } from 'lucide-react'
 import { useAppStore } from '@/store/useAppStore'
 import * as api from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 export default function Compiler() {
   const { saveCurrentState } = useAppStore()
@@ -9,15 +10,25 @@ export default function Compiler() {
   const [status, setStatus] = useState('idle') // idle, compiling, complete, error
   const [logs, setLogs] = useState('')
   const [progress, setProgress] = useState(0)
-  const [pollInterval, setPollInterval] = useState(null)
+  // Use a ref (not state) for the interval ID to avoid stale-closure and memory-leak issues
+  const pollIntervalRef = useRef(null)
   const [badgeText, setBadgeText] = useState('')
   const [showLogs, setShowLogs] = useState(false)
+  const logScrollRef = useRef(null) // For auto-scrolling the log pane
 
+  // Cleanup polling interval on unmount
   useEffect(() => {
     return () => {
-      if (pollInterval) clearInterval(pollInterval)
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
     }
-  }, [pollInterval])
+  }, [])
+
+  // Auto-scroll log pane to bottom whenever logs update
+  useEffect(() => {
+    if (logScrollRef.current) {
+      logScrollRef.current.scrollTop = logScrollRef.current.scrollHeight
+    }
+  }, [logs])
 
   const startPolling = () => {
     let lastLogLength = 0
@@ -38,12 +49,9 @@ export default function Compiler() {
         let currentProgress = 10
         let text = 'Starting...'
 
-        if (logsText.includes('[1/4]') || logsText.includes('Generated sentence')) {
+        if (logsText.includes('Generating voice for sentence')) {
+          text = 'Generating Audio...'
           currentProgress = 25
-          text = 'Generating Audio...'
-        }
-        if (logsText.includes('Generating & transcribing sentence')) {
-          text = 'Generating Audio...'
           const matches = logsText.match(/sentence (\d+)\/(\d+)/g)
           if (matches && matches.length > 0) {
             const numMatch = matches[matches.length - 1].match(/sentence (\d+)\/(\d+)/)
@@ -53,6 +61,10 @@ export default function Compiler() {
               currentProgress = 25 + Math.floor((current / total) * 20)
             }
           }
+        }
+        if (logsText.includes('Transcribing full audio file')) {
+          currentProgress = 45
+          text = 'Transcribing Audio...'
         }
         if (logsText.includes('[3/4]') || logsText.includes('ASS subtitles generated')) {
           currentProgress = 55
@@ -79,8 +91,8 @@ export default function Compiler() {
         setBadgeText(text)
 
         if (!data.in_progress) {
-          clearInterval(interval)
-          setPollInterval(null)
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
           
           if (data.success) {
             setProgress(100)
@@ -95,10 +107,12 @@ export default function Compiler() {
       }
     }, 1000)
     
-    setPollInterval(interval)
+    pollIntervalRef.current = interval
   }
 
   const handleCompile = async () => {
+    // Prevent double-click before the first render flush clears pollIntervalRef
+    if (pollIntervalRef.current) return
     try {
       await saveCurrentState()
       setStatus('compiling')
@@ -106,7 +120,12 @@ export default function Compiler() {
       setBadgeText('Starting...')
       setLogs('[System Log] Triggering compilation thread on backend...\n')
       
-      await api.startCompilation(filename)
+      const res = await api.startCompilation(filename)
+      // startCompilation uses raw fetch — check response before starting poll
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: `HTTP ${res.status}` }))
+        throw new Error(errData.detail || `Compilation failed to start (HTTP ${res.status})`)
+      }
       setLogs(prev => prev + '[System Log] Background compilation worker spawned successfully.\n')
       startPolling()
     } catch (err) {
@@ -195,7 +214,7 @@ export default function Compiler() {
             </button>
 
             {showLogs && (
-              <div className="bg-black/90 text-green-400 font-mono text-xs p-4 rounded-md h-64 overflow-y-auto mt-2 border border-border/50 shadow-inner whitespace-pre-wrap">
+              <div ref={logScrollRef} className="bg-black/90 text-green-400 font-mono text-xs p-4 rounded-md h-64 overflow-y-auto mt-2 border border-border/50 shadow-inner whitespace-pre-wrap">
                 <div className="flex items-center gap-2 text-white/50 border-b border-white/10 pb-2 mb-2 sticky top-0 bg-black/90">
                   <Terminal size={14} />
                   <span>Compilation Console</span>

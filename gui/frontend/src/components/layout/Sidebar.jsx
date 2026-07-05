@@ -3,6 +3,7 @@ import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X } f
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { useAppStore } from "@/store/useAppStore"
+import SystemStats from "./SystemStats"
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -72,6 +73,7 @@ export default function Sidebar() {
             <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wider mb-1">Preset Loaded</p>
             <p className="font-medium truncate">{loadedPreset}</p>
           </div>
+          <SystemStats />
         </div>
       </aside>
     </>

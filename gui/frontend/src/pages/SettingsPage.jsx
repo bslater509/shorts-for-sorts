@@ -8,6 +8,7 @@ export default function SettingsPage() {
     base_url: '',
     model: 'gpt-4o-mini',
     max_words: 130,
+    system_prompt: '',
     pexels_api_key: '',
     local_whisper: true,
     local_whisper_model: 'tiny',
@@ -16,8 +17,10 @@ export default function SettingsPage() {
     render_resolution: '1080p',
     render_preset: 'veryfast',
     video_encoder: 'libx264',
+    words_per_screen: '3',
     max_workers: 1,
     llm_max_workers: 5,
+    sentry_dsn: '',
   })
   
   const [isSaving, setIsSaving] = useState(false)
@@ -116,6 +119,19 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">Max Script Words Length</label>
               <input type="number" name="max_words" value={settings.max_words} onChange={handleChange} className="input-base" />
             </div>
+            <div className="flex flex-col gap-2 md:col-span-2">
+              <label className="text-sm font-medium">System Prompt</label>
+              <textarea 
+                name="system_prompt" 
+                value={settings.system_prompt || ''} 
+                onChange={handleChange} 
+                className="input-base min-h-[120px] font-mono text-sm" 
+                placeholder="You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content..."
+              />
+              <p className="text-xs text-muted-foreground">
+                You can use {'{max_words}'} and {'{max_words_seconds}'} as variables in the prompt.
+              </p>
+            </div>
           </div>
         </div>
 
@@ -130,6 +146,10 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">Pexels API Key (For Auto-B-Roll)</label>
               <input type="password" name="pexels_api_key" value={settings.pexels_api_key} onChange={handleChange} placeholder="Optional" className="input-base" />
             </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Sentry DSN (Error Tracking)</label>
+              <input type="text" name="sentry_dsn" value={settings.sentry_dsn || ''} onChange={handleChange} placeholder="https://..." className="input-base" />
+            </div>
           </div>
         </div>
 
@@ -139,10 +159,25 @@ export default function SettingsPage() {
             <Mic className="text-purple-500" size={20} />
             Whisper Transcription (Subtitles)
           </h3>
-          <div className="flex flex-col gap-2 mb-4">
-            <label className="text-sm font-medium">Transcription Engine</label>
-            <select 
-              name="local_whisper" 
+          <div className="grid sm:grid-cols-2 gap-4 mb-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Words per Screen</label>
+              <select 
+                name="words_per_screen" 
+                value={settings.words_per_screen || '3'} 
+                onChange={handleChange} 
+                className="input-base"
+              >
+                <option value="1">1 Word (TikTok Style)</option>
+                <option value="3">3 Words (Short Phrases)</option>
+                <option value="sentence">Sentence (Long Chunks)</option>
+                <option value="random">Randomize (Batch Generator Only)</option>
+              </select>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Transcription Engine</label>
+              <select 
+                name="local_whisper" 
               value={settings.local_whisper} 
               onChange={(e) => handleChange({ target: { name: 'local_whisper', value: e.target.value === 'true', type: 'boolean' } })} 
               className="input-base max-w-xs"
@@ -150,6 +185,7 @@ export default function SettingsPage() {
               <option value="true">Local CPU/GPU (faster-whisper)</option>
               <option value="false">OpenAI API (Cloud)</option>
             </select>
+            </div>
           </div>
 
           {settings.local_whisper ? (

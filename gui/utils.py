@@ -36,12 +36,16 @@ def resolve_preset_path(path):
         parts = path.split(os.sep)
         if "videos" in parts:
             idx = parts.index("videos")
+            if idx + 1 >= len(parts):  # path ends exactly at 'videos'
+                return path
             subpath = os.path.join(*parts[idx:])
             full = os.path.join(BASE_DIR, subpath)
             if os.path.exists(full):
                 return full
         if "music" in parts:
             idx = parts.index("music")
+            if idx + 1 >= len(parts):  # path ends exactly at 'music'
+                return path
             subpath = os.path.join(*parts[idx:])
             full = os.path.join(BASE_DIR, subpath)
             if os.path.exists(full):
@@ -82,6 +86,11 @@ def refresh_opencode_token(auth_path, data):
             new_refresh = res_data.get("refresh_token")
             expires_in = res_data.get("expires_in", 3600)
             
+            # Validate the token before writing to avoid corrupting the auth file
+            if not new_access:
+                logger.debug("[refresh_opencode_token] Refresh response returned no access_token.")
+                return None
+            
             openai_data["access"] = new_access
             openai_data["refresh"] = new_refresh
             openai_data["expires"] = int((time.time() + expires_in) * 1000)
@@ -118,8 +127,8 @@ def discover_opencode_keys():
                 if new_token:
                     openai_token = new_token
             return opencode_key, openai_token
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[discover_opencode_keys] Failed to read auth file: {e}")
     return None, None
 
 def check_system_dependencies():
@@ -141,8 +150,8 @@ def check_system_dependencies():
                         if hasattr(os, "getuid"):
                             is_root = os.getuid() == 0
                         cmd_prefix = [] if is_root else ["sudo"]
-                        subprocess.run(cmd_prefix + ["apt-get", "update", "-y"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        subprocess.run(cmd_prefix + ["apt-get", "install", "-y", "fonts-symbola"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(cmd_prefix + ["apt-get", "update", "-y"], check=True, timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.run(cmd_prefix + ["apt-get", "install", "-y", "fonts-symbola"], check=True, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         console.print("[green]Successfully installed 'fonts-symbola'![/]")
                     except Exception as e:
                         logger.warning(f"Failed to auto-install 'fonts-symbola': {e}", exc_info=True)
@@ -166,10 +175,10 @@ def check_system_dependencies():
             cmd_prefix = [] if is_root else ["sudo"]
             
             console.print("[yellow]Running: apt-get update -y[/]")
-            subprocess.run(cmd_prefix + ["apt-get", "update", "-y"], check=True)
+            subprocess.run(cmd_prefix + ["apt-get", "update", "-y"], check=True, timeout=120)
             
             console.print("[yellow]Running: apt-get install -y ffmpeg[/]")
-            subprocess.run(cmd_prefix + ["apt-get", "install", "-y", "ffmpeg"], check=True)
+            subprocess.run(cmd_prefix + ["apt-get", "install", "-y", "ffmpeg"], check=True, timeout=300)
             
             # Recheck
             if shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None:

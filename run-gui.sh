@@ -3,13 +3,37 @@
 # Change to the directory of the script
 cd "$(dirname "$0")"
 
-# Activate virtual environment if it exists
-if [ -d "venv" ]; then
+# Set up or activate virtual environment
+if [ -d "$HOME/miniconda3/envs/shorts" ]; then
+    echo "Activating conda shorts environment..."
+    source $HOME/miniconda3/bin/activate shorts
+elif [ -d "venv" ]; then
     echo "Activating virtual environment..."
     source venv/bin/activate
 elif [ -d ".venv" ]; then
     echo "Activating virtual environment..."
     source .venv/bin/activate
+else
+    echo "No virtual environment found. Creating 'venv'..."
+    if command -v uv &> /dev/null; then
+        uv venv --python 3.11 venv
+    elif [ -f "$HOME/.local/bin/uv" ]; then
+        $HOME/.local/bin/uv venv --python 3.11 venv
+    else
+        python3 -m venv venv
+    fi
+    source venv/bin/activate
+fi
+
+if [ -f "requirements.txt" ]; then
+    echo "Checking and installing dependencies..."
+    if command -v uv &> /dev/null; then
+        uv pip install -r requirements.txt
+    elif [ -f "$HOME/.local/bin/uv" ]; then
+        $HOME/.local/bin/uv pip install -r requirements.txt
+    else
+        pip install -r requirements.txt
+    fi
 fi
 
 if [ ! -f "cert.pem" ] || [ ! -f "key.pem" ]; then
@@ -25,4 +49,4 @@ for arg in "$@"; do
 done
 
 echo "Starting the server..."
-python gui/server.py $ARGS
+python3 gui/server.py $ARGS

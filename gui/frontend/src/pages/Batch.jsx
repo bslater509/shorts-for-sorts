@@ -1,52 +1,43 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Layers, Play, Square, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { Layers, Play, Square, Loader2, CheckCircle2, XCircle, Clock, Cpu, HardDrive } from 'lucide-react'
+import { AreaChart, Area, ResponsiveContainer, YAxis } from 'recharts'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 export default function Batch() {
   const [numShorts, setNumShorts] = useState(5)
   const [batchData, setBatchData] = useState(null) // { in_progress, num_shorts, jobs: [] }
-  const [isPolling, setIsPolling] = useState(false)
+  const [systemStats, setSystemStats] = useState([])
   const [isStarting, setIsStarting] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     try {
       const data = await api.getBatchStatus()
       setBatchData(data)
-      if (data.in_progress && !isPolling) {
-        setIsPolling(true)
-      } else if (!data.in_progress && isPolling) {
-        setIsPolling(false)
-      }
+      setSystemStats(prev => {
+        const newStats = [...prev, { time: Date.now(), cpu: data.cpu_percent || 0, ram: data.memory_percent || 0 }]
+        if (newStats.length > 30) newStats.shift()
+        return newStats
+      })
     } catch (err) {
-      console.error("Failed to fetch batch status", err)
+      console.debug("Failed to fetch batch status", err)
     }
-  }, [isPolling])
+  }, [])
 
-  // Initial check
+  // Poll continuously: fast when batch is active, slow when idle to reduce unnecessary requests
   useEffect(() => {
     fetchStatus()
-  }, [fetchStatus])
-
-  // Polling
-  useEffect(() => {
-    let interval = null
-    if (isPolling) {
-      interval = setInterval(() => {
-        fetchStatus()
-      }, 1000)
-    }
-    return () => {
-      if (interval) clearInterval(interval)
-    }
-  }, [isPolling, fetchStatus])
+    const delay = batchData?.in_progress ? 1000 : 5000
+    const interval = setInterval(fetchStatus, delay)
+    return () => clearInterval(interval)
+  }, [fetchStatus, batchData?.in_progress])
 
   const handleStart = async () => {
     if (numShorts < 1) return
     setIsStarting(true)
     try {
       await api.startBatch(numShorts)
-      setIsPolling(true)
+
     } catch (err) {
       alert(`Failed to start batch: ${err.message}`)
     } finally {
@@ -75,7 +66,7 @@ export default function Batch() {
 
   jobs.forEach(job => {
     if (job.status === 'Done') doneCount++
-    else if (job.failed || job.status.startsWith('Failed')) failedCount++
+    else if (job.failed || job.status?.startsWith('Failed')) failedCount++
     else if (job.status === 'Queued') queuedCount++
     else runningCount++
   })
@@ -146,13 +137,57 @@ export default function Batch() {
           )}
         </div>
 
+        {/* System Stats Charts */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 border-b border-border bg-secondary/10 shrink-0">
+          <div className="bg-background border border-border rounded-xl p-4 flex flex-col gap-2 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold flex items-center gap-2"><Cpu size={16} className="text-blue-500" /> CPU Usage</span>
+              <span className="text-xs font-medium text-muted-foreground">{systemStats.length > 0 ? systemStats[systemStats.length - 1].cpu : 0}%</span>
+            </div>
+            <div className="h-24 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={systemStats}>
+                  <defs>
+                    <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <YAxis domain={[0, 100]} hide />
+                  <Area type="monotone" dataKey="cpu" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorCpu)" isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div className="bg-background border border-border rounded-xl p-4 flex flex-col gap-2 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold flex items-center gap-2"><HardDrive size={16} className="text-purple-500" /> RAM Usage</span>
+              <span className="text-xs font-medium text-muted-foreground">{systemStats.length > 0 ? systemStats[systemStats.length - 1].ram : 0}%</span>
+            </div>
+            <div className="h-24 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={systemStats}>
+                  <defs>
+                    <linearGradient id="colorRam" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <YAxis domain={[0, 100]} hide />
+                  <Area type="monotone" dataKey="ram" stroke="#a855f7" strokeWidth={2} fillOpacity={1} fill="url(#colorRam)" isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
         {/* Jobs Grid */}
         <div className="flex-1 md:overflow-y-auto p-6 bg-secondary/10">
           {jobs.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {jobs.map((job) => {
                 const isDone = job.status === 'Done'
-                const isFailed = job.failed || job.status.startsWith('Failed')
+                const isFailed = job.failed || job.status?.startsWith('Failed')
                 const isQueued = job.status === 'Queued'
                 const isRunning = !isDone && !isFailed && !isQueued
                 const p = job.progress || 0

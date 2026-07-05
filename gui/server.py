@@ -11,9 +11,9 @@ from gui.utils import (
     extract_keywords_from_script, discover_opencode_keys
 )
 from gui.config import (
-    CONFIG_DIR, VIDEOS_DIR, MUSIC_DIR, OUTPUT_DIR,
+    CONFIG_DIR, VIDEOS_DIR, MUSIC_DIR, OUTPUT_DIR, TEMP_DIR,
     load_settings, save_settings, load_presets, save_custom_preset, delete_custom_preset,
-    clear_cache
+    clear_cache, logger
 )
 import gui.state as shared_state
 from pydantic import BaseModel
@@ -26,6 +26,12 @@ import urllib.parse
 import urllib.request
 import threading
 import queue
+
+# Locks for thread-safe access to shared mutable state
+_compile_log_lock = threading.Lock()      # Guards compilation_logs list
+_compile_thread_lock = threading.Lock()   # Guards compilation_thread spawn
+_state_file_lock = threading.Lock()       # Guards GUI_STATE_FILE writes
+_batch_lock = threading.Lock()            # Guards batch_state["in_progress"] TOCTOU
 import traceback
 import time
 import random
@@ -38,6 +44,17 @@ import asyncio
 
 
 app = FastAPI(title="Shorts for Sorts Web GUI")
+
+@app.on_event("startup")
+async def cleanup_temp_dir():
+    try:
+        for f in os.listdir(TEMP_DIR):
+            file_path = os.path.join(TEMP_DIR, f)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        logger.info("Cleaned up orphaned files in temp directory on startup.")
+    except Exception as e:
+        logger.warning(f"Failed to clean temp directory on startup: {e}")
 
 @app.websocket("/api/system_stats")
 async def websocket_system_stats(websocket: WebSocket):
@@ -56,8 +73,11 @@ async def websocket_system_stats(websocket: WebSocket):
                 "cpu_percent": round(cpu_usage, 1),
                 "memory_percent": round(memory_percent, 1)
             })
-    except Exception:
-        pass
+    except Exception as e:
+        # Silently ignore disconnections; log unexpected errors for diagnosis
+        from fastapi.websockets import WebSocketDisconnect
+        if not isinstance(e, WebSocketDisconnect):
+            logger.debug(f"[WebSocket system_stats] Unexpected error: {e}")
 
 # Persistence path for GUI Session State
 GUI_STATE_FILE = os.path.join(CONFIG_DIR, "gui_state.json")
@@ -81,8 +101,9 @@ class WebStdoutRedirector:
     def write(self, text):
         self.original_stream.write(text)
         if compilation_in_progress:
-            # We record compilation logs for the frontend
-            compilation_logs.append(text)
+            # Thread-safe append: compilation_logs is read concurrently by API thread
+            with _compile_log_lock:
+                compilation_logs.append(text)
 
     def flush(self):
         self.original_stream.flush()
@@ -118,6 +139,7 @@ def init_app_state():
                         shared_state.state[k] = v
         except Exception as e:
             logger.error(f"Failed to load gui_state.json: {e}")
+            
 
 
 init_app_state()
@@ -157,6 +179,7 @@ class SettingsModel(BaseModel):
     max_words: Optional[int] = 130
     max_workers: Optional[int] = 1
     llm_max_workers: Optional[int] = 5
+    words_per_screen: Optional[str] = "3"
     sub_font: Optional[str] = "Arial"
     sub_size: Optional[int] = 72
     sub_color: Optional[str] = "#FFFFFF"
@@ -178,6 +201,7 @@ class SettingsModel(BaseModel):
     emoji_position: Optional[str] = "above"
     emoji_font: Optional[str] = "Symbola"
     sub_animation_style: Optional[str] = "tiktok_pop"
+    sentry_dsn: Optional[str] = ""
 
 
 class PresetModel(BaseModel):
@@ -226,6 +250,7 @@ class StateModel(BaseModel):
     word_pop: Optional[bool] = None
     word_pop_scale: Optional[float] = None
     inactive_dim: Optional[bool] = None
+    words_per_screen: Optional[str] = None
     inactive_alpha: Optional[str] = None
     enable_emojis: Optional[bool] = None
     sub_uppercase: Optional[bool] = None
@@ -250,6 +275,11 @@ class PexelsSearchRequest(BaseModel):
     query: str
 
 
+class LogMessageRequest(BaseModel):
+    level: str
+    message: str
+
+
 class PexelsDownloadRequest(BaseModel):
     download_url: str
     video_id: int
@@ -269,6 +299,17 @@ def get_root():
     if os.path.exists(dist_index):
         return FileResponse(dist_index)
     return FileResponse(os.path.join(BASE_DIR, "gui/static/index.html"))
+
+
+@app.post("/api/log")
+def log_from_client(log: LogMessageRequest):
+    if log.level == "error":
+        logger.error(f"[Frontend] {log.message}")
+    elif log.level == "warn":
+        logger.warning(f"[Frontend] {log.message}")
+    else:
+        logger.info(f"[Frontend] {log.message}")
+    return {"status": "success"}
 
 
 @app.get("/api/settings")
@@ -333,10 +374,11 @@ def save_api_state(data: StateModel):
     for k, v in data.model_dump().items():
         shared_state.state[k] = v
 
-    # Persist gui state to disk
+    # Persist gui state to disk (lock to prevent concurrent write corruption)
     try:
-        with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(shared_state.state, f, indent=2)
+        with _state_file_lock:
+            with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(shared_state.state, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to save gui_state.json: {e}")
 
@@ -587,9 +629,10 @@ def download_pexels_video(data: PexelsDownloadRequest, background_tasks: Backgro
             state_key = "bg_video_path" if pos == "top" else "bg_video_bottom_path"
             shared_state.state[state_key] = dest
 
-            # Persist gui state to disk
-            with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
-                json.dump(shared_state.state, f, indent=2)
+            # Persist gui state to disk (lock to prevent concurrent write corruption)
+            with _state_file_lock:
+                with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(shared_state.state, f, indent=2)
 
             logger.info(f"[Pexels Download] Successfully downloaded to {dest_path} and set as {pos} video.")
         except Exception as e:
@@ -604,6 +647,11 @@ def download_youtube_video(data: YoutubeDownloadRequest, background_tasks: Backg
     url = data.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="YouTube URL is missing.")
+    # Validate URL scheme to prevent SSRF attacks
+    import urllib.parse as _urlparse
+    _parsed = _urlparse.urlparse(url)
+    if _parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Invalid URL scheme. Only http/https URLs are allowed.")
 
     def download_job(yt_url, downscale):
         try:
@@ -683,16 +731,24 @@ def generate_viral_script(data: ScriptGenerateRequest):
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url=base_url)
     max_words = shared_state.settings.get("max_words", 130)
-    system_prompt = (
-        "You are an expert TikTok and YouTube Shorts content creator. "
-        "Write a highly engaging, viral vertical video script about the topic provided by the user. "
-        "Guidelines:\n"
-        "- Hook: Write a powerful hook in the first 3 seconds to grab attention.\n"
-        "- Format: The script should be conversational, punchy, and fast-paced.\n"
-        f"- Length: Strictly under {max_words} words (approx. {int(max_words / 2.3)} seconds when spoken).\n"
-        "- Content: Include 3 key points or a compelling narrative.\n"
-        "- Formatting: Output ONLY the spoken words. Do NOT include sound effect cues, stage directions, or brackets like [Music] or [Host]."
+    default_system_prompt = (
+        "You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content. "
+        "Write a highly engaging vertical video script based on the user's topic.\n\n"
+        "Strict Guidelines:\n"
+        "1. The Hook (First 3s): Start immediately with a scroll-stopping statement, provocative question, or mind-blowing fact. No introductions.\n"
+        "2. Format & Pacing: Keep it conversational, punchy, and fast-paced. Use short sentences. Eliminate all fluff.\n"
+        "3. Length: Strictly under {max_words} words (approx. {max_words_seconds} seconds when spoken).\n"
+        "4. Content: Structure with 3 key points or a rapid-fire narrative. Deliver value immediately. End with a strong, natural Call to Action (CTA).\n"
+        "5. Tone: Sound authentic and human. Avoid robotic, academic, or overly dramatic AI clichés.\n"
+        "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
+        "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this."
     )
+    raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
+    try:
+        system_prompt = raw_system_prompt.format(max_words=max_words, max_words_seconds=int(max_words / 2.3))
+    except (KeyError, ValueError):
+        # User's custom prompt contains literal {braces} — fall back to the raw string
+        system_prompt = raw_system_prompt
 
     try:
         response = client.chat.completions.create(
@@ -730,11 +786,10 @@ def compile_worker():
         compilation_in_progress = True
         compilation_success = False
         
-        # Add a visual separator instead of clearing logs for every queued job
-        if len(compilation_logs) > 0:
-            logger.info("\\n" + "="*50 + "\\n")
-        else:
+        # Clear logs from the previous job and add a separator
+        with _compile_log_lock:
             compilation_logs.clear()
+            compilation_logs.append("=" * 50 + "\n")
 
         logger.info(f"[Compile Thread] Starting video compilation process (Queue size: {compilation_queue.qsize()})...")
         try:
@@ -777,22 +832,26 @@ def start_compilation(custom_filename: Optional[str] = Form(None)):
         "state_snapshot": state_snapshot
     })
 
-    if compilation_thread is None or not compilation_thread.is_alive():
-        compilation_thread = threading.Thread(
-            target=compile_worker,
-            daemon=True
-        )
-        compilation_thread.start()
+    # Guard with a lock to prevent double-spawning on concurrent requests
+    with _compile_thread_lock:
+        if compilation_thread is None or not compilation_thread.is_alive():
+            compilation_thread = threading.Thread(
+                target=compile_worker,
+                daemon=True
+            )
+            compilation_thread.start()
 
     return {"status": "started", "message": f"Video compilation queued. (Queue size: {compilation_queue.qsize()})"}
 
 
 @app.get("/api/compile/status")
 def get_compilation_status():
+    with _compile_log_lock:
+        log_snapshot = "".join(compilation_logs)
     return {
         "in_progress": compilation_in_progress or not compilation_queue.empty(),
         "success": compilation_success,
-        "logs": "".join(compilation_logs),
+        "logs": log_snapshot,
         "queue_size": compilation_queue.qsize()
     }
 
@@ -829,6 +888,13 @@ def batch_worker_thread(num_shorts):
     batch_state["should_cancel"] = False
 
     try:
+        from generator import unload_tts_model
+        from gui.compiler import unload_whisper_model
+        
+        # Free up GPU memory from the main process before spawning workers
+        unload_tts_model()
+        unload_whisper_model()
+        
         from gui.config import load_prompt_templates
         from gui.batch import orchestrate_batch_job
 
@@ -852,16 +918,24 @@ def batch_worker_thread(num_shorts):
             model = "deepseek-v4-flash"
 
         max_words = shared_state.settings.get("max_words", 130)
-        system_prompt = (
-            "You are an expert TikTok and YouTube Shorts content creator. "
-            "Write a highly engaging, viral vertical video script about the topic provided by the user. "
-            "Guidelines:\n"
-            "- Hook: Write a powerful hook in the first 3 seconds to grab attention.\n"
-            "- Format: The script should be conversational, punchy, and fast-paced.\n"
-            f"- Length: Strictly under {max_words} words (approx. {int(max_words / 2.3)} seconds when spoken).\n"
-            "- Content: Include 3 key points or a compelling narrative.\n"
-            "- Formatting: Output ONLY the spoken words. Do NOT include sound effect cues, stage directions, or brackets like [Music] or [Host]."
+        default_system_prompt = (
+            "You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content. "
+            "Write a highly engaging vertical video script based on the user's topic.\n\n"
+            "Strict Guidelines:\n"
+            "1. The Hook (First 3s): Start immediately with a scroll-stopping statement, provocative question, or mind-blowing fact. No introductions.\n"
+            "2. Format & Pacing: Keep it conversational, punchy, and fast-paced. Use short sentences. Eliminate all fluff.\n"
+            "3. Length: Strictly under {max_words} words (approx. {max_words_seconds} seconds when spoken).\n"
+            "4. Content: Structure with 3 key points or a rapid-fire narrative. Deliver value immediately. End with a strong, natural Call to Action (CTA).\n"
+            "5. Tone: Sound authentic and human. Avoid robotic, academic, or overly dramatic AI clichés.\n"
+            "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
+            "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this."
         )
+        raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
+        try:
+            system_prompt = raw_system_prompt.format(max_words=max_words, max_words_seconds=int(max_words / 2.3))
+        except (KeyError, ValueError):
+            # User's custom prompt contains literal {braces} — fall back to raw string
+            system_prompt = raw_system_prompt
 
         job_configs = {}
         batch_state["job_details"] = {}
@@ -931,6 +1005,13 @@ def batch_worker_thread(num_shorts):
             script_temp = round(random.uniform(0.5, 0.9), 2)
             output_filename = f"rendered_batch_{timestamp}_{i}.mp4"
 
+            # Determine words per screen strategy
+            global_wps = shared_state.settings.get("words_per_screen", "3")
+            if global_wps == "random":
+                words_per_screen_choice = random.choice(["1", "3", "sentence"])
+            else:
+                words_per_screen_choice = global_wps
+
             job_configs[i] = {
                 "index": i, "prompt": prompt, "voice_id": voice_id,
                 "bg_video_path": top_video, "bg_video_bottom_path": bottom_video,
@@ -948,6 +1029,7 @@ def batch_worker_thread(num_shorts):
                 "sub_bg_color": preset.get("sub_bg_color", "#000000"),
                 "sub_bg_alpha": preset.get("sub_bg_alpha", "80"),
                 "single_word_mode": preset.get("single_word_mode", False),
+                "words_per_screen": words_per_screen_choice,
                 "emoji_position": preset.get("emoji_position", "above"),
                 "emoji_font": preset.get("emoji_font", "Symbola"),
                 "sub_animation_style": sub_animation_style, "script_temp": script_temp,
@@ -982,7 +1064,8 @@ def batch_worker_thread(num_shorts):
         for i in range(1, num_shorts + 1):
             batch_state["shared_progress"][i] = "Queued"
 
-        batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers)
+        ctx = multiprocessing.get_context('spawn')
+        batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, max_tasks_per_child=1)
         batch_state["llm_executor"] = ThreadPoolExecutor(max_workers=llm_max_workers)
         batch_state["orchestrator_executor"] = ThreadPoolExecutor(max_workers=num_shorts)
         
@@ -1004,6 +1087,29 @@ def batch_worker_thread(num_shorts):
                 for f in batch_state["futures"]:
                     f.cancel()
                 break
+                
+            # Check for any failed jobs to cancel the entire batch
+            has_failures = False
+            for f in batch_state["futures"]:
+                if f.done():
+                    try:
+                        result = f.result()
+                        if result and not result[1]: # result is (idx, success, msg)
+                            has_failures = True
+                            logger.error(f"[Batch Thread] Job failed with error: {result[2]}. Cancelling entire batch.")
+                            break
+                    except Exception as e:
+                        has_failures = True
+                        logger.error(f"[Batch Thread] Job failed with exception: {e}. Cancelling entire batch.")
+                        break
+            
+            if has_failures:
+                batch_state["should_cancel"] = True
+                # Mark queued jobs as cancelled so the UI shows why they didn't run
+                for i in range(1, num_shorts + 1):
+                    if batch_state["shared_progress"].get(i) == "Queued":
+                        batch_state["shared_progress"][i] = "Failed: Batch cancelled due to previous error"
+                continue
 
             # Copy shared progress to regular dict for API access
             for i in range(1, num_shorts + 1):
@@ -1030,11 +1136,11 @@ def batch_worker_thread(num_shorts):
         logger.exception("Exception occurred")
     finally:
         if batch_state.get("executor"):
-            batch_state["executor"].shutdown(wait=False)
+            batch_state["executor"].shutdown(wait=True, cancel_futures=True)
         if batch_state.get("llm_executor"):
-            batch_state["llm_executor"].shutdown(wait=False)
+            batch_state["llm_executor"].shutdown(wait=True, cancel_futures=True)
         if batch_state.get("orchestrator_executor"):
-            batch_state["orchestrator_executor"].shutdown(wait=False)
+            batch_state["orchestrator_executor"].shutdown(wait=True, cancel_futures=True)
         if batch_state.get("manager"):
             batch_state["manager"].shutdown()
         batch_state["in_progress"] = False
@@ -1046,12 +1152,17 @@ class BatchStartRequest(BaseModel):
 
 @app.post("/api/batch/start")
 def start_batch(data: BatchStartRequest):
-    if batch_state["in_progress"]:
-        raise HTTPException(
-            status_code=400, detail="A batch job is already running.")
+    # Guard with a lock to prevent two concurrent requests both passing the in_progress check
+    with _batch_lock:
+        if batch_state["in_progress"]:
+            raise HTTPException(
+                status_code=400, detail="A batch job is already running.")
+        # Claim the slot immediately so any concurrent request sees it as taken
+        batch_state["in_progress"] = True
 
     num_shorts = data.num_shorts
     if num_shorts < 1 or num_shorts > 100:
+        batch_state["in_progress"] = False  # Release on validation failure
         raise HTTPException(
             status_code=400, detail="Number of shorts must be between 1 and 100.")
 
@@ -1097,7 +1208,9 @@ def get_batch_status():
     return {
         "in_progress": batch_state["in_progress"],
         "num_shorts": batch_state["num_shorts"],
-        "jobs": jobs
+        "jobs": jobs,
+        "cpu_percent": psutil.cpu_percent(interval=None),
+        "memory_percent": psutil.virtual_memory().percent
     }
 
 
@@ -1120,15 +1233,33 @@ def catch_all(full_path: str):
 if __name__ == "__main__":
     import uvicorn
     import psutil
+    import logging
     
-    # Kill any existing processes on port 5000 to free it up
+    class EndpointFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            msg = record.getMessage()
+            if "GET /api/batch/status" in msg or "GET /api/compile/status" in msg or "/api/system_stats" in msg:
+                return False
+            return True
+
+    logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
+    
+    # Suppress asyncio SSL connection closed warnings
+    logging.getLogger("asyncio").setLevel(logging.ERROR)
+    
+    # Kill only *known server processes* on port 5000 to avoid killing unrelated services
     try:
         for proc in psutil.process_iter(['pid', 'name']):
             try:
-                for conn in proc.connections(kind='inet'):
+                for conn in proc.net_connections(kind='inet'):
                     if conn.laddr.port == 5000:
-                        logger.info(f"Killing process {proc.pid} ({proc.name()}) using port 5000")
-                        proc.kill()
+                        proc_name = proc.name().lower()
+                        # Only kill Python/server processes to avoid killing unrelated services
+                        if any(n in proc_name for n in ('python', 'uvicorn', 'gunicorn', 'hypercorn')):
+                            logger.info(f"Killing process {proc.pid} ({proc.name()}) using port 5000")
+                            proc.kill()
+                        else:
+                            logger.warning(f"Port 5000 in use by non-server process {proc.pid} ({proc.name()}) — skipping.")
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
     except Exception as e:
