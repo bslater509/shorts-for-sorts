@@ -273,12 +273,16 @@ def llm_job_worker(job_config, progress_dict):
         return False, None, str(e)
 
 def video_job_worker(job_config, progress_dict):
-    # Silence stdout/stderr to avoid console pollution in batch worker processes
-    _devnull = open(os.devnull, 'w')  # noqa: WPS515 — closed explicitly in finally
-    sys.stdout = _devnull
-    sys.stderr = _devnull
-    
-    # Disable cache clearing on exit for this process
+    _devnull = None
+    try:
+        _devnull = open(os.devnull, 'w')
+        sys.stdout = _devnull
+        sys.stderr = _devnull
+    except Exception:
+        if _devnull:
+            _devnull.close()
+        _devnull = None
+
     try:
         atexit.unregister(clear_cache)
     except Exception:
@@ -361,8 +365,8 @@ def video_job_worker(job_config, progress_dict):
         except Exception: pass
         return (idx, False, str(e))
     finally:
-        # Close the /dev/null handles to prevent file descriptor leaks
-        try:
-            _devnull.close()
-        except Exception:
-            pass
+        if _devnull is not None:
+            try:
+                _devnull.close()
+            except Exception:
+                pass

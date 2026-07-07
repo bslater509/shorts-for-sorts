@@ -101,9 +101,8 @@ class WebStdoutRedirector:
 
     def write(self, text):
         self.original_stream.write(text)
-        if compilation_in_progress:
-            # Thread-safe append: compilation_logs is read concurrently by API thread
-            with _compile_log_lock:
+        with _compile_log_lock:
+            if compilation_in_progress:
                 compilation_logs.append(text)
 
     def flush(self):
@@ -197,21 +196,24 @@ def stream_media(file_path: str, range_header: str):
 
 @app.get("/videos/{filename:path}")
 def serve_video(filename: str, range: str = Header(None)):
-    if ".." in filename:
+    safe_path = os.path.realpath(os.path.join(VIDEOS_DIR, filename))
+    if not safe_path.startswith(os.path.realpath(VIDEOS_DIR)):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return stream_media(os.path.join(VIDEOS_DIR, filename), range)
+    return stream_media(safe_path, range)
 
 @app.get("/music/{filename:path}")
 def serve_music(filename: str, range: str = Header(None)):
-    if ".." in filename:
+    safe_path = os.path.realpath(os.path.join(MUSIC_DIR, filename))
+    if not safe_path.startswith(os.path.realpath(MUSIC_DIR)):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return stream_media(os.path.join(MUSIC_DIR, filename), range)
+    return stream_media(safe_path, range)
 
 @app.get("/output/{filename:path}")
 def serve_output(filename: str, range: str = Header(None)):
-    if ".." in filename:
+    safe_path = os.path.realpath(os.path.join(OUTPUT_DIR, filename))
+    if not safe_path.startswith(os.path.realpath(OUTPUT_DIR)):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return stream_media(os.path.join(OUTPUT_DIR, filename), range)
+    return stream_media(safe_path, range)
 
 FRONTEND_DIST_DIR = os.path.join(BASE_DIR, "gui/frontend/dist")
 if os.path.exists(FRONTEND_DIST_DIR):
@@ -890,9 +892,10 @@ def generate_viral_script(data: ScriptGenerateRequest):
         script_text = response.choices[0].message.content.strip()
         shared_state.state["script_text"] = script_text
 
-        # Save state to disk
-        with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(shared_state.state, f, indent=2)
+        # Save state to disk (lock to prevent concurrent write corruption)
+        with _state_file_lock:
+            with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(shared_state.state, f, indent=2)
 
         return {"status": "success", "script": script_text}
     except Exception as e:
@@ -1240,9 +1243,6 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
         else:
             max_workers = max(1, min(2, (os.cpu_count() or 2) - 1))
 
-        batch_state["manager"] = multiprocessing.Manager()
-        batch_state["shared_progress"] = batch_state["manager"].dict()
-        
         llm_max_workers = shared_state.settings.get("llm_max_workers")
         if llm_max_workers:
             try:
@@ -1350,22 +1350,21 @@ class BatchStartRequest(BaseModel):
 
 @app.post("/api/batch/start")
 def start_batch(data: BatchStartRequest):
-    # Guard with a lock to prevent two concurrent requests both passing the in_progress check
+    num_shorts = data.num_shorts
+    if num_shorts < 1 or num_shorts > 100:
+        raise HTTPException(
+            status_code=400, detail="Number of shorts must be between 1 and 100.")
+
     with _batch_lock:
         if batch_state["in_progress"]:
             raise HTTPException(
                 status_code=400, detail="A batch job is already running.")
-        # Claim the slot immediately so any concurrent request sees it as taken
         batch_state["in_progress"] = True
+        batch_state["num_shorts"] = num_shorts
+        batch_state["progress_dict"].clear()
 
-    num_shorts = data.num_shorts
-    if num_shorts < 1 or num_shorts > 100:
-        batch_state["in_progress"] = False  # Release on validation failure
-        raise HTTPException(
-            status_code=400, detail="Number of shorts must be between 1 and 100.")
-
-    batch_state["num_shorts"] = num_shorts
-    batch_state["progress_dict"].clear()
+    batch_state["manager"] = multiprocessing.Manager()
+    batch_state["shared_progress"] = batch_state["manager"].dict()
 
     t = threading.Thread(target=batch_worker_thread,
                          args=(num_shorts, data.prompts), daemon=True)

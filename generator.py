@@ -110,7 +110,7 @@ def generate_voice(text: str, voice: str, output_path: str, default_speed: float
     import soundfile as sf
     import os
     
-    # Double-checked locking: check inside the lock to prevent race between threads
+    # Acquire lock immediately to prevent races
     with _TTS_LOCK:
         if _TTS_INSTANCE is None:
             init_tts_session()
@@ -129,8 +129,7 @@ def generate_voice(text: str, voice: str, output_path: str, default_speed: float
     
     try:
         import tempfile
-        import ffmpeg
-        
+
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
             tmp_path = tmp_audio.name
             
@@ -638,7 +637,7 @@ def compile_video(
 
     # Add smooth transitions: Video Fade-in / Fade-out (0.5s duration)
     v_stream = v_stream.filter('fade', type='in', start_time=0, duration=0.5)
-    v_stream = v_stream.filter('fade', type='out', start_time=audio_duration - 0.5, duration=0.5)
+    v_stream = v_stream.filter('fade', type='out', start_time=max(0, audio_duration - 0.5), duration=0.5)
 
     # 3. Audio Streams Setup
     audio_path = os.path.abspath(audio_path)

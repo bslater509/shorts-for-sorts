@@ -255,7 +255,12 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         # Phase 2: Generate voice for all chunks in parallel
         results = [None] * len(chunks)
         total_chunks = len(chunks)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        tts_workers = settings.get("max_workers") or 1
+        try:
+            tts_workers = min(int(tts_workers), max(1, (os.cpu_count() or 2) - 1))
+        except (ValueError, TypeError):
+            tts_workers = 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=tts_workers) as executor:
             future_to_idx = {
                 executor.submit(
                     _process_chunk_worker, i, c, total_chunks, job_id, voice, voice_speed
