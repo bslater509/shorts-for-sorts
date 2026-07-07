@@ -18,7 +18,7 @@ from gui.state import state, settings
 from gui.config import (
     CACHE_DIR, OUTPUT_DIR, VIDEOS_DIR, TEMP_DIR, logger, console, load_emoji_map
 )
-from gui.utils import discover_opencode_keys
+from gui.utils import discover_opencode_keys, get_active_llm_profile
 
 _WHISPER_MODEL = None
 _WHISPER_MODEL_NAME = None
@@ -118,8 +118,9 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         return False
         
     # Get settings values
-    api_key = settings.get("api_key") or os.environ.get("OPENAI_API_KEY")
-    base_url = settings.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+    active_profile = get_active_llm_profile()
+    api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
+    base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
     whisper_api_key = settings.get("whisper_api_key") or os.environ.get("WHISPER_API_KEY")
     whisper_base_url = settings.get("whisper_base_url") or os.environ.get("WHISPER_BASE_URL")
     use_local_whisper = settings.get("local_whisper", True)
@@ -370,9 +371,9 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         
         # 4. Render video using FFmpeg
         console.print("[yellow][4/4] Rendering vertical video using FFmpeg (cropping 9:16, mixing audio, burning subtitles)...[/]")
-        render_preset = settings.get("render_preset", "veryfast")
+        render_preset = settings.get("render_preset", "fast")
         render_res = settings.get("render_resolution", "1080p")
-        video_encoder = settings.get("video_encoder", "libx264")
+        video_encoder = settings.get("video_encoder", "libx265")
         compile_video(
             bg_video_path=resolved_top_path,
             audio_path=audio_path,

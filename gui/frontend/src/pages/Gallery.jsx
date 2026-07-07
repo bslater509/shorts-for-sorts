@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react'
-import { Film, RefreshCw, Trash2, Download, PlayCircle, Share2 } from 'lucide-react'
+import { Film, RefreshCw, Trash2, Download, PlayCircle, Share2, Hash, Upload, X } from 'lucide-react'
 import * as api from '@/lib/api'
 
 export default function Gallery() {
   const [videos, setVideos] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [selectedVideo, setSelectedVideo] = useState(null)
+  const [tiktokDescription, setTiktokDescription] = useState("")
+  const [tiktokVisibility, setTiktokVisibility] = useState("Public")
+  const [isUploading, setIsUploading] = useState(false)
 
   const loadGallery = async () => {
     setIsLoading(true)
@@ -32,8 +38,26 @@ export default function Gallery() {
     }
   }
 
+  const handleDeleteAll = async () => {
+    if (videos.length === 0) return
+    if (!confirm(`Are you sure you want to delete ALL generated videos? This cannot be undone.`)) return
+    try {
+      await api.deleteAllGalleryVideos()
+      await loadGallery()
+    } catch (err) {
+      alert(`Failed to delete all videos: ${err.message}`)
+    }
+  }
+
   const handleShare = async (video) => {
     try {
+      const textToCopy = `${video.filename.replace('.mp4', '')}\n${video.hashtags || ''}`;
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+      } catch (err) {
+        console.error("Failed to copy title and hashtags:", err);
+      }
+
       const response = await fetch(video.url)
       const blob = await response.blob()
       const file = new File([blob], video.filename, { type: blob.type || 'video/mp4' })
@@ -61,6 +85,39 @@ export default function Gallery() {
     }
   }
 
+  const handleCopyHashtags = async (hashtags) => {
+    if (!hashtags) return
+    try {
+      await navigator.clipboard.writeText(hashtags)
+      alert("Hashtags copied to clipboard!")
+    } catch (err) {
+      console.error("Failed to copy hashtags:", err)
+      alert("Failed to copy hashtags.")
+    }
+  }
+
+  const openUploadModal = (video) => {
+    setSelectedVideo(video)
+    setTiktokDescription(`${video.filename.replace('.mp4', '')}\n${video.hashtags || ''}`)
+    setTiktokVisibility("Public")
+    setIsUploadModalOpen(true)
+  }
+
+  const handleUploadSubmit = async () => {
+    if (!selectedVideo) return
+    setIsUploading(true)
+    try {
+      await api.uploadTikTokVideo(selectedVideo.filename, tiktokDescription, tiktokVisibility)
+      alert("TikTok upload started in background!")
+      setIsUploadModalOpen(false)
+    } catch (err) {
+      alert(`Upload failed: ${err.message}`)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+
   const formatSize = (bytes) => {
     if (!bytes) return '0 MB'
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
@@ -82,14 +139,24 @@ export default function Gallery() {
           <p className="text-muted-foreground mt-1">Browse, preview, and download completed vertical TikTok shorts</p>
         </div>
         
-        <button 
-          onClick={loadGallery}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 border border-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
-          Refresh Library
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleDeleteAll}
+            disabled={isLoading || videos.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <Trash2 size={16} />
+            Delete All
+          </button>
+          <button 
+            onClick={loadGallery}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 border border-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
+            Refresh Library
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 md:overflow-y-auto">
@@ -131,26 +198,43 @@ export default function Gallery() {
                   </div>
                   
                   <div className="flex items-center gap-2 mt-auto pt-2">
+                    {v.hashtags && (
+                      <button 
+                        onClick={() => handleCopyHashtags(v.hashtags)}
+                        className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white rounded-md text-xs font-semibold transition-colors"
+                        title="Copy Hashtags"
+                      >
+                        <Hash size={14} />
+                      </button>
+                    )}
                     <button 
                       onClick={() => handleShare(v)}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-xs font-semibold transition-colors"
                       title="Share Video"
                     >
-                      <Share2 size={14} /> Share
+                      <Share2 size={14} />
+                    </button>
+                    <button 
+                      onClick={() => openUploadModal(v)}
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-md text-xs font-semibold transition-colors"
+                      title="Upload to TikTok"
+                    >
+                      <Upload size={14} />
                     </button>
                     <a 
                       href={v.url} 
                       download={v.filename}
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-xs font-semibold transition-colors"
+                      title="Download Video"
                     >
-                      <Download size={14} /> Download
+                      <Download size={14} />
                     </a>
                     <button 
                       onClick={() => handleDelete(v.filename)}
-                      className="px-3 py-1.5 text-red-500 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 rounded-md transition-colors"
+                      className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md text-xs font-semibold transition-colors"
                       title="Delete Video"
                     >
-                      <Trash2 size={16} />
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
@@ -165,6 +249,66 @@ export default function Gallery() {
           </div>
         )}
       </div>
+
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+          <div className="bg-card border border-border w-full max-w-md rounded-xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-border bg-secondary/30">
+              <h3 className="font-semibold flex items-center gap-2">
+                <Upload size={18} className="text-pink-500" />
+                Upload to TikTok
+              </h3>
+              <button onClick={() => setIsUploadModalOpen(false)} className="text-muted-foreground hover:text-foreground">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Video File</label>
+                <div className="text-sm text-muted-foreground bg-secondary/50 p-2 rounded truncate">
+                  {selectedVideo?.filename}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Description & Hashtags</label>
+                <textarea 
+                  value={tiktokDescription}
+                  onChange={(e) => setTiktokDescription(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500/50 shadow-sm min-h-[120px]"
+                  placeholder="Enter description and tags..."
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Visibility</label>
+                <select 
+                  value={tiktokVisibility}
+                  onChange={(e) => setTiktokVisibility(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-pink-500/50 shadow-sm"
+                >
+                  <option value="Public">Public</option>
+                  <option value="Friends">Friends Only</option>
+                  <option value="Private">Private</option>
+                </select>
+              </div>
+            </div>
+            <div className="p-4 border-t border-border bg-secondary/30 flex justify-end gap-3">
+              <button 
+                onClick={() => setIsUploadModalOpen(false)}
+                className="px-4 py-2 rounded-lg font-medium text-sm transition-colors hover:bg-secondary border border-border"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleUploadSubmit}
+                disabled={isUploading}
+                className="px-6 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg font-medium text-sm shadow-md transition-all disabled:opacity-50 flex items-center gap-2"
+              >
+                {isUploading ? "Starting..." : "Post to TikTok"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

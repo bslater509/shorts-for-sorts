@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom"
-import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X } from "lucide-react"
+import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X, RefreshCw } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { useAppStore } from "@/store/useAppStore"
@@ -17,6 +17,17 @@ export default function Sidebar() {
     { name: "Settings", path: "/settings", icon: Settings },
     { name: "Batch Generator", path: "/batch", icon: Layers },
   ]
+
+  const handleRestart = async () => {
+    if (!window.confirm("Are you sure you want to restart the server? Any ongoing generations will be lost.")) return;
+    try {
+      await fetch('/api/restart', { method: 'POST' });
+      alert("Server is restarting... Please wait a few seconds and then refresh the page.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to send restart command.");
+    }
+  }
 
   return (
     <>
@@ -74,6 +85,13 @@ export default function Sidebar() {
             <p className="font-medium truncate">{loadedPreset}</p>
           </div>
           <SystemStats />
+          <button
+            onClick={handleRestart}
+            className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-red-400 hover:bg-red-500/10 hover:text-red-500 border border-border hover:border-red-500/50"
+          >
+            <RefreshCw size={16} />
+            Restart Server
+          </button>
         </div>
       </aside>
     </>

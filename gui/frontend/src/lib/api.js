@@ -39,6 +39,14 @@ export async function saveSettings(payload) {
   });
 }
 
+export async function fetchLLMModels(api_key, base_url) {
+  return await apiFetch('/api/llm/models', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key, base_url })
+  });
+}
+
 export async function fetchPresets() {
   return await apiFetch('/api/presets');
 }
@@ -168,11 +176,21 @@ export async function deleteGalleryVideo(filename) {
   });
 }
 
-export async function startBatch(numShorts) {
+export async function deleteAllGalleryVideos() {
+  return await apiFetch('/api/gallery', {
+    method: 'DELETE'
+  });
+}
+
+export async function fetchPrompts() {
+  return await apiFetch('/api/prompts');
+}
+
+export async function startBatch(numShorts, prompts = []) {
   return await apiFetch('/api/batch/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ num_shorts: numShorts })
+    body: JSON.stringify({ num_shorts: numShorts, prompts })
   });
 }
 
@@ -182,4 +200,16 @@ export async function getBatchStatus() {
 
 export async function cancelBatch() {
   return await apiFetch('/api/batch/cancel', { method: 'POST' });
+}
+
+export async function uploadTikTokVideo(filename, description, visibility) {
+  return await apiFetch('/api/tiktok/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, description, visibility })
+  });
+}
+
+export async function loginTikTok() {
+  return await apiFetch('/api/tiktok/login', { method: 'POST' });
 }

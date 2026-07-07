@@ -49,8 +49,10 @@ def get_progress_percentage(status):
         return 0
     elif status == "Waiting for LLM":
         return 5
-    elif status == "LLM Script":
+    elif status.startswith("LLM Script"):
         return 10
+    elif status == "LLM Metadata":
+        return 15
     elif status == "Waiting for Compilation":
         return 20
     elif status.startswith("Voice Generation"):
@@ -188,8 +190,18 @@ def llm_job_worker(job_config, progress_dict):
         from openai import OpenAI
         from gui.utils import discover_opencode_keys
         
-        api_key = job_config["settings"].get("api_key") or os.environ.get("OPENAI_API_KEY")
-        base_url = job_config["settings"].get("base_url") or os.environ.get("OPENAI_BASE_URL")
+        profiles = job_config["settings"].get("llm_profiles", [])
+        active_id = job_config["settings"].get("active_llm_profile_id")
+        active_profile = {}
+        for p in profiles:
+            if p.get("id") == active_id:
+                active_profile = p
+                break
+        if not active_profile and profiles:
+            active_profile = profiles[0]
+            
+        api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
+        base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
         
         opencode_key, _ = discover_opencode_keys()
         if not api_key:
@@ -207,9 +219,56 @@ def llm_job_worker(job_config, progress_dict):
                 {"role": "system", "content": job_config["system_prompt"]},
                 {"role": "user", "content": job_config["prompt"]}
             ],
-            temperature=job_config["script_temp"]
+            temperature=job_config["script_temp"],
+            stream=True
         )
-        return True, response.choices[0].message.content.strip(), None
+        script_text = ""
+        for chunk in response:
+            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content is not None:
+                script_text += chunk.choices[0].delta.content
+                word_count = len(script_text.split())
+                progress_dict[idx] = f"LLM Script ({word_count} words)"
+                
+        script_text = script_text.strip()
+        
+        try:
+            progress_dict[idx] = "LLM Metadata"
+            meta_prompt = f"Based on the following script, provide 1 short, catchy title (under 5 words) and exactly 5 trending TikTok hashtags. Format your response exactly as follows:\nTITLE: <title>\nHASHTAGS: <hashtags>\n\nScript:\n{script_text}"
+            meta_response = client.chat.completions.create(
+                model=job_config["model"],
+                messages=[{"role": "user", "content": meta_prompt}],
+                temperature=job_config.get("meta_temp", 0.7)
+            )
+            meta_text = meta_response.choices[0].message.content.strip()
+            
+            title = "batch_video"
+            hashtags = ""
+            for line in meta_text.split('\n'):
+                if line.startswith("TITLE:"):
+                    title = line.replace("TITLE:", "").strip()
+                elif line.startswith("HASHTAGS:"):
+                    hashtags = line.replace("HASHTAGS:", "").strip()
+                    
+            safe_title = re.sub(r'[\s\-]+', '_', title.lower())
+            safe_title = re.sub(r'[^\w_]', '', safe_title).strip('_')
+            if not safe_title:
+                safe_title = "batch_video"
+                
+            orig_filename = job_config["output_filename"]
+            timestamp_match = re.search(r"rendered_batch_(\d+)_", orig_filename)
+            timestamp = timestamp_match.group(1) if timestamp_match else str(int(time.time()))
+            
+            new_filename = f"{safe_title}_{timestamp}_{idx}.mp4"
+            job_config["output_filename"] = new_filename
+            job_config["generated_title"] = title
+            job_config["generated_hashtags"] = hashtags
+        except Exception as e:
+            # Fallback if secondary call fails
+            job_config["generated_title"] = "Batch Video"
+            job_config["generated_hashtags"] = "#shorts #video"
+            
+        return True, script_text, None
+
     except Exception as e:
         return False, None, str(e)
 
@@ -271,6 +330,17 @@ def video_job_worker(job_config, progress_dict):
 
         success = compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=ffmpeg_progress)
         if success:
+            try:
+                from gui.config import OUTPUT_DIR
+                base_name = os.path.splitext(output_filename)[0]
+                txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
+                with open(txt_path, "w", encoding="utf-8") as f:
+                    f.write(f"{job_config.get('generated_title', 'Batch Video')}\n")
+                    f.write(f"{job_config.get('generated_hashtags', '#shorts')}\n\n")
+                    f.write(f"Script:\n{job_config.get('script_text', '')}\n")
+            except Exception:
+                pass
+                
             try:
                 progress_dict[idx] = "Done"
                 progress_dict[f"{idx}_end"] = time.time()

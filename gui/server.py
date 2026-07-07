@@ -8,7 +8,7 @@ if BASE_DIR not in sys.path:
 
 from gui.utils import (
     check_system_dependencies, download_default_assets_if_empty,
-    extract_keywords_from_script, discover_opencode_keys
+    extract_keywords_from_script, discover_opencode_keys, get_active_llm_profile
 )
 from gui.config import (
     CONFIG_DIR, VIDEOS_DIR, MUSIC_DIR, OUTPUT_DIR, TEMP_DIR,
@@ -18,14 +18,15 @@ from gui.config import (
 import gui.state as shared_state
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from fastapi import FastAPI, BackgroundTasks, UploadFile, File, Form, HTTPException, WebSocket
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, BackgroundTasks, UploadFile, File, Form, HTTPException, WebSocket, Request, Header
 import json
 import shutil
 import urllib.parse
 import urllib.request
 import threading
 import queue
+import mimetypes
 
 # Locks for thread-safe access to shared mutable state
 _compile_log_lock = threading.Lock()      # Guards compilation_logs list
@@ -144,10 +145,73 @@ def init_app_state():
 
 init_app_state()
 
-# Mount static asset folders directly so they can be previewed/downloaded in browser
-app.mount("/videos", StaticFiles(directory=VIDEOS_DIR), name="videos")
-app.mount("/music", StaticFiles(directory=MUSIC_DIR), name="music")
-app.mount("/output", StaticFiles(directory=OUTPUT_DIR), name="output")
+# Custom media server for iOS Safari range-request compatibility
+def stream_media(file_path: str, range_header: str):
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+        
+    file_size = os.path.getsize(file_path)
+    start = 0
+    end = file_size - 1
+
+    if range_header:
+        range_str = range_header.replace("bytes=", "").split("-")
+        try:
+            start = int(range_str[0])
+            if len(range_str) > 1 and range_str[1]:
+                end = int(range_str[1])
+        except ValueError:
+            pass
+
+    end = min(end, file_size - 1)
+    chunk_size = end - start + 1
+
+    def get_chunk():
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = chunk_size
+            while remaining > 0:
+                data = f.read(min(remaining, 1024 * 1024)) # 1MB chunks
+                if not data:
+                    break
+                yield data
+                remaining -= len(data)
+
+    content_type, _ = mimetypes.guess_type(file_path)
+    if not content_type:
+        content_type = "application/octet-stream"
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(chunk_size),
+        "Content-Type": content_type,
+    }
+
+    if range_header:
+        headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+        status_code = 206
+    else:
+        status_code = 200
+
+    return StreamingResponse(get_chunk(), status_code=status_code, headers=headers)
+
+@app.get("/videos/{filename:path}")
+def serve_video(filename: str, range: str = Header(None)):
+    if ".." in filename:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return stream_media(os.path.join(VIDEOS_DIR, filename), range)
+
+@app.get("/music/{filename:path}")
+def serve_music(filename: str, range: str = Header(None)):
+    if ".." in filename:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return stream_media(os.path.join(MUSIC_DIR, filename), range)
+
+@app.get("/output/{filename:path}")
+def serve_output(filename: str, range: str = Header(None)):
+    if ".." in filename:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return stream_media(os.path.join(OUTPUT_DIR, filename), range)
 
 FRONTEND_DIST_DIR = os.path.join(BASE_DIR, "gui/frontend/dist")
 if os.path.exists(FRONTEND_DIST_DIR):
@@ -162,9 +226,8 @@ else:
 
 
 class SettingsModel(BaseModel):
-    api_key: Optional[str] = ""
-    base_url: Optional[str] = ""
-    model: Optional[str] = "gpt-4o-mini"
+    llm_profiles: Optional[list] = []
+    active_llm_profile_id: Optional[str] = ""
     pexels_api_key: Optional[str] = ""
     voice_speed: Optional[float] = 1.0
     voice_volume: Optional[float] = 1.0
@@ -174,8 +237,8 @@ class SettingsModel(BaseModel):
     whisper_api_key: Optional[str] = ""
     whisper_base_url: Optional[str] = ""
     render_resolution: Optional[str] = "1080p"
-    render_preset: Optional[str] = "veryfast"
-    video_encoder: Optional[str] = "libx264"
+    render_preset: Optional[str] = "fast"
+    video_encoder: Optional[str] = "libx265"
     max_words: Optional[int] = 130
     max_workers: Optional[int] = 1
     llm_max_workers: Optional[int] = 5
@@ -185,6 +248,9 @@ class SettingsModel(BaseModel):
     sub_color: Optional[str] = "#FFFFFF"
     sub_highlight: Optional[str] = "#00FFFF"
     sub_outline: Optional[str] = "#000000"
+    llm_temp_script: Optional[float] = 0.7
+    llm_temp_metadata: Optional[float] = 0.7
+    llm_temp_keywords: Optional[float] = 0.7
     sub_outline_width: Optional[int] = 5
     sub_bold: Optional[bool] = True
     word_pop: Optional[bool] = True
@@ -202,7 +268,7 @@ class SettingsModel(BaseModel):
     emoji_font: Optional[str] = "Symbola"
     sub_animation_style: Optional[str] = "tiktok_pop"
     sentry_dsn: Optional[str] = ""
-
+    tiktok_sessionid: Optional[str] = ""
 
 class PresetModel(BaseModel):
     name: str
@@ -290,6 +356,10 @@ class YoutubeDownloadRequest(BaseModel):
     url: str
     downscale: bool = False
 
+class FetchModelsRequest(BaseModel):
+    api_key: Optional[str] = ""
+    base_url: Optional[str] = ""
+
 # REST Endpoints
 
 
@@ -323,9 +393,7 @@ def get_api_settings():
 def save_api_settings(data: SettingsModel):
     # Convert model to dict
     settings_dict = data.model_dump()
-    # If key was default pattern, replace with blank
-    if settings_dict.get("api_key") == "YOUR_API_KEY_HERE":
-        settings_dict["api_key"] = ""
+
 
     success = save_settings(settings_dict)
     if success:
@@ -333,6 +401,30 @@ def save_api_settings(data: SettingsModel):
     else:
         raise HTTPException(
             status_code=500, detail="Failed to save settings to disk.")
+
+@app.post("/api/llm/models")
+def fetch_llm_models(data: FetchModelsRequest):
+    api_key = data.api_key.strip() if data.api_key else os.environ.get("OPENAI_API_KEY", "")
+    base_url = data.base_url.strip() if data.base_url else os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
+    opencode_key, _ = discover_opencode_keys()
+    if not api_key:
+        api_key = opencode_key
+        if api_key and (not base_url or base_url == "https://api.openai.com/v1"):
+            base_url = "https://opencode.ai/zen/go/v1"
+
+    if not api_key:
+        raise HTTPException(status_code=400, detail="API Key is required to fetch models.")
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url=base_url)
+        models = client.models.list()
+        # Sort models alphabetically
+        model_ids = sorted([m.id for m in models.data])
+        return {"status": "success", "models": model_ids}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch models: {str(e)}")
 
 
 @app.get("/api/presets")
@@ -528,12 +620,33 @@ def list_gallery_videos():
             except Exception:
                 pass
 
+            hashtags = ""
+            txt_file = os.path.splitext(fp)[0] + ".txt"
+            if os.path.exists(txt_file):
+                try:
+                    with open(txt_file, "r", encoding="utf-8") as tf:
+                        lines = tf.readlines()
+                        if lines:
+                            if any(l.startswith("Hashtags:") for l in lines):
+                                # Old format parsing
+                                for line in lines:
+                                    if line.startswith("Hashtags:"):
+                                        hashtags = line.split("Hashtags:", 1)[1].strip()
+                                        break
+                            else:
+                                # New format: line 0 is title, line 1 is hashtags
+                                if len(lines) >= 2:
+                                    hashtags = f"{lines[0].strip()}\n{lines[1].strip()}"
+                except Exception:
+                    pass
+
             videos.append({
                 "filename": f,
                 "url": f"/output/{f}",
                 "size": size,
                 "modified": modified,
-                "duration": duration
+                "duration": duration,
+                "hashtags": hashtags
             })
     # Sort by newest first
     videos.sort(key=lambda x: x["modified"], reverse=True)
@@ -554,6 +667,21 @@ def delete_gallery_video(filename: str):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to delete video: {e}")
+
+@app.delete("/api/gallery")
+def delete_all_gallery_videos():
+    if not os.path.exists(OUTPUT_DIR):
+        return {"status": "success", "message": "No videos to delete."}
+    
+    try:
+        for f in os.listdir(OUTPUT_DIR):
+            fp = os.path.join(OUTPUT_DIR, f)
+            if os.path.isfile(fp):
+                os.remove(fp)
+        return {"status": "success", "message": "All generated videos deleted successfully."}
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to delete all videos: {e}")
 
 
 @app.post("/api/pexels/search")
@@ -697,10 +825,9 @@ def extract_keyword_api():
 @app.post("/api/script/generate")
 def generate_viral_script(data: ScriptGenerateRequest):
     # Set/override settings key
-    api_key = shared_state.settings.get(
-        "api_key") or os.environ.get("OPENAI_API_KEY")
-    base_url = shared_state.settings.get(
-        "base_url") or os.environ.get("OPENAI_BASE_URL")
+    active_profile = get_active_llm_profile()
+    api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
+    base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
 
     opencode_key, _ = discover_opencode_keys()
     if not api_key:
@@ -712,7 +839,7 @@ def generate_viral_script(data: ScriptGenerateRequest):
         raise HTTPException(
             status_code=400, detail="OpenAI/OpenCode API key is missing. Set it in Settings.")
 
-    default_model = shared_state.settings.get("model", "gpt-4o-mini")
+    default_model = active_profile.get("model", "gpt-4o-mini")
     model = data.model_override.strip() if (
         data.model_override and data.model_override.strip()) else default_model
 
@@ -741,7 +868,8 @@ def generate_viral_script(data: ScriptGenerateRequest):
         "4. Content: Structure with 3 key points or a rapid-fire narrative. Deliver value immediately. End with a strong, natural Call to Action (CTA).\n"
         "5. Tone: Sound authentic and human. Avoid robotic, academic, or overly dramatic AI clichés.\n"
         "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
-        "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this."
+        "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this.\n"
+        "8. Source: Never mention Reddit, subreddits, or forums. Tell the story directly as if it happened to someone."
     )
     raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
     try:
@@ -757,7 +885,7 @@ def generate_viral_script(data: ScriptGenerateRequest):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": data.prompt}
             ],
-            temperature=0.7
+            temperature=shared_state.settings.get("llm_temp_script", 0.7)
         )
         script_text = response.choices[0].message.content.strip()
         shared_state.state["script_text"] = script_text
@@ -770,6 +898,59 @@ def generate_viral_script(data: ScriptGenerateRequest):
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Script generation failed: {str(e)}")
+
+class TiktokUploadRequest(BaseModel):
+    filename: str
+    description: str
+    visibility: str = "Public"
+
+@app.post("/api/tiktok/upload")
+def upload_tiktok_video(data: TiktokUploadRequest, background_tasks: BackgroundTasks):
+    sessionid = shared_state.settings.get("tiktok_sessionid", "").strip()
+    if not sessionid:
+        raise HTTPException(status_code=400, detail="TikTok session ID is missing. Add it in Settings.")
+
+    video_path = os.path.join(OUTPUT_DIR, data.filename)
+    if not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail="Video file not found.")
+
+    def upload_job():
+        try:
+            logger.info(f"[TikTok] Starting background upload for {data.filename}")
+            import asyncio
+            from gui.tiktok_uploader import upload_video
+            asyncio.run(upload_video(sessionid, video_path, data.description, data.visibility))
+            logger.info(f"[TikTok] Successfully uploaded {data.filename}")
+        except Exception as e:
+            logger.error(f"[TikTok] Upload failed: {e}")
+
+    background_tasks.add_task(upload_job)
+    return {"status": "pending", "message": "TikTok upload started in background."}
+
+@app.post("/api/tiktok/login")
+def login_tiktok_browser():
+    try:
+        logger.info("[TikTok] Launching browser for login...")
+        import asyncio
+        from gui.tiktok_uploader import login_to_tiktok
+        
+        # Run in a separate thread so we don't block the async event loop of fastapi
+        def run_login():
+            try:
+                sid = asyncio.run(login_to_tiktok())
+                if sid:
+                    shared_state.settings["tiktok_sessionid"] = sid
+                    save_settings(shared_state.settings)
+                    logger.info(f"[TikTok] Login successful, saved sessionid.")
+                else:
+                    logger.warning("[TikTok] Login finished but no sessionid was found.")
+            except Exception as e:
+                logger.error(f"[TikTok] Error during login: {e}")
+
+        threading.Thread(target=run_login, daemon=True).start()
+        return {"status": "pending", "message": "Browser opened for TikTok login. Please complete login in the new window."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to open login browser: {e}")
 
 # Video compilation runner thread task
 def compile_worker():
@@ -883,7 +1064,7 @@ batch_state = {
 }
 
 
-def batch_worker_thread(num_shorts):
+def batch_worker_thread(num_shorts, selected_prompts=None):
     batch_state["in_progress"] = True
     batch_state["should_cancel"] = False
 
@@ -903,18 +1084,18 @@ def batch_worker_thread(num_shorts):
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        api_key = shared_state.settings.get(
-            "api_key") or os.environ.get("OPENAI_API_KEY")
-        base_url = shared_state.settings.get(
-            "base_url") or os.environ.get("OPENAI_BASE_URL")
+        from gui.utils import get_active_llm_profile
+        active_profile = get_active_llm_profile()
+        api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
+        base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
         opencode_key, _ = discover_opencode_keys()
         if not api_key:
             api_key = opencode_key
             if api_key and not base_url:
                 base_url = "https://opencode.ai/zen/go/v1"
 
-        model = "gpt-4o-mini"
-        if base_url and "opencode.ai" in base_url:
+        model = active_profile.get("model", "gpt-4o-mini")
+        if not active_profile.get("model") and base_url and "opencode.ai" in base_url:
             model = "deepseek-v4-flash"
 
         max_words = shared_state.settings.get("max_words", 130)
@@ -928,7 +1109,8 @@ def batch_worker_thread(num_shorts):
             "4. Content: Structure with 3 key points or a rapid-fire narrative. Deliver value immediately. End with a strong, natural Call to Action (CTA).\n"
             "5. Tone: Sound authentic and human. Avoid robotic, academic, or overly dramatic AI clichés.\n"
             "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
-            "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this."
+            "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this.\n"
+            "8. Source: Never mention Reddit, subreddits, or forums. Tell the story directly as if it happened to someone."
         )
         raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
         try:
@@ -944,8 +1126,15 @@ def batch_worker_thread(num_shorts):
             # Fallback values if templates/presets are empty
             template_title, prompt = (
                 "Random", "A surprising fact about space.")
-            if templates:
-                template_title, prompt = random.choice(list(templates.items()))
+            
+            pool = templates
+            if selected_prompts and templates:
+                pool = {k: v for k, v in templates.items() if k in selected_prompts}
+                if not pool:
+                    pool = templates  # fallback if none match
+                    
+            if pool:
+                template_title, prompt = random.choice(list(pool.items()))
 
             voice_name, voice_id = random.choice(shared_state.VOICES)
 
@@ -1002,7 +1191,8 @@ def batch_worker_thread(num_shorts):
             sub_animation_style = random.choice(["tiktok_pop", "karaoke_sweep", "bouncy_bounce", "cinematic_zoom",
                                                 "glow_shake", "neon_flicker", "pulse_grow", "fade_in_slide", "typewriter_swipe"])
 
-            script_temp = round(random.uniform(0.5, 0.9), 2)
+            script_temp = shared_state.settings.get("llm_temp_script", 0.7)
+            meta_temp = shared_state.settings.get("llm_temp_metadata", 0.7)
             output_filename = f"rendered_batch_{timestamp}_{i}.mp4"
 
             # Determine words per screen strategy
@@ -1033,6 +1223,7 @@ def batch_worker_thread(num_shorts):
                 "emoji_position": preset.get("emoji_position", "above"),
                 "emoji_font": preset.get("emoji_font", "Symbola"),
                 "sub_animation_style": sub_animation_style, "script_temp": script_temp,
+                "meta_temp": meta_temp,
                 "output_filename": output_filename, "model": model, "system_prompt": system_prompt,
                 "settings": shared_state.settings.copy()
             }
@@ -1146,8 +1337,15 @@ def batch_worker_thread(num_shorts):
         batch_state["in_progress"] = False
 
 
+@app.get("/api/prompts")
+def get_prompts():
+    from gui.config import load_prompt_templates
+    return load_prompt_templates()
+
+
 class BatchStartRequest(BaseModel):
     num_shorts: int = 5
+    prompts: list[str] = []
 
 
 @app.post("/api/batch/start")
@@ -1170,7 +1368,7 @@ def start_batch(data: BatchStartRequest):
     batch_state["progress_dict"].clear()
 
     t = threading.Thread(target=batch_worker_thread,
-                         args=(num_shorts,), daemon=True)
+                         args=(num_shorts, data.prompts), daemon=True)
     t.start()
     return {"status": "started", "message": f"Batch generation of {num_shorts} shorts started."}
 
@@ -1187,11 +1385,17 @@ def get_batch_status():
         start_time = batch_state["progress_dict"].get(f"{i}_start")
         end_time = batch_state["progress_dict"].get(f"{i}_end")
         elapsed_str = "--"
+        eta_str = "--"
+        eta_seconds = 0.0
         if start_time:
             duration = (end_time if end_time else time.time()) - start_time
             elapsed_str = format_elapsed(duration)
             if status == "Done":
                 elapsed_str += " (Done)"
+                eta_str = "0s"
+            elif pct and pct > 0 and pct < 100:
+                eta_seconds = duration / pct * (100 - pct)
+                eta_str = format_elapsed(eta_seconds)
 
         detail = batch_state["job_details"].get(i, {})
         jobs.append({
@@ -1202,7 +1406,9 @@ def get_batch_status():
             "status": status,
             "progress": pct if pct is not None else 0,
             "failed": pct is None,
-            "elapsed": elapsed_str
+            "elapsed": elapsed_str,
+            "eta": eta_str,
+            "eta_seconds": eta_seconds
         })
 
     return {
@@ -1220,6 +1426,18 @@ def cancel_batch():
         batch_state["should_cancel"] = True
         return {"status": "success", "message": "Cancellation requested. Waiting for active workers to terminate."}
     return {"status": "ignored", "message": "No active batch to cancel."}
+
+
+@app.post("/api/restart")
+def restart_server(background_tasks: BackgroundTasks):
+    import sys
+    import os
+    import time
+    def restart():
+        time.sleep(1)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    background_tasks.add_task(restart)
+    return {"status": "restarting"}
 
 
 @app.get("/{full_path:path}")

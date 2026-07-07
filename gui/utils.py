@@ -15,6 +15,18 @@ from gui.config import (
     save_settings
 )
 
+def get_active_llm_profile():
+    profiles = settings.get("llm_profiles", [])
+    active_id = settings.get("active_llm_profile_id")
+    for profile in profiles:
+        if profile.get("id") == active_id:
+            return profile
+    # Fallback to first profile if active is invalid, or return empty dict
+    if profiles:
+        return profiles[0]
+    return {}
+
+
 DEFAULT_VIDEO_URL = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
 DEFAULT_MUSIC_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
 
@@ -197,10 +209,12 @@ def check_system_dependencies():
     sys.exit(1)
 
 def extract_keywords_from_script(script_text: str) -> str:
-    api_key = settings.get("api_key") or os.environ.get("OPENAI_API_KEY")
-    base_url = settings.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-    default_model = settings.get("model", "gpt-4o-mini")
+    active_profile = get_active_llm_profile()
+    api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
+    base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+    default_model = active_profile.get("model", "gpt-4o-mini")
     model = default_model
+
     
     opencode_key, _ = discover_opencode_keys()
     if not api_key:
@@ -225,7 +239,7 @@ def extract_keywords_from_script(script_text: str) -> str:
                 },
                 {"role": "user", "content": script_text}
             ],
-            temperature=0.3
+            temperature=settings.get("llm_temp_keywords", 0.7)
         )
         return response.choices[0].message.content.strip().replace('"', '')
     except Exception as e:

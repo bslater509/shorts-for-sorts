@@ -512,9 +512,9 @@ def compile_video(
     voice_volume: float = 1.0,
     music_volume: float = 0.15,
     bg_video_bottom_path: str = None,
-    render_preset: str = 'veryfast',
+    render_preset: str = 'fast',
     render_resolution: str = '1080p',
-    video_encoder: str = 'libx264',
+    video_encoder: str = 'libx265',
     progress_callback = None
 ):
     """
@@ -660,8 +660,17 @@ def compile_video(
         'vcodec': video_encoder,
         'acodec': 'aac',
         'audio_bitrate': '192k',
+        'pix_fmt': 'yuv420p',
+        'r': 60,
         't': f"{audio_duration:.2f}"
     }
+    
+    if '265' in video_encoder or 'hevc' in video_encoder:
+        output_args['profile:v'] = 'main'
+        output_args['tag:v'] = 'hvc1'
+    else:
+        output_args['profile:v'] = 'high'
+        output_args['level:v'] = '5.1'
 
     # Handle encoder-specific options
     is_hw_encoder = any(video_encoder.endswith(suffix) for suffix in ['_amf', '_nvenc', '_qsv', '_videotoolbox'])
@@ -690,9 +699,12 @@ def compile_video(
             pass
         # Do not include crf for HW encoders (they don't support it)
     else:
-        # Standard software encoder (e.g. libx264)
+        # Standard software encoder (e.g. libx264, libx265)
         output_args['preset'] = render_preset
-        output_args['crf'] = 23
+        if video_encoder == 'libx265':
+            output_args['crf'] = 28
+        else:
+            output_args['crf'] = 23
 
     # Allow FFmpeg to use optimal number of threads based on available cores
     output_args['threads'] = 0

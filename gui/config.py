@@ -385,6 +385,34 @@ def load_settings():
                 settings.update(new_settings)
         except Exception as e:
             logger.warning(f"Failed to load settings from {SETTINGS_FILE}: {e}", exc_info=True)
+
+    # Auto-migrate legacy LLM config
+    if "llm_profiles" not in settings:
+        settings["llm_profiles"] = []
+    
+    has_legacy_keys = any(k in settings for k in ["api_key", "base_url", "model"])
+    if has_legacy_keys and not settings.get("llm_profiles"):
+        import uuid
+        profile_id = str(uuid.uuid4())
+        settings["llm_profiles"].append({
+            "id": profile_id,
+            "name": "Default Profile",
+            "api_key": settings.get("api_key", ""),
+            "base_url": settings.get("base_url", ""),
+            "model": settings.get("model", "gpt-4o-mini")
+        })
+        settings["active_llm_profile_id"] = profile_id
+        
+    # Clean up legacy keys
+    migrated = False
+    for k in ["api_key", "base_url", "model"]:
+        if k in settings:
+            del settings[k]
+            migrated = True
+            
+    if migrated:
+        save_settings(settings)
+        
     else:
         # Create settings file with the default populated keys if it does not exist
         try:
@@ -466,7 +494,17 @@ DEFAULT_PROMPTS = {
     "Reddit Lottery Ticket Theft": "Write a dramatic Reddit post about a person who won a substantial lottery prize but had the ticket stolen by a trusted family member, resulting in a tense legal standoff.",
     "Reddit High School Reunion Revenge": "Write a satisfying Reddit post about a user who attended their high school reunion and dramatically exposed a former bully who was trying to pitch a fraudulent investment scheme to the attendees.",
     "Reddit Fake Sick Day Catastrophe": "Write a dramatic Reddit story about an employee who called in sick to attend a concert, only to be interviewed live on national television and spotted by their entire company.",
-    "Reddit AITA Gender Reveal": "Write an engaging Reddit-style 'Am I the Asshole' post about a guest who accidentally revealed the baby's gender before the official announcement, leading to a massive family fallout."
+    "Reddit AITA Gender Reveal": "Write an engaging Reddit-style 'Am I the Asshole' post about a guest who accidentally revealed the baby's gender before the official announcement, leading to a massive family fallout.",
+    "Reddit Secret Family Diary": "Write a suspenseful Reddit post about a user who finds their grandmother's locked diary, revealing a scandalous family secret that changes everything they knew about their parents.",
+    "The Billionaire's Will": "Narrate the shocking story of a deceased billionaire whose last will and testament included a massive twist that pitted their family against a complete stranger.",
+    "Hollywood's Hidden Marriage": "Describe the scandalous, suspenseful rumor of two Golden Age Hollywood stars who allegedly faked a hatred for each other to hide a secret marriage.",
+    "Reddit Stolen Promotion": "Write a dramatic Reddit post about an employee who discovers their boss not only stole their work for a promotion but also has been secretly sabotaging the company, leading to a massive reveal.",
+    "The Disappearing Artist": "Tell the suspenseful story of a famous painter who vanished on the eve of their biggest exhibition, leaving behind a scandalous final painting with hidden clues.",
+    "Reddit DNA Betrayal": "Write an engaging Reddit story about someone who does a DNA test for fun and accidentally uncovers that their 'uncle' is actually their real father, blowing the family apart.",
+    "The Sabotaged Premiere": "Narrate the dramatic historical event of a highly anticipated theater premiere that was sabotaged by a bitter rival, resulting in a shocking scandal.",
+    "Workplace Embezzlement Twist": "Describe a suspenseful corporate drama where an entry-level employee accidentally uncovers a massive embezzlement scheme run by the CEO, leading to a tense standoff.",
+    "Reddit Fake Friendship": "Write a suspenseful Reddit post where a user discovers their lifelong best friend has been secretly being paid by the user's parents to keep them out of trouble.",
+    "The Royal Impostor": "Tell the shocking story of a historical figure who successfully posed as a long-lost royal heir, living in luxury before their scandalous true identity was revealed."
 }
 
 def load_prompt_templates():
