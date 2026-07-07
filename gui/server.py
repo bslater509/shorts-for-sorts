@@ -15,6 +15,9 @@ from gui.config import (
     load_settings, save_settings, load_presets, save_custom_preset, delete_custom_preset,
     clear_cache, logger
 )
+
+THUMBNAIL_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
+os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 import gui.state as shared_state
 from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
@@ -602,6 +605,25 @@ def delete_assets_music(filename: str):
             status_code=500, detail=f"Failed to delete music: {e}")
 
 
+def generate_video_thumbnail(video_path, thumb_path, width=480):
+    """Extract a thumbnail frame from a video at the 2-second mark."""
+    import subprocess
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-ss", "00:00:02",
+        "-vframes", "1",
+        "-vf", f"scale={width}:-1",
+        thumb_path
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, check=True, timeout=15)
+        return True
+    except Exception as e:
+        logger.error(f"Failed to generate thumbnail for {os.path.basename(video_path)}: {e}")
+        return False
+
+
 @app.get("/api/gallery")
 def list_gallery_videos():
     if not os.path.exists(OUTPUT_DIR):
@@ -642,13 +664,23 @@ def list_gallery_videos():
                 except Exception:
                     pass
 
+            # Thumbnail
+            thumbnail = None
+            thumb_filename = os.path.splitext(f)[0] + ".jpg"
+            thumb_path = os.path.join(THUMBNAIL_DIR, thumb_filename)
+            if os.path.exists(thumb_path):
+                thumbnail = f"/api/gallery/thumbnail/{thumb_filename}"
+            else:
+                thumbnail = f"/api/gallery/thumbnail/{thumb_filename}"
+
             videos.append({
                 "filename": f,
                 "url": f"/output/{f}",
                 "size": size,
                 "modified": modified,
                 "duration": duration,
-                "hashtags": hashtags
+                "hashtags": hashtags,
+                "thumbnail": thumbnail
             })
     # Sort by newest first
     videos.sort(key=lambda x: x["modified"], reverse=True)
@@ -684,6 +716,30 @@ def delete_all_gallery_videos():
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to delete all videos: {e}")
+
+
+@app.get("/api/gallery/thumbnail/{filename}")
+def get_gallery_thumbnail(filename: str):
+    """Serve or generate a thumbnail for a gallery video."""
+    # Sanitize filename to prevent path traversal
+    filename = os.path.basename(filename)
+    thumb_path = os.path.join(THUMBNAIL_DIR, filename)
+    
+    # If thumbnail already exists, serve it
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path, media_type="image/jpeg")
+    
+    # Try to generate from corresponding video in output/
+    base_name = os.path.splitext(filename)[0]
+    for ext in [".mp4", ".mov", ".mkv", ".webm", ".avi"]:
+        video_path = os.path.join(OUTPUT_DIR, base_name + ext)
+        if os.path.exists(video_path):
+            if generate_video_thumbnail(video_path, thumb_path):
+                if os.path.exists(thumb_path):
+                    return FileResponse(thumb_path, media_type="image/jpeg")
+            break
+    
+    raise HTTPException(status_code=404, detail="Thumbnail not found")
 
 
 @app.post("/api/pexels/search")

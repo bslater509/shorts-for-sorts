@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Film, RefreshCw, Trash2, Download, PlayCircle, Share2, Hash, Upload, X } from 'lucide-react'
 import * as api from '@/lib/api'
+import LazyVideo from '@/components/LazyVideo'
 
 export default function Gallery() {
   const [videos, setVideos] = useState([])
@@ -175,14 +176,11 @@ export default function Gallery() {
         ) : videos.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 pb-6">
             {videos.map((v) => (
-              <div key={v.filename} className="group bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:border-blue-500/30 transition-colors flex flex-col">
+              <div key={v.filename} className="group bg-card border border-border rounded-xl overflow-hidden shadow-sm hover:border-blue-500/30 transition-colors flex flex-col" style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 500px' }}>
                 <div className="relative aspect-[9/16] bg-black">
-                  <video 
-                    className="absolute inset-0 w-full h-full object-contain"
-                    src={v.url} 
-                    controls 
-                    preload="metadata"
-                    playsInline
+                  <LazyVideo 
+                    src={v.url}
+                    poster={v.thumbnail}
                   />
                 </div>
                 

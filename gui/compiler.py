@@ -397,6 +397,22 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         
         shutil.move(temp_output_path, output_path)
         
+        # Generate thumbnail for gallery preview
+        try:
+            import subprocess
+            thumb_dir = os.path.join(OUTPUT_DIR, "thumbnails")
+            os.makedirs(thumb_dir, exist_ok=True)
+            thumb_filename = os.path.splitext(output_filename)[0] + ".jpg"
+            thumb_path = os.path.join(thumb_dir, thumb_filename)
+            subprocess.run([
+                "ffmpeg", "-y", "-i", output_path,
+                "-ss", "00:00:02", "-vframes", "1",
+                "-vf", "scale=480:-1", thumb_path
+            ], capture_output=True, check=True, timeout=15)
+            logger.info(f"Generated thumbnail: {thumb_filename}")
+        except Exception as e:
+            logger.warning(f"Thumbnail generation skipped (non-critical): {e}")
+        
         console.print(f"\n[green]🎉 RENDER SUCCESSFUL! Saved to output/{output_filename}[/]\n")
         return True
     except Exception as e:
