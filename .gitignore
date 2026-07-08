@@ -26,12 +26,16 @@ config/gui_state.json
 # Logs
 *.log
 
+# Dependencies
+node_modules/
+
 # Project-specific caches and generated assets
 cache/
 temp/
 logs/
 models/
 output/
+dist/
 videos/
 videos_to_download.json
 voices.json
@@ -45,4 +49,5 @@ voices/
 music/
 fonts/
 test_*.py
+!tests/test_*.py
 patch*.py

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Layers, Play, Square, Loader2, CheckCircle2, XCircle, Clock, Cpu, HardDrive, ChevronDown, Check } from 'lucide-react'
+import { Layers, Play, Square, Loader2, CheckCircle2, XCircle, Clock, Cpu, HardDrive, ChevronDown, Check, RefreshCw, Download } from 'lucide-react'
 import { AreaChart, Area, ResponsiveContainer, YAxis } from 'recharts'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -13,6 +13,7 @@ export default function Batch() {
   const [availablePrompts, setAvailablePrompts] = useState({})
   const [selectedPrompts, setSelectedPrompts] = useState([])
   const [showPromptDropdown, setShowPromptDropdown] = useState(false)
+  const [isRetrying, setIsRetrying] = useState(false)
 
   // Fetch prompts on mount
   useEffect(() => {
@@ -70,6 +71,32 @@ export default function Batch() {
       alert("Cancellation requested")
     } catch (err) {
       alert(`Cancel failed: ${err.message}`)
+    }
+  }
+
+  const handleRetryFailed = async () => {
+    setIsRetrying(true)
+    try {
+      await api.retryFailedBatch()
+      setTimeout(() => setIsRetrying(false), 2000)
+    } catch (err) {
+      alert(`Retry failed: ${err.message}`)
+      setIsRetrying(false)
+    }
+  }
+
+  const handleDownloadReport = async () => {
+    try {
+      const report = await api.getBatchReport()
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `batch-report-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      alert(`Failed to download report: ${err.message}`)
     }
   }
 
@@ -215,15 +242,36 @@ export default function Batch() {
             )}
           </div>
           
-          {inProgress && (
-            <button 
-              onClick={handleCancel}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-xs transition-all bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20"
-            >
-              <Square size={14} />
-              Cancel Batch
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {!inProgress && failedCount > 0 && (
+              <button 
+                onClick={handleRetryFailed}
+                disabled={isRetrying}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-xs transition-all bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20 disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={isRetrying ? "animate-spin" : ""} />
+                {isRetrying ? "Retrying..." : `Retry Failed (${failedCount})`}
+              </button>
+            )}
+            {!inProgress && jobs.length > 0 && (
+              <button 
+                onClick={handleDownloadReport}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-xs transition-all bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border border-emerald-500/20"
+              >
+                <Download size={14} />
+                Download Report
+              </button>
+            )}
+            {inProgress && (
+              <button 
+                onClick={handleCancel}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-xs transition-all bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20"
+              >
+                <Square size={14} />
+                Cancel Batch
+              </button>
+            )}
+          </div>
         </div>
 
         {/* System Stats Charts */}
@@ -324,7 +372,7 @@ export default function Batch() {
                             <span className="text-blue-500 truncate pr-2 drop-shadow-[0_0_2px_rgba(59,130,246,0.3)]">{job.status}</span>
                             <span className="text-foreground shrink-0">{p}%</span>
                           </div>
-                          <MultiSegmentProgressBar progress={p} />
+                          <MultiSegmentProgressBar progress={p} segments={batchData?.progress_segments} />
                         </div>
                       )}
                     </div>
@@ -345,27 +393,35 @@ export default function Batch() {
   )
 }
 
-const MultiSegmentProgressBar = ({ progress }) => {
-  // progress is 0-100
-  const p1 = Math.min(100, Math.max(0, (progress / 20) * 100))
-  const p2 = Math.min(100, Math.max(0, ((progress - 20) / 25) * 100))
-  const p3 = Math.min(100, Math.max(0, ((progress - 45) / 10) * 100))
-  const p4 = Math.min(100, Math.max(0, ((progress - 55) / 45) * 100))
+const DEFAULT_SEGMENTS = [
+  { name: "LLM", start: 0, end: 20 },
+  { name: "Voice", start: 20, end: 45 },
+  { name: "Transcribe", start: 45, end: 55 },
+  { name: "Render", start: 55, end: 100 }
+]
+
+const SEGMENT_GRADIENTS = [
+  { from: 'from-pink-500 to-rose-500', shadow: 'rgba(236,72,153,0.6)' },
+  { from: 'from-rose-500 to-amber-500', shadow: 'rgba(245,158,11,0.6)' },
+  { from: 'from-amber-500 to-emerald-500', shadow: 'rgba(16,185,129,0.6)' },
+  { from: 'from-emerald-500 to-cyan-500', shadow: 'rgba(6,182,212,0.6)' },
+]
+
+const MultiSegmentProgressBar = ({ progress, segments }) => {
+  const segs = segments && segments.length > 0 ? segments : DEFAULT_SEGMENTS
 
   return (
     <div className="w-full flex gap-1 h-2 rounded-full overflow-hidden bg-background/50 border border-border/50">
-      <div className="h-full bg-secondary/40" style={{ flex: 20 }}>
-        <div className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(236,72,153,0.6)]" style={{ width: `${p1}%` }} />
-      </div>
-      <div className="h-full bg-secondary/40" style={{ flex: 25 }}>
-        <div className="h-full bg-gradient-to-r from-rose-500 to-amber-500 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(245,158,11,0.6)]" style={{ width: `${p2}%` }} />
-      </div>
-      <div className="h-full bg-secondary/40" style={{ flex: 10 }}>
-        <div className="h-full bg-gradient-to-r from-amber-500 to-emerald-500 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(16,185,129,0.6)]" style={{ width: `${p3}%` }} />
-      </div>
-      <div className="h-full bg-secondary/40" style={{ flex: 45 }}>
-        <div className="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(6,182,212,0.6)]" style={{ width: `${p4}%` }} />
-      </div>
+      {segs.map((seg, i) => {
+        const flex = seg.end - seg.start
+        const fill = Math.min(100, Math.max(0, ((progress - seg.start) / (seg.end - seg.start)) * 100))
+        const gradient = SEGMENT_GRADIENTS[i % SEGMENT_GRADIENTS.length]
+        return (
+          <div key={seg.name || i} className="h-full bg-secondary/40" style={{ flex }}>
+            <div className={`h-full bg-gradient-to-r ${gradient.from} transition-all duration-300 ease-out`} style={{ width: `${fill}%`, boxShadow: `0 0 8px ${gradient.shadow}` }} />
+          </div>
+        )
+      })}
     </div>
   )
 }

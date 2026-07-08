@@ -1119,13 +1119,41 @@ batch_state = {
     "futures": [],
     "executor": None,
     "manager": None,
-    "shared_progress": None
+    "shared_progress": None,
+    "batch_results": [],
+    "failed_job_configs": []
 }
+
+
+def _resolve_worker_count(key, default, min_val=1):
+    """Resolve a worker count from settings with a fallback default."""
+    val = shared_state.settings.get(key)
+    if val:
+        try:
+            return max(min_val, int(val))
+        except (ValueError, TypeError):
+            return default
+    return default
+
+
+def _sync_progress(batch_state, num_shorts):
+    """Copy shared_progress (Manager dict) to progress_dict (regular dict) for API access."""
+    for i in range(1, num_shorts + 1):
+        batch_state["progress_dict"][i] = batch_state["shared_progress"].get(i, "Queued")
+        start_key = f"{i}_start"
+        end_key = f"{i}_end"
+        if start_key in batch_state["shared_progress"]:
+            batch_state["progress_dict"][start_key] = batch_state["shared_progress"][start_key]
+        if end_key in batch_state["shared_progress"]:
+            batch_state["progress_dict"][end_key] = batch_state["shared_progress"][end_key]
 
 
 def batch_worker_thread(num_shorts, selected_prompts=None):
     batch_state["in_progress"] = True
     batch_state["should_cancel"] = False
+    batch_state["failed_job_configs"] = []
+    batch_state["batch_results"] = []
+    failure_mode = shared_state.settings.get("batch_failure_mode", "stop_all")
 
     try:
         from generator import unload_tts_model
@@ -1136,7 +1164,7 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
         unload_whisper_model()
         
         from gui.config import load_prompt_templates
-        from gui.batch import orchestrate_batch_job
+        from gui.batch import llm_job_worker, video_job_worker
 
         templates = load_prompt_templates()
         presets = load_presets()
@@ -1181,202 +1209,256 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
         job_configs = {}
         batch_state["job_details"] = {}
 
-        for i in range(1, num_shorts + 1):
-            # Fallback values if templates/presets are empty
-            template_title, prompt = (
-                "Random", "A surprising fact about space.")
-            
+        # Check if we have retry configs from the retry-failed endpoint
+        retry_configs = batch_state.get("_retry_configs")
+        if retry_configs:
+            job_configs = {i + 1: cfg for i, cfg in enumerate(retry_configs)}
+            for idx, cfg in job_configs.items():
+                cfg["index"] = idx
+            batch_state["_retry_configs"] = None
+            batch_state["job_details"] = {}
+            for idx, cfg in job_configs.items():
+                batch_state["job_details"][idx] = {
+                    "topic": (cfg.get("prompt", "Retry")[:40] if isinstance(cfg.get("prompt"), str) else "Retry"),
+                    "voice": (cfg.get("voice_id", "unknown") if isinstance(cfg.get("voice_id"), str) else "unknown"),
+                    "layout": "Split-Screen" if cfg.get("bg_video_bottom_path") else "Full Screen",
+                }
+
+        if not retry_configs:
+            # Build shuffled prompt pool to avoid duplicates in a batch
             pool = templates
             if selected_prompts and templates:
                 pool = {k: v for k, v in templates.items() if k in selected_prompts}
                 if not pool:
                     pool = templates  # fallback if none match
-                    
-            if pool:
-                template_title, prompt = random.choice(list(pool.items()))
+            prompt_items = list(pool.items()) if pool else [("Random", "A surprising fact about space.")]
+            random.shuffle(prompt_items)
+            prompt_idx = 0
 
-            voice_name, voice_id = random.choice(shared_state.VOICES)
+            for i in range(1, num_shorts + 1):
+                # Cycle through shuffled prompts for diversity
+                template_title, prompt = prompt_items[prompt_idx % len(prompt_items)]
+                prompt_idx += 1
 
-            preset_name = "default"
-            preset = {}
-            if presets:
-                preset_name, preset = random.choice(list(presets.items()))
+                voice_name, voice_id = random.choice(shared_state.VOICES)
 
-            is_split = random.choice([True, False])
-            top_video = "random"
-            bottom_video = "random" if is_split else None
+                preset_name = "default"
+                preset = {}
+                if presets:
+                    preset_name, preset = random.choice(list(presets.items()))
 
-            os.makedirs(MUSIC_DIR, exist_ok=True)
-            music_files = [f for f in os.listdir(MUSIC_DIR) if f.lower().endswith(
-                ('.mp3', '.wav', '.m4a', '.ogg', '.flac'))]
+                is_split = random.choice([True, False])
+                top_video = "random"
+                bottom_video = "random" if is_split else None
 
-            bg_music_preset = preset.get(
-                "bg_music_path", "music/default_music.mp3")
+                os.makedirs(MUSIC_DIR, exist_ok=True)
+                music_files = [f for f in os.listdir(MUSIC_DIR) if f.lower().endswith(
+                    ('.mp3', '.wav', '.m4a', '.ogg', '.flac'))]
 
-            # Helper to resolve music safely
-            def _resolve_music(path):
-                if not path:
-                    return None
-                if os.path.exists(path):
+                bg_music_preset = preset.get(
+                    "bg_music_path", "music/default_music.mp3")
+
+                # Helper to resolve music safely
+                def _resolve_music(path):
+                    if not path:
+                        return None
+                    if os.path.exists(path):
+                        return path
+                    if os.path.exists(os.path.join(BASE_DIR, path)):
+                        return os.path.join(BASE_DIR, path)
                     return path
-                if os.path.exists(os.path.join(BASE_DIR, path)):
-                    return os.path.join(BASE_DIR, path)
-                return path
 
-            if music_files:
-                chosen_music = os.path.join(
-                    MUSIC_DIR, random.choice(music_files))
-            else:
-                chosen_music = _resolve_music(bg_music_preset)
+                if music_files:
+                    chosen_music = os.path.join(
+                        MUSIC_DIR, random.choice(music_files))
+                else:
+                    chosen_music = _resolve_music(bg_music_preset)
 
-            sub_font = random.choice(
-                ["Arial", "Impact", "Georgia", "Courier New", "Times New Roman"])
-            sub_size = random.randint(64, 84)
-            sub_color = "#FFFFFF"
-            vibrant_colors = ["#FFFF00", "#00FFFF", "#00FF00", "#FF00FF",
-                              "#FF3333", "#FF9900", "#0080FF", "#FF55BB", "#33FF33"]
-            sub_highlight = random.choice(vibrant_colors)
-            sub_outline = "#000000"
-            sub_outline_width = random.randint(4, 7)
-            sub_bold = random.choice([True, False])
+                sub_font = random.choice(
+                    ["Arial", "Impact", "Georgia", "Courier New", "Times New Roman"])
+                sub_size = random.randint(64, 84)
+                sub_color = "#FFFFFF"
+                vibrant_colors = ["#FFFF00", "#00FFFF", "#00FF00", "#FF00FF",
+                                  "#FF3333", "#FF9900", "#0080FF", "#FF55BB", "#33FF33"]
+                sub_highlight = random.choice(vibrant_colors)
+                sub_outline = "#000000"
+                sub_outline_width = random.randint(4, 7)
+                sub_bold = random.choice([True, False])
 
-            enable_emojis = random.choice([True, False])
-            word_pop = random.choice([True, False])
-            word_pop_scale = round(random.uniform(
-                1.10, 1.25), 2) if word_pop else 1.0
-            inactive_dim = random.choice([True, False])
-            inactive_alpha = random.choice(
-                ["44", "66", "88", "AA"]) if inactive_dim else "FF"
-            sub_animation_style = random.choice(["tiktok_pop", "karaoke_sweep", "bouncy_bounce", "cinematic_zoom",
-                                                "glow_shake", "neon_flicker", "pulse_grow", "fade_in_slide", "typewriter_swipe"])
+                enable_emojis = random.choice([True, False])
+                word_pop = random.choice([True, False])
+                word_pop_scale = round(random.uniform(
+                    1.10, 1.25), 2) if word_pop else 1.0
+                inactive_dim = random.choice([True, False])
+                inactive_alpha = random.choice(
+                    ["44", "66", "88", "AA"]) if inactive_dim else "FF"
+                sub_animation_style = random.choice(["tiktok_pop", "karaoke_sweep", "bouncy_bounce", "cinematic_zoom",
+                                                    "glow_shake", "neon_flicker", "pulse_grow", "fade_in_slide", "typewriter_swipe"])
 
-            script_temp = shared_state.settings.get("llm_temp_script", 0.7)
-            meta_temp = shared_state.settings.get("llm_temp_metadata", 0.7)
-            output_filename = f"rendered_batch_{timestamp}_{i}.mp4"
+                script_temp = shared_state.settings.get("llm_temp_script", 0.7)
+                meta_temp = shared_state.settings.get("llm_temp_metadata", 0.7)
+                output_filename = f"rendered_batch_{timestamp}_{i}.mp4"
 
-            # Determine words per screen strategy
-            global_wps = shared_state.settings.get("words_per_screen", "3")
-            if global_wps == "random":
-                words_per_screen_choice = random.choice(["1", "3", "sentence"])
-            else:
-                words_per_screen_choice = global_wps
+                # Determine words per screen strategy
+                global_wps = shared_state.settings.get("words_per_screen", "3")
+                if global_wps == "random":
+                    words_per_screen_choice = random.choice(["1", "3", "sentence"])
+                else:
+                    words_per_screen_choice = global_wps
 
-            job_configs[i] = {
-                "index": i, "prompt": prompt, "voice_id": voice_id,
-                "bg_video_path": top_video, "bg_video_bottom_path": bottom_video,
-                "bg_music_path": chosen_music, "music_volume": preset.get("music_volume", 0.15),
-                "voice_volume": preset.get("voice_volume", 1.0),
-                "sub_font": sub_font, "sub_size": sub_size, "sub_color": sub_color,
-                "sub_highlight": sub_highlight, "sub_outline": sub_outline,
-                "sub_outline_width": sub_outline_width, "sub_bold": sub_bold,
-                "enable_emojis": enable_emojis, "word_pop": word_pop,
-                "word_pop_scale": word_pop_scale, "inactive_dim": inactive_dim,
-                "inactive_alpha": inactive_alpha, "sub_uppercase": preset.get("sub_uppercase", True),
-                "voice_speed": preset.get("voice_speed"),
-                "sub_border_style": preset.get("sub_border_style", 1),
-                "sub_shadow_width": preset.get("sub_shadow_width", 0),
-                "sub_bg_color": preset.get("sub_bg_color", "#000000"),
-                "sub_bg_alpha": preset.get("sub_bg_alpha", "80"),
-                "single_word_mode": preset.get("single_word_mode", False),
-                "words_per_screen": words_per_screen_choice,
-                "emoji_position": preset.get("emoji_position", "above"),
-                "emoji_font": preset.get("emoji_font", "Symbola"),
-                "sub_animation_style": sub_animation_style, "script_temp": script_temp,
-                "meta_temp": meta_temp,
-                "output_filename": output_filename, "model": model, "system_prompt": system_prompt,
-                "settings": shared_state.settings.copy()
-            }
+                job_configs[i] = {
+                    "index": i, "prompt": prompt, "voice_id": voice_id,
+                    "bg_video_path": top_video, "bg_video_bottom_path": bottom_video,
+                    "bg_music_path": chosen_music, "music_volume": preset.get("music_volume", 0.15),
+                    "voice_volume": preset.get("voice_volume", 1.0),
+                    "sub_font": sub_font, "sub_size": sub_size, "sub_color": sub_color,
+                    "sub_highlight": sub_highlight, "sub_outline": sub_outline,
+                    "sub_outline_width": sub_outline_width, "sub_bold": sub_bold,
+                    "enable_emojis": enable_emojis, "word_pop": word_pop,
+                    "word_pop_scale": word_pop_scale, "inactive_dim": inactive_dim,
+                    "inactive_alpha": inactive_alpha, "sub_uppercase": preset.get("sub_uppercase", True),
+                    "voice_speed": preset.get("voice_speed"),
+                    "sub_border_style": preset.get("sub_border_style", 1),
+                    "sub_shadow_width": preset.get("sub_shadow_width", 0),
+                    "sub_bg_color": preset.get("sub_bg_color", "#000000"),
+                    "sub_bg_alpha": preset.get("sub_bg_alpha", "80"),
+                    "single_word_mode": preset.get("single_word_mode", False),
+                    "words_per_screen": words_per_screen_choice,
+                    "emoji_position": preset.get("emoji_position", "above"),
+                    "emoji_font": preset.get("emoji_font", "Symbola"),
+                    "sub_animation_style": sub_animation_style, "script_temp": script_temp,
+                    "meta_temp": meta_temp,
+                    "output_filename": output_filename, "model": model, "system_prompt": system_prompt,
+                    "settings": shared_state.settings.copy()
+                }
 
-            batch_state["job_details"][i] = {
-                "topic": f"[{template_title}] {prompt[:35]}...",
-                "voice": voice_name,
-                "layout": "Split-Screen" if is_split else "Full Screen",
-            }
+                batch_state["job_details"][i] = {
+                    "topic": f"[{template_title}] {prompt[:35]}...",
+                    "voice": voice_name,
+                    "layout": "Split-Screen" if is_split else "Full Screen",
+                }
 
-        max_workers = shared_state.settings.get("max_workers")
-        if max_workers:
-            max_workers = int(max_workers)
-        else:
-            max_workers = max(1, min(2, (os.cpu_count() or 2) - 1))
-
-        llm_max_workers = shared_state.settings.get("llm_max_workers")
-        if llm_max_workers:
-            try:
-                llm_max_workers = int(llm_max_workers)
-            except ValueError:
-                llm_max_workers = 5
-        else:
-            llm_max_workers = 5
+        max_workers = _resolve_worker_count("max_workers", max(1, min(2, (os.cpu_count() or 2) - 1)))
+        llm_max_workers = _resolve_worker_count("llm_max_workers", 5)
 
         for i in range(1, num_shorts + 1):
             batch_state["shared_progress"][i] = "Queued"
 
         ctx = multiprocessing.get_context('spawn')
-        batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, max_tasks_per_child=1)
+        batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx)
         batch_state["llm_executor"] = ThreadPoolExecutor(max_workers=llm_max_workers)
-        batch_state["orchestrator_executor"] = ThreadPoolExecutor(max_workers=num_shorts)
-        
-        batch_state["futures"] = []
 
+        # Two-phase pipeline: phase 1 = all LLM, phase 2 = video as LLM completes
+        llm_futures = []
         for i in range(1, num_shorts + 1):
-            f = batch_state["orchestrator_executor"].submit(
-                orchestrate_batch_job, 
-                job_configs[i], 
-                batch_state["shared_progress"],
-                batch_state["llm_executor"],
-                batch_state["executor"]
-            )
-            batch_state["futures"].append(f)
+            batch_state["shared_progress"][i] = "Waiting for LLM"
+            f = batch_state["llm_executor"].submit(llm_job_worker, job_configs[i], batch_state["shared_progress"])
+            llm_futures.append((i, f))
 
-        # Polling loop
-        while not all(f.done() for f in batch_state["futures"]):
+        video_futures = []
+        batch_state["futures"] = []  # regenerate for API compatibility
+
+        # Main polling loop — two-phase: LLM then Video
+        while llm_futures or video_futures:
             if batch_state["should_cancel"]:
-                for f in batch_state["futures"]:
+                # Cancel all remaining futures
+                for _, f in llm_futures:
                     f.cancel()
+                for _, f in video_futures:
+                    f.cancel()
+                # Mark remaining queued jobs
+                for i in range(1, num_shorts + 1):
+                    status = batch_state["shared_progress"].get(i)
+                    if status in ("Queued", "Waiting for LLM"):
+                        batch_state["shared_progress"][i] = "Failed: Batch cancelled"
                 break
-                
-            # Check for any failed jobs to cancel the entire batch
-            has_failures = False
-            for f in batch_state["futures"]:
+
+            # --- Process completed LLM futures ---
+            still_llm = []
+            for i, f in llm_futures:
                 if f.done():
                     try:
-                        result = f.result()
-                        if result and not result[1]: # result is (idx, success, msg)
-                            has_failures = True
-                            logger.error(f"[Batch Thread] Job failed with error: {result[2]}. Cancelling entire batch.")
-                            break
+                        success, script_text, err_msg = f.result()
+                        if success:
+                            job_configs[i]["script_text"] = script_text
+                            batch_state["shared_progress"][i] = "Waiting for Compilation"
+                            vf = batch_state["executor"].submit(video_job_worker, job_configs[i], batch_state["shared_progress"])
+                            video_futures.append((i, vf))
+                        else:
+                            batch_state["shared_progress"][i] = f"Failed: {err_msg}"
+                            batch_state["failed_job_configs"].append(job_configs[i])
+                            if failure_mode == "stop_all":
+                                batch_state["should_cancel"] = True
+                                break
                     except Exception as e:
-                        has_failures = True
-                        logger.error(f"[Batch Thread] Job failed with exception: {e}. Cancelling entire batch.")
-                        break
-            
-            if has_failures:
-                batch_state["should_cancel"] = True
-                # Mark queued jobs as cancelled so the UI shows why they didn't run
-                for i in range(1, num_shorts + 1):
-                    if batch_state["shared_progress"].get(i) == "Queued":
-                        batch_state["shared_progress"][i] = "Failed: Batch cancelled due to previous error"
+                        logger.error(f"[Batch Thread] LLM job {i} exception: {e}")
+                        batch_state["shared_progress"][i] = f"Failed: {str(e)}"
+                        batch_state["failed_job_configs"].append(job_configs[i])
+                        if failure_mode == "stop_all":
+                            batch_state["should_cancel"] = True
+                            break
+                else:
+                    still_llm.append((i, f))
+            llm_futures = still_llm
+
+            if batch_state["should_cancel"]:
                 continue
 
-            # Copy shared progress to regular dict for API access
-            for i in range(1, num_shorts + 1):
-                batch_state["progress_dict"][i] = batch_state["shared_progress"].get(
-                    i, "Queued")
-                if f"{i}_start" in batch_state["shared_progress"]:
-                    batch_state["progress_dict"][f"{i}_start"] = batch_state["shared_progress"][f"{i}_start"]
-                if f"{i}_end" in batch_state["shared_progress"]:
-                    batch_state["progress_dict"][f"{i}_end"] = batch_state["shared_progress"][f"{i}_end"]
+            # --- Process completed video futures ---
+            still_video = []
+            for i, f in video_futures:
+                if f.done():
+                    try:
+                        idx, success, msg = f.result()
+                        if not success:
+                            batch_state["failed_job_configs"].append(job_configs[i])
+                            if failure_mode == "stop_all":
+                                logger.error(f"[Batch Thread] Video job {idx} failed: {msg}. Cancelling batch.")
+                                batch_state["should_cancel"] = True
+                                batch_state["shared_progress"][idx] = f"Failed: {msg}"
+                                break
+                    except Exception as e:
+                        logger.error(f"[Batch Thread] Video job {i} exception: {e}")
+                        batch_state["failed_job_configs"].append(job_configs[i])
+                        if failure_mode == "stop_all":
+                            batch_state["should_cancel"] = True
+                            batch_state["shared_progress"][i] = f"Failed: {str(e)}"
+                            break
+                else:
+                    still_video.append((i, f))
+            video_futures = still_video
 
+            if batch_state["should_cancel"]:
+                continue
+
+            # Sync progress for API
+            _sync_progress(batch_state, num_shorts)
             time.sleep(0.5)
 
         # Final sync
+        _sync_progress(batch_state, num_shorts)
+
+        # Populate batch_results for the report endpoint
+        batch_state["batch_results"] = []
         for i in range(1, num_shorts + 1):
-            batch_state["progress_dict"][i] = batch_state["shared_progress"].get(
-                i, "Queued")
-            if f"{i}_start" in batch_state["shared_progress"]:
-                batch_state["progress_dict"][f"{i}_start"] = batch_state["shared_progress"][f"{i}_start"]
-            if f"{i}_end" in batch_state["shared_progress"]:
-                batch_state["progress_dict"][f"{i}_end"] = batch_state["shared_progress"][f"{i}_end"]
+            detail = batch_state["job_details"].get(i, {})
+            status = batch_state["shared_progress"].get(i, "Unknown")
+            config = job_configs.get(i, {})
+            start = batch_state["shared_progress"].get(f"{i}_start")
+            end = batch_state["shared_progress"].get(f"{i}_end")
+            batch_state["batch_results"].append({
+                "id": i,
+                "topic": detail.get("topic", ""),
+                "voice": detail.get("voice", ""),
+                "layout": detail.get("layout", ""),
+                "status": status,
+                "title": config.get("generated_title", ""),
+                "hashtags": config.get("generated_hashtags", ""),
+                "output_filename": config.get("output_filename", ""),
+                "start_time": start,
+                "end_time": end,
+                "script_text": config.get("script_text", "")[:200],
+            })
 
     except Exception as e:
         logger.error(f"[Batch Thread] Crash: {e}")
@@ -1386,8 +1468,6 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
             batch_state["executor"].shutdown(wait=True, cancel_futures=True)
         if batch_state.get("llm_executor"):
             batch_state["llm_executor"].shutdown(wait=True, cancel_futures=True)
-        if batch_state.get("orchestrator_executor"):
-            batch_state["orchestrator_executor"].shutdown(wait=True, cancel_futures=True)
         if batch_state.get("manager"):
             batch_state["manager"].shutdown()
         batch_state["in_progress"] = False
@@ -1411,16 +1491,20 @@ def start_batch(data: BatchStartRequest):
         raise HTTPException(
             status_code=400, detail="Number of shorts must be between 1 and 100.")
 
+    # Create expensive manager outside lock so we don't block for too long
+    new_manager = multiprocessing.Manager()
+    new_shared = new_manager.dict()
+
     with _batch_lock:
         if batch_state["in_progress"]:
+            new_manager.shutdown()  # clean up the manager we just created
             raise HTTPException(
                 status_code=400, detail="A batch job is already running.")
         batch_state["in_progress"] = True
         batch_state["num_shorts"] = num_shorts
         batch_state["progress_dict"].clear()
-
-    batch_state["manager"] = multiprocessing.Manager()
-    batch_state["shared_progress"] = batch_state["manager"].dict()
+        batch_state["manager"] = new_manager
+        batch_state["shared_progress"] = new_shared
 
     t = threading.Thread(target=batch_worker_thread,
                          args=(num_shorts, data.prompts), daemon=True)
@@ -1471,7 +1555,13 @@ def get_batch_status():
         "num_shorts": batch_state["num_shorts"],
         "jobs": jobs,
         "cpu_percent": psutil.cpu_percent(interval=None),
-        "memory_percent": psutil.virtual_memory().percent
+        "memory_percent": psutil.virtual_memory().percent,
+        "progress_segments": [
+            {"name": "LLM", "start": 0, "end": 20},
+            {"name": "Voice", "start": 20, "end": 45},
+            {"name": "Transcribe", "start": 45, "end": 55},
+            {"name": "Render", "start": 55, "end": 100},
+        ]
     }
 
 
@@ -1481,6 +1571,54 @@ def cancel_batch():
         batch_state["should_cancel"] = True
         return {"status": "success", "message": "Cancellation requested. Waiting for active workers to terminate."}
     return {"status": "ignored", "message": "No active batch to cancel."}
+
+
+@app.post("/api/batch/retry-failed")
+def retry_failed_batch():
+    if batch_state["in_progress"]:
+        raise HTTPException(status_code=400, detail="A batch is currently running.")
+    
+    failed_configs = batch_state.get("failed_job_configs", [])
+    if not failed_configs:
+        raise HTTPException(status_code=400, detail="No failed jobs to retry.")
+    
+    num_failed = len(failed_configs)
+    
+    new_manager = multiprocessing.Manager()
+    new_shared = new_manager.dict()
+    
+    with _batch_lock:
+        batch_state["in_progress"] = True
+        batch_state["num_shorts"] = num_failed
+        batch_state["progress_dict"].clear()
+        batch_state["manager"] = new_manager
+        batch_state["shared_progress"] = new_shared
+        batch_state["failed_job_configs"] = []
+        batch_state["_retry_configs"] = failed_configs
+    
+    t = threading.Thread(target=batch_worker_thread, args=(num_failed, None), daemon=True)
+    t.start()
+    return {"status": "started", "message": f"Retrying {num_failed} failed jobs."}
+
+
+@app.get("/api/batch/report")
+def get_batch_report():
+    results = batch_state.get("batch_results", [])
+    if not results:
+        raise HTTPException(status_code=404, detail="No batch results available.")
+    
+    total = len(results)
+    succeeded = sum(1 for r in results if r["status"] == "Done")
+    failed = sum(1 for r in results if r["status"].startswith("Failed"))
+    
+    return {
+        "summary": {
+            "total": total,
+            "succeeded": succeeded,
+            "failed": failed,
+        },
+        "jobs": results
+    }
 
 
 @app.post("/api/restart")

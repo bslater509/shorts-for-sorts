@@ -202,6 +202,16 @@ export async function cancelBatch() {
   return await apiFetch('/api/batch/cancel', { method: 'POST' });
 }
 
+export async function retryFailedBatch() {
+  return await apiFetch('/api/batch/retry-failed', {
+    method: 'POST'
+  });
+}
+
+export async function getBatchReport() {
+  return await apiFetch('/api/batch/report');
+}
+
 export async function uploadTikTokVideo(filename, description, visibility) {
   return await apiFetch('/api/tiktok/upload', {
     method: 'POST',

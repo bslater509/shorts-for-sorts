@@ -1,14 +1,66 @@
-import sys
 import os
 import re
-import atexit
 import traceback
 import time
 from rich.table import Table
 
 from gui import state as shared_state
-from gui.config import console, clear_cache
+from gui.config import console, logger
 from gui.compiler import compile_video_flow
+from dataclasses import dataclass, fields
+from typing import Optional
+from contextlib import redirect_stdout, redirect_stderr
+
+@dataclass
+class BatchJobConfig:
+    # Required fields (no defaults)
+    index: int
+    prompt: str
+    voice_id: str
+    bg_video_path: str
+    output_filename: str
+    settings: dict
+
+    # Optional fields (with defaults)
+    bg_video_bottom_path: Optional[str] = None
+    bg_music_path: Optional[str] = None
+    music_volume: float = 0.15
+    voice_volume: float = 1.0
+    sub_font: str = "Arial"
+    sub_size: int = 72
+    sub_color: str = "#FFFFFF"
+    sub_highlight: str = "#00FFFF"
+    sub_outline: str = "#000000"
+    sub_outline_width: int = 5
+    sub_bold: bool = False
+    enable_emojis: bool = False
+    word_pop: bool = False
+    word_pop_scale: float = 1.0
+    inactive_dim: bool = False
+    inactive_alpha: str = "FF"
+    voice_speed: Optional[float] = None
+    sub_uppercase: bool = True
+    sub_border_style: int = 1
+    sub_shadow_width: int = 0
+    sub_bg_color: str = "#000000"
+    sub_bg_alpha: str = "80"
+    single_word_mode: bool = False
+    emoji_position: str = "above"
+    emoji_font: str = "Symbola"
+    sub_animation_style: str = "tiktok_pop"
+    script_temp: float = 0.7
+    meta_temp: float = 0.7
+    model: str = "gpt-4o-mini"
+    system_prompt: str = ""
+    generated_title: Optional[str] = None
+    generated_hashtags: Optional[str] = None
+    script_text: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "BatchJobConfig":
+        valid_fields = {f.name for f in fields(cls)}
+        kwargs = {k: data[k] for k in data if k in valid_fields}
+        return cls(**kwargs)
 
 class ProgressConsole:
     def __init__(self, idx, p_dict):
@@ -156,6 +208,8 @@ def display_progress_table(progress_dict, total_shorts, job_details):
     return table
 
 def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executor):
+    # Validate job config early to catch missing required keys
+    BatchJobConfig.from_dict(job_config)
     idx = job_config["index"]
     progress_dict[f"{idx}_start"] = time.time()
     try:
@@ -182,6 +236,29 @@ def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executo
         progress_dict[idx] = f"Failed: {str(e)}"
         progress_dict[f"{idx}_end"] = time.time()
         return (idx, False, str(e))
+
+def retry_with_backoff(func, max_attempts=3, base_delay=1.0):
+    """Retry a callable on transient errors with exponential backoff.
+    Retries on ConnectionError, Timeout, and exceptions mentioning
+    rate/timeout/connection/overloaded.  Does NOT retry on bad request
+    or auth errors (those are configuration problems).
+    """
+    for attempt in range(max_attempts):
+        try:
+            return func()
+        except Exception as e:
+            err_str = str(e).lower()
+            # Never retry bad-request / auth errors
+            if "bad request" in err_str or "auth" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
+                raise
+            is_retryable = (
+                isinstance(e, (ConnectionError, TimeoutError))
+                or any(w in err_str for w in ["rate", "timeout", "connection", "overloaded", "api_error"])
+            )
+            if not is_retryable or attempt == max_attempts - 1:
+                raise
+            delay = base_delay * (2 ** attempt)
+            time.sleep(delay)
 
 def llm_job_worker(job_config, progress_dict):
     idx = job_config["index"]
@@ -213,32 +290,72 @@ def llm_job_worker(job_config, progress_dict):
                 
         client = OpenAI(api_key=api_key, base_url=base_url)
         
-        response = client.chat.completions.create(
-            model=job_config["model"],
-            messages=[
-                {"role": "system", "content": job_config["system_prompt"]},
-                {"role": "user", "content": job_config["prompt"]}
-            ],
-            temperature=job_config["script_temp"],
-            stream=True
-        )
+        # Streaming LLM call with retry + buffered progress
         script_text = ""
+        _last_ts = time.time()
+        _last_wc = 0
+        
+        for attempt in range(3):
+            try:
+                response = client.chat.completions.create(
+                    model=job_config["model"],
+                    messages=[
+                        {"role": "system", "content": job_config["system_prompt"]},
+                        {"role": "user", "content": job_config["prompt"]}
+                    ],
+                    temperature=job_config["script_temp"],
+                    stream=True
+                )
+                break
+            except Exception as e:
+                err_str = str(e).lower()
+                if "bad request" in err_str or "auth" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
+                    raise
+                is_retryable = (
+                    isinstance(e, (ConnectionError, TimeoutError))
+                    or any(w in err_str for w in ["rate", "timeout", "connection", "overloaded", "api_error"])
+                )
+                if not is_retryable or attempt == 2:
+                    raise
+                progress_dict[idx] = f"LLM Script (retry {attempt+1}/3)"
+                time.sleep(1.0 * (2 ** attempt))
+        
         for chunk in response:
             if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content is not None:
                 script_text += chunk.choices[0].delta.content
                 word_count = len(script_text.split())
-                progress_dict[idx] = f"LLM Script ({word_count} words)"
+                now = time.time()
+                if word_count - _last_wc >= 5 or now - _last_ts >= 0.25:
+                    progress_dict[idx] = f"LLM Script ({word_count} words)"
+                    _last_ts = now
+                    _last_wc = word_count
                 
         script_text = script_text.strip()
         
         try:
             progress_dict[idx] = "LLM Metadata"
             meta_prompt = f"Based on the following script, provide 1 short, catchy title (under 5 words) and exactly 5 trending TikTok hashtags. Format your response exactly as follows:\nTITLE: <title>\nHASHTAGS: <hashtags>\n\nScript:\n{script_text}"
-            meta_response = client.chat.completions.create(
-                model=job_config["model"],
-                messages=[{"role": "user", "content": meta_prompt}],
-                temperature=job_config.get("meta_temp", 0.7)
-            )
+            
+            for attempt in range(3):
+                try:
+                    meta_response = client.chat.completions.create(
+                        model=job_config["model"],
+                        messages=[{"role": "user", "content": meta_prompt}],
+                        temperature=job_config.get("meta_temp", 0.7)
+                    )
+                    break
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "bad request" in err_str or "auth" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
+                        raise
+                    is_retryable = (
+                        isinstance(e, (ConnectionError, TimeoutError))
+                        or any(w in err_str for w in ["rate", "timeout", "connection", "overloaded", "api_error"])
+                    )
+                    if not is_retryable or attempt == 2:
+                        raise
+                    progress_dict[idx] = f"LLM Metadata (retry {attempt+1}/3)"
+                    time.sleep(1.0 * (2 ** attempt))
             meta_text = meta_response.choices[0].message.content.strip()
             
             title = "batch_video"
@@ -273,20 +390,6 @@ def llm_job_worker(job_config, progress_dict):
         return False, None, str(e)
 
 def video_job_worker(job_config, progress_dict):
-    _devnull = None
-    try:
-        _devnull = open(os.devnull, 'w')
-        sys.stdout = _devnull
-        sys.stderr = _devnull
-    except Exception:
-        if _devnull:
-            _devnull.close()
-        _devnull = None
-
-    try:
-        atexit.unregister(clear_cache)
-    except Exception:
-        pass
         
     idx = job_config["index"]
     output_filename = job_config["output_filename"]
@@ -327,46 +430,49 @@ def video_job_worker(job_config, progress_dict):
     
     try:
         try: progress_dict[idx] = "Compiling"
-        except Exception: pass
+        except Exception:
+            logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
         
         def ffmpeg_progress(pct):
             console.print(f"FFmpeg Rendering ({pct:.1f}%)")
 
-        success = compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=ffmpeg_progress)
+        with open(os.devnull, 'w') as devnull, \
+             redirect_stdout(devnull), \
+             redirect_stderr(devnull):
+            success = retry_with_backoff(
+                lambda: compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=ffmpeg_progress)
+            )
+            if success:
+                try:
+                    from gui.config import OUTPUT_DIR
+                    base_name = os.path.splitext(output_filename)[0]
+                    txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
+                    with open(txt_path, "w", encoding="utf-8") as f:
+                        f.write(f"{job_config.get('generated_title', 'Batch Video')}\n")
+                        f.write(f"{job_config.get('generated_hashtags', '#shorts')}\n\n")
+                        f.write(f"Script:\n{job_config.get('script_text', '')}\n")
+                except Exception:
+                    logger.warning(f"Batch job {idx}: failed to write metadata .txt (manager may have shut down)", exc_info=True)
+        
         if success:
-            try:
-                from gui.config import OUTPUT_DIR
-                base_name = os.path.splitext(output_filename)[0]
-                txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
-                with open(txt_path, "w", encoding="utf-8") as f:
-                    f.write(f"{job_config.get('generated_title', 'Batch Video')}\n")
-                    f.write(f"{job_config.get('generated_hashtags', '#shorts')}\n\n")
-                    f.write(f"Script:\n{job_config.get('script_text', '')}\n")
-            except Exception:
-                pass
-                
             try:
                 progress_dict[idx] = "Done"
                 progress_dict[f"{idx}_end"] = time.time()
-            except Exception: pass
+            except Exception:
+                logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
             return (idx, True, output_filename)
         else:
             try:
                 progress_dict[idx] = "Failed"
                 progress_dict[f"{idx}_end"] = time.time()
-            except Exception: pass
+            except Exception:
+                logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
             return (idx, False, "Compilation failed (check logs/app.log)")
     except Exception as e:
-        from gui.config import logger
         logger.error(f"Batch job {idx} exception: {e}\n{traceback.format_exc()}")
         try:
             progress_dict[idx] = f"Failed: {str(e)}"
             progress_dict[f"{idx}_end"] = time.time()
-        except Exception: pass
+        except Exception:
+            logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
         return (idx, False, str(e))
-    finally:
-        if _devnull is not None:
-            try:
-                _devnull.close()
-            except Exception:
-                pass

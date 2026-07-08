@@ -83,7 +83,9 @@ def clear_cache():
                     except Exception as e:
                         logger.debug(f"Failed to remove cache file {fp}: {e}")
 
-atexit.register(clear_cache)
+import multiprocessing
+if multiprocessing.current_process().name == "MainProcess":
+    atexit.register(clear_cache)
 
 BUILTIN_PRESETS = {
     "Split-Screen Chill (Yellow Highlight)": {
