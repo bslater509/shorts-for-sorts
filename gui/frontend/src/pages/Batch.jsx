@@ -358,6 +358,13 @@ export default function Batch() {
                       </h4>
                       <p className="text-xs text-muted-foreground">
                         {job.voice || "Auto Voice"} • {job.layout || "Auto Layout"}
+                        <span className={`ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          job.enable_emojis
+                            ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
+                            : 'bg-muted/50 text-muted-foreground/60 border border-border/30'
+                        }`}>
+                          {job.enable_emojis ? '😊 Emoji' : '🚫 No Emoji'}
+                        </span>
                       </p>
                     </div>
 

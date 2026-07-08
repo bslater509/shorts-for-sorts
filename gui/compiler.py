@@ -23,23 +23,32 @@ from gui.utils import discover_opencode_keys, get_active_llm_profile
 _WHISPER_MODEL = None
 _WHISPER_MODEL_NAME = None
 
+def _release_memory_to_os():
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass
+
 def unload_whisper_model():
     global _WHISPER_MODEL, _WHISPER_MODEL_NAME
     if _WHISPER_MODEL is not None:
-        import gc
         import torch
         del _WHISPER_MODEL
         _WHISPER_MODEL = None
         _WHISPER_MODEL_NAME = None
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        gc.collect()
+        _release_memory_to_os()
         logger.info("Whisper model unloaded from memory.")
 
 def _process_chunk_worker(c_idx, chunk, total_chunks, job_id, voice, voice_speed):
     """
     Worker for parallel TTS generation. Generates audio for a single paragraph chunk.
-    Using paragraph-level chunks (vs individual sentences) gives XTTSv2 more context,
+    Using paragraph-level chunks (vs individual sentences) gives the TTS engine more context,
     resulting in more natural prosody and fewer unnatural pauses at boundaries.
     """
     console.print(f"[yellow]  → Generating voice for chunk {c_idx+1}/{total_chunks}: \"{chunk[:60]}{'...' if len(chunk) > 60 else ''}\"[/]")
@@ -166,6 +175,9 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             "inactive_dim": current_state.get("inactive_dim") if current_state.get("inactive_dim") is not None else settings.get("inactive_dim", True),
             "inactive_alpha": current_state.get("inactive_alpha") if current_state.get("inactive_alpha") is not None else settings.get("inactive_alpha", "88"),
             "enable_emojis": current_state.get("enable_emojis") if current_state.get("enable_emojis") is not None else settings.get("enable_emojis", True),
+            "enable_color_emoji": current_state.get("enable_color_emoji") if current_state.get("enable_color_emoji") is not None else settings.get("enable_color_emoji", True),
+            "emoji_position": current_state.get("emoji_position") or settings.get("emoji_position", "above"),
+            "emoji_font": current_state.get("emoji_font") or settings.get("emoji_font", "Symbola"),
             "words_per_screen": current_state.get("words_per_screen") or settings.get("words_per_screen", "3")
         }
         
@@ -193,7 +205,7 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         words = []
 
         # --- Phase 1: Split script into paragraph chunks for TTS ---
-        # Paragraph-level splitting gives XTTSv2 much more context per call, producing
+        # Paragraph-level splitting gives the TTS engine much more context per call, producing
         # more natural prosody with fewer audible seams between chunks.
         raw_chunks = [c.strip() for c in script.split("\n\n") if c.strip()]
 
@@ -230,7 +242,7 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         console.print(f"[yellow]→ Script split into {len(chunks)} voice chunk(s) for generation.[/]")
 
         audio_arrays = []
-        sample_rate = 24000  # Default for XTTSv2
+        sample_rate = 24000  # Kokoro TTS output sample rate
         current_offset = 0.0
         
         # Setup Whisper client if using API
@@ -293,7 +305,8 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         else:
             raise RuntimeError("No audio generated.")
             
-        console.print(f"[yellow]  → Transcribing full audio file...[/]")
+        total_duration = len(concatenated_audio) / sample_rate
+        console.print(f"[yellow]  → Transcribing full audio file ({total_duration:.1f}s)...[/]")
         transcribed = False
         
         if use_local_whisper or w_client is None:
@@ -304,6 +317,8 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                     _WHISPER_MODEL_NAME = local_model_name
                 segments, info = _WHISPER_MODEL.transcribe(audio_path, word_timestamps=True)
                 for segment in segments:
+                    pct = min(99, int((segment.end / total_duration) * 100))
+                    console.print(f"Transcribing audio... {pct}%")
                     if segment.words:
                         for w in segment.words:
                             words.append({
@@ -318,6 +333,7 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                 
         if not transcribed and w_client is not None:
             try:
+                console.print("Transcribing audio... (API)")
                 with open(audio_path, "rb") as f:
                     transcription = w_client.audio.transcriptions.create(
                         model="whisper-1",
@@ -326,12 +342,16 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                         timestamp_granularities=["word"]
                     )
                 if hasattr(transcription, "words") and transcription.words:
-                    for w in transcription.words:
+                    total_api = len(transcription.words)
+                    for i, w in enumerate(transcription.words):
                         words.append({
                             "word": w.get("word") if isinstance(w, dict) else getattr(w, "word"),
                             "start": w.get("start") if isinstance(w, dict) else getattr(w, "start"),
                             "end": w.get("end") if isinstance(w, dict) else getattr(w, "end")
                         })
+                        if total_api > 1 and (i + 1) % max(1, total_api // 20) == 0:
+                            pct = min(99, int(((i + 1) / total_api) * 100))
+                            console.print(f"Transcribing audio... {pct}%")
                     transcribed = True
             except Exception as e:
                 logger.error(f"Whisper API transcription failed: {e}", exc_info=True)
@@ -344,6 +364,8 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                     _WHISPER_MODEL_NAME = local_model_name
                 segments, info = _WHISPER_MODEL.transcribe(audio_path, word_timestamps=True)
                 for segment in segments:
+                    pct = min(99, int((segment.end / total_duration) * 100))
+                    console.print(f"Transcribing audio... {pct}%")
                     if segment.words:
                         for w in segment.words:
                             words.append({
@@ -374,6 +396,13 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         generate_ass_subtitles(words, subs_path, style_opts=sub_opts, emoji_map=load_emoji_map())
         console.print("[green]ASS subtitles generated.[/]")
         
+        # Check for color emoji overlay manifest
+        emoji_overlay_path = None
+        if sub_opts.get("enable_color_emoji"):
+            manifest_path = subs_path + ".emoji.json"
+            if os.path.exists(manifest_path):
+                emoji_overlay_path = manifest_path
+        
         # 4. Render video using FFmpeg
         console.print("[yellow][4/4] Rendering vertical video using FFmpeg (cropping 9:16, mixing audio, burning subtitles)...[/]")
         render_preset = settings.get("render_preset", "fast")
@@ -392,7 +421,8 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             render_preset=render_preset,
             render_resolution=render_res,
             video_encoder=video_encoder,
-            progress_callback=progress_callback
+            progress_callback=progress_callback,
+            emoji_overlay_path=emoji_overlay_path
         )
         
         shutil.move(temp_output_path, output_path)
@@ -431,7 +461,11 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                 pass
         return False
     finally:
-        for p in [audio_path, subs_path]:
+        from generator import unload_tts_model
+        unload_tts_model()
+        unload_whisper_model()
+        manifest_to_clean = subs_path + ".emoji.json"
+        for p in [audio_path, subs_path, manifest_to_clean]:
             if os.path.exists(p):
                 try:
                     os.remove(p)

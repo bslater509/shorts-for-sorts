@@ -36,6 +36,7 @@ state = {
     "inactive_dim": None,
     "inactive_alpha": None,
     "enable_emojis": None,
+    "enable_color_emoji": None,
     "sub_uppercase": None,
     "sub_border_style": None,
     "sub_shadow_width": None,

@@ -49,12 +49,12 @@ export default function Compiler() {
         let currentProgress = 10
         let text = 'Starting...'
 
-        if (logsText.includes('Generating voice for sentence')) {
+        if (logsText.includes('Generating voice for chunk')) {
           text = 'Generating Audio...'
           currentProgress = 25
-          const matches = logsText.match(/sentence (\d+)\/(\d+)/g)
+          const matches = logsText.match(/chunk (\d+)\/(\d+)/g)
           if (matches && matches.length > 0) {
-            const numMatch = matches[matches.length - 1].match(/sentence (\d+)\/(\d+)/)
+            const numMatch = matches[matches.length - 1].match(/chunk (\d+)\/(\d+)/)
             if (numMatch) {
               const current = parseInt(numMatch[1])
               const total = parseInt(numMatch[2])
@@ -62,9 +62,14 @@ export default function Compiler() {
             }
           }
         }
-        if (logsText.includes('Transcribing full audio file')) {
-          currentProgress = 45
+        if (logsText.includes('Transcribing full audio file') || logsText.includes('Transcribing audio...')) {
           text = 'Transcribing Audio...'
+          const transMatch = logsText.match(/Transcribing audio\.\.\. (\d+)%/)
+          if (transMatch) {
+            currentProgress = 45 + Math.floor((parseInt(transMatch[1]) / 100) * 10)
+          } else {
+            currentProgress = 45
+          }
         }
         if (logsText.includes('[3/4]') || logsText.includes('ASS subtitles generated')) {
           currentProgress = 55

@@ -76,8 +76,12 @@ class ProgressConsole:
                     self.p_dict[self.idx] = f"Voice Generation ({match.group(1)})"
                 else:
                     self.p_dict[self.idx] = "Voice Generation"
-            elif "Transcribing full audio file" in msg:
-                self.p_dict[self.idx] = "Transcription"
+            elif "Transcribing audio..." in msg or "Transcribing full audio file" in msg:
+                match = re.search(r"(\d+)%", msg)
+                if match:
+                    self.p_dict[self.idx] = f"Transcription ({match.group(1)}%)"
+                else:
+                    self.p_dict[self.idx] = "Transcription"
             elif "[3/4]" in msg:
                 self.p_dict[self.idx] = "Subtitles"
             elif "FFmpeg Rendering" in msg:
@@ -119,7 +123,11 @@ def get_progress_percentage(status):
         return 45
     elif status == "Compiling":
         return 28
-    elif status == "Transcription":
+    elif status.startswith("Transcription"):
+        match = re.search(r"\((\d+)%\)", status)
+        if match:
+            pct = int(match.group(1))
+            return 45 + int((pct / 100) * 10)
         return 48
     elif status == "Subtitles":
         return 55
@@ -434,6 +442,10 @@ def video_job_worker(job_config, progress_dict):
             logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
         
         def ffmpeg_progress(pct):
+            try:
+                pct = float(pct)
+            except (TypeError, ValueError):
+                pct = 0.0
             console.print(f"FFmpeg Rendering ({pct:.1f}%)")
 
         with open(os.devnull, 'w') as devnull, \

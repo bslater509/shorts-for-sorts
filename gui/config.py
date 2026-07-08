@@ -107,7 +107,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.15,
         "inactive_dim": True,
         "inactive_alpha": "88",
-        "enable_emojis": True
+        "enable_emojis": True,
+        "enable_color_emoji": True
     },
     "Lofi Storyteller (Cyan Highlight)": {
         "name": "Lofi Storyteller (Cyan Highlight)",
@@ -128,7 +129,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.15,
         "inactive_dim": True,
         "inactive_alpha": "88",
-        "enable_emojis": True
+        "enable_emojis": True,
+        "enable_color_emoji": True
     },
     "Fast-Paced Promo (Magenta Highlight)": {
         "name": "Fast-Paced Promo (Magenta Highlight)",
@@ -149,7 +151,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.15,
         "inactive_dim": True,
         "inactive_alpha": "88",
-        "enable_emojis": True
+        "enable_emojis": True,
+        "enable_color_emoji": True
     },
     "TikTok Kinetic Pop (Green Highlight)": {
         "name": "TikTok Kinetic Pop (Green Highlight)",
@@ -170,7 +173,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.20,
         "inactive_dim": True,
         "inactive_alpha": "66",
-        "enable_emojis": True
+        "enable_emojis": True,
+        "enable_color_emoji": True
     },
     "Retro Synthwave (Purple Highlight)": {
         "name": "Retro Synthwave (Purple Highlight)",
@@ -191,7 +195,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.20,
         "inactive_dim": True,
         "inactive_alpha": "AA",
-        "enable_emojis": True
+        "enable_emojis": True,
+        "enable_color_emoji": True
     },
     "Cinematic Documentary (Gold Highlight)": {
         "name": "Cinematic Documentary (Gold Highlight)",
@@ -212,7 +217,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.0,
         "inactive_dim": False,
         "inactive_alpha": "FF",
-        "enable_emojis": False
+        "enable_emojis": False,
+        "enable_color_emoji": True
     },
     "Cyberpunk Red (Red Highlight)": {
         "name": "Cyberpunk Red (Red Highlight)",
@@ -233,7 +239,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.25,
         "inactive_dim": True,
         "inactive_alpha": "66",
-        "enable_emojis": False
+        "enable_emojis": False,
+        "enable_color_emoji": True
     },
     "Classic Serif Storyteller (Amber Highlight)": {
         "name": "Classic Serif Storyteller (Amber Highlight)",
@@ -254,7 +261,8 @@ BUILTIN_PRESETS = {
         "word_pop_scale": 1.15,
         "inactive_dim": True,
         "inactive_alpha": "88",
-        "enable_emojis": True
+        "enable_emojis": True,
+        "enable_color_emoji": True
     }
 }
 

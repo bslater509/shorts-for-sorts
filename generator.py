@@ -6,6 +6,7 @@ import urllib.request
 import sys
 import random
 import logging
+from typing import Optional
 import ffmpeg
 
 logger = logging.getLogger("shorts_creator.generator")
@@ -89,15 +90,23 @@ def init_tts_session():
             logger.error(f"Failed to initialize Kokoro model: {e}", exc_info=True)
             raise RuntimeError(f"Failed to initialize Kokoro model: {e}") from e
 
+def _release_memory_to_os():
+    import ctypes, gc
+    gc.collect()
+    try:
+        libc = ctypes.CDLL("libc.so.6")
+        libc.malloc_trim(0)
+    except Exception:
+        pass
+
 def unload_tts_model():
     """Unloads the TTS model from memory to free it up for batch processes."""
     global _TTS_INSTANCE
     with _TTS_LOCK:
         if _TTS_INSTANCE is not None:
-            import gc
             del _TTS_INSTANCE
             _TTS_INSTANCE = None
-            gc.collect()
+            _release_memory_to_os()
             logger.info("Kokoro model unloaded from memory.")
 
 def generate_voice(text: str, voice: str, output_path: str, default_speed: float = 1.0):
@@ -137,7 +146,7 @@ def generate_voice(text: str, voice: str, output_path: str, default_speed: float
             with _TTS_LOCK:
                 # Provide a fallback voice if the specified voice is not recognized by Kokoro
                 target_voice = voice if voice else "af_bella"
-                samples, sample_rate = _TTS_INSTANCE.create(clean_text, voice=target_voice, speed=default_speed, lang="en-us")
+                samples, sample_rate = _TTS_INSTANCE.create(clean_text, voice=target_voice, speed=default_speed, lang="en-us")  # type: ignore[attr-defined]
                 sf.write(tmp_path, samples, sample_rate)
             
             # Apply FFmpeg post-processing: EQ
@@ -260,7 +269,7 @@ def hex_and_alpha_to_ass(hex_str: str, alpha_str: str = "00") -> str:
         alpha = "0" + alpha
     return f"&H{alpha}{b}{g}{r}"
 
-def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = None, emoji_map: dict = None):
+def generate_ass_subtitles(words: list, output_path: str, style_opts: Optional[dict] = None, emoji_map: Optional[dict] = None):
     """
     Groups words into short phrases and writes a styled ASS subtitle file
     with active word highlighting, word pop, inactive dimming, and contextual emojis.
@@ -284,6 +293,7 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
     inactive_dim = style_opts.get("inactive_dim", True)
     inactive_alpha = style_opts.get("inactive_alpha", "88")
     enable_emojis = style_opts.get("enable_emojis", True)
+    enable_color_emoji = style_opts.get("enable_color_emoji", True)
 
     # New styling options
     uppercase = style_opts.get("uppercase", True)
@@ -294,6 +304,9 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
     words_per_screen = str(style_opts.get("words_per_screen", "3"))
     emoji_position = style_opts.get("emoji_position", "above") if enable_emojis else "none"
     emoji_font = style_opts.get("emoji_font", "Symbola")
+
+    emoji_overlays = []
+
     animation_style = style_opts.get("sub_animation_style", "tiktok_pop")
 
     scale_pct = int(word_pop_scale * 100)
@@ -413,8 +426,28 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
                 
                 w_text = w
                 if emoji_position == "same_line" and phrase_emojis[idx]:
-                    wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
-                    w_text = f"{wrapped_emoji} {w_text}"
+                    if enable_color_emoji:
+                        pass  # Will use color emoji overlay
+                    else:
+                        wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                        w_text = f"{wrapped_emoji} {w_text}"
+                
+                # Build color emoji overlay entry if applicable
+                if enable_color_emoji and emoji_map and emoji_position != "none" and phrase_emojis[idx]:
+                    if emoji_position == "above":
+                        pos_x = 540
+                        pos_y = margin_v + 50
+                    else:
+                        pos_x = 540
+                        pos_y = (1920 // 2) - margin_v
+                    emoji_overlays.append({
+                        "emoji": phrase_emojis[idx],
+                        "x": pos_x,
+                        "y": pos_y,
+                        "size": font_size,
+                        "start": start,
+                        "end": end
+                    })
                 
                 if idx < len(phrase) - 1:
                     text_parts.append(f"{{\\kf{word_cs}}}{w_text} ")
@@ -425,8 +458,11 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
             phrase_text = "".join(text_parts)
             
             if emoji_position == "above" and first_emoji:
-                emoji_top = f"{{\\fn{emoji_font}}}{first_emoji}{{\\fn}}"
-                dialogue_text = f"{emoji_top}\\N{phrase_text}"
+                if enable_color_emoji:
+                    dialogue_text = phrase_text
+                else:
+                    emoji_top = f"{{\\fn{emoji_font}}}{first_emoji}{{\\fn}}"
+                    dialogue_text = f"{emoji_top}\\N{phrase_text}"
             else:
                 dialogue_text = phrase_text
                 
@@ -474,8 +510,29 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
                             
                         w_text = w
                         if emoji_position == "same_line" and phrase_emojis[idx]:
-                            wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
-                            w_text = f"{wrapped_emoji} {w_text}"
+                            if enable_color_emoji:
+                                pass  # Will use color emoji overlay
+                            else:
+                                wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                                w_text = f"{wrapped_emoji} {w_text}"
+                        
+                        # Build color emoji overlay entry if applicable
+                        if enable_color_emoji and emoji_map and emoji_position != "none" and phrase_emojis[idx]:
+                            if emoji_position == "above":
+                                pos_x = 540
+                                pos_y = margin_v + 50
+                            else:
+                                pos_x = 540
+                                pos_y = (1920 // 2) - margin_v
+                            emoji_overlays.append({
+                                "emoji": phrase_emojis[idx],
+                                "x": pos_x,
+                                "y": pos_y,
+                                "size": font_size,
+                                "start": active_word_info["start"],
+                                "end": active_word_info["end"]
+                            })
+                        
                         text_parts.append(f"{{{active_tags}}}{w_text}{{\\r}}")
                     else:
                         # Inactive word: dim if enabled
@@ -487,13 +544,22 @@ def generate_ass_subtitles(words: list, output_path: str, style_opts: dict = Non
                 phrase_text = " ".join(text_parts)
                 
                 if emoji_position == "above" and phrase_emojis[idx]:
-                    emoji_top = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
-                    dialogue_text = f"{emoji_top}\\N{phrase_text}"
+                    if enable_color_emoji:
+                        dialogue_text = phrase_text
+                    else:
+                        emoji_top = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                        dialogue_text = f"{emoji_top}\\N{phrase_text}"
                 else:
                     dialogue_text = phrase_text
                     
                 lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{dialogue_text}")
             
+    # Write emoji overlay manifest if using color emojis
+    if enable_color_emoji and emoji_map and emoji_position != "none":
+        manifest_path = output_path + ".emoji.json"
+        with open(manifest_path, "w", encoding="utf-8") as mf:
+            json.dump(emoji_overlays, mf)
+
     try:
         with open(output_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
@@ -507,14 +573,15 @@ def compile_video(
     subs_path: str,
     output_path: str,
     audio_duration: float,
-    music_path: str = None,
+    music_path: Optional[str] = None,
     voice_volume: float = 1.0,
     music_volume: float = 0.15,
-    bg_video_bottom_path: str = None,
+    bg_video_bottom_path: Optional[str] = None,
     render_preset: str = 'fast',
-    render_resolution: str = '1080p',
-    video_encoder: str = 'libx265',
-    progress_callback = None
+    render_resolution: str = '720p',
+    video_encoder: str = 'libx264',
+    progress_callback = None,
+    emoji_overlay_path: Optional[str] = None,
 ):
     """
     Renders the final vertical video using FFmpeg.
@@ -540,7 +607,9 @@ def compile_video(
         
     is_split = bg_video_bottom_path is not None and os.path.exists(bg_video_bottom_path)
     
+    start_offset_bottom = 0.0
     if is_split:
+        assert bg_video_bottom_path is not None
         # Get bottom video details
         info_bottom = get_video_info(bg_video_bottom_path)
         w_bottom = info_bottom["width"]
@@ -549,8 +618,6 @@ def compile_video(
         
         if w_bottom == 0 or h_bottom == 0:
             raise ValueError(f"Could not retrieve video dimensions for {bg_video_bottom_path}")
-            
-        start_offset_bottom = 0.0
         if bg_bottom_duration > audio_duration:
             start_offset_bottom = random.uniform(0.0, bg_bottom_duration - audio_duration)
             print(f"Selecting random bottom background start offset: {start_offset_bottom:.2f}s (duration: {bg_bottom_duration:.2f}s)")
@@ -607,7 +674,7 @@ def compile_video(
 
     # 2. Build input streams
     bg_video_path = os.path.abspath(bg_video_path)
-    input_args_top = {"stream_loop": -1}
+    input_args_top: dict[str, object] = {"stream_loop": -1}
     if start_offset_top > 0.0:
         input_args_top["ss"] = f"{start_offset_top:.2f}"
     
@@ -617,23 +684,55 @@ def compile_video(
     target_h = 1920 if render_resolution == '1080p' else 1280
 
     if is_split:
-        bg_video_bottom_path = os.path.abspath(bg_video_bottom_path)
-        input_args_bottom = {"stream_loop": -1}
+        bg_video_bottom_path = os.path.abspath(bg_video_bottom_path)  # type: ignore[arg-type]
+        input_args_bottom: dict[str, object] = {"stream_loop": -1}
         if start_offset_bottom > 0.0:
             input_args_bottom["ss"] = f"{start_offset_bottom:.2f}"
         bottom_video_in = ffmpeg.input(bg_video_bottom_path, **input_args_bottom).video
 
         # Crop, scale and stack top and bottom streams
-        top_v = top_video_in.filter('crop', crop_w_top, crop_h_top, offset_x_top, offset_y_top).filter('scale', target_w, target_h // 2)
-        bottom_v = bottom_video_in.filter('crop', crop_w_bottom, crop_h_bottom, offset_x_bottom, offset_y_bottom).filter('scale', target_w, target_h // 2)
+        top_v = top_video_in.filter('crop', crop_w_top, crop_h_top, offset_x_top, offset_y_top).filter('scale', target_w, target_h // 2)  # type: ignore[possibly-unbound]
+        bottom_v = bottom_video_in.filter('crop', crop_w_bottom, crop_h_bottom, offset_x_bottom, offset_y_bottom).filter('scale', target_w, target_h // 2)  # type: ignore[possibly-unbound]
         v_stream = ffmpeg.filter([top_v, bottom_v], 'vstack')
     else:
-        v_stream = top_video_in.filter('crop', crop_w, crop_h, offset_x, offset_y).filter('scale', target_w, target_h)
+        v_stream = top_video_in.filter('crop', crop_w, crop_h, offset_x, offset_y).filter('scale', target_w, target_h)  # type: ignore[possibly-unbound]
 
     # Apply subtitles to the video stream (look for fonts in the fonts folder)
     fonts_dir = os.path.join(BASE_DIR, "fonts")
     os.makedirs(fonts_dir, exist_ok=True)
     v_stream = v_stream.filter('subtitles', filename=os.path.abspath(subs_path), fontsdir=fonts_dir)
+
+    # Apply color emoji overlays if manifest provided
+    if emoji_overlay_path and os.path.exists(emoji_overlay_path):
+        with open(emoji_overlay_path, "r") as ef:
+            emoji_overlays = json.load(ef)
+        if emoji_overlays:
+            # Render each unique emoji to PNG (cache hit after first use)
+            import asyncio as _asyncio
+            from gui.emoji_renderer import render_emoji_png
+
+            emoji_png_cache = {}
+            unique_emojis = set(e["emoji"] for e in emoji_overlays)
+            for emoji_char in unique_emojis:
+                png_path = _asyncio.run(render_emoji_png(emoji_char, 128))
+                if png_path:
+                    emoji_png_cache[emoji_char] = png_path
+
+            # Add overlay filter for each emoji instance
+            for overlay in emoji_overlays:
+                emoji_char = overlay["emoji"]
+                png_path = emoji_png_cache.get(emoji_char)
+                if not png_path:
+                    continue
+                emoji_size = overlay.get("size", 128)
+                emoji_input = ffmpeg.input(png_path, loop=1, framerate=30, t=audio_duration)
+                emoji_input = emoji_input.filter('scale', emoji_size, emoji_size)
+                v_stream = v_stream.overlay(
+                    emoji_input,
+                    x=str(overlay["x"]),
+                    y=str(overlay["y"]),
+                    enable=f'between(t,{overlay["start"]},{overlay["end"]})'
+                )
 
     # Add smooth transitions: Video Fade-in / Fade-out (0.5s duration)
     v_stream = v_stream.filter('fade', type='in', start_time=0, duration=0.5)
@@ -643,9 +742,9 @@ def compile_video(
     audio_path = os.path.abspath(audio_path)
     voice_audio = ffmpeg.input(audio_path).audio.filter('volume', voice_volume)
 
-    has_music = music_path and os.path.exists(music_path)
+    has_music = music_path is not None and os.path.exists(music_path)
     if has_music:
-        music_path = os.path.abspath(music_path)
+        music_path = os.path.abspath(music_path)  # type: ignore[arg-type]
         music_audio = ffmpeg.input(music_path, stream_loop=-1).audio.filter('volume', music_volume)
         
         # Mix voice and music
@@ -660,7 +759,7 @@ def compile_video(
         'acodec': 'aac',
         'audio_bitrate': '192k',
         'pix_fmt': 'yuv420p',
-        'r': 60,
+        'r': 30,
         't': f"{audio_duration:.2f}"
     }
     
@@ -669,7 +768,6 @@ def compile_video(
         output_args['tag:v'] = 'hvc1'
     else:
         output_args['profile:v'] = 'high'
-        output_args['level:v'] = '5.1'
 
     # Handle encoder-specific options
     is_hw_encoder = any(video_encoder.endswith(suffix) for suffix in ['_amf', '_nvenc', '_qsv', '_videotoolbox'])
@@ -705,8 +803,9 @@ def compile_video(
         else:
             output_args['crf'] = 23
 
-    # Allow FFmpeg to use optimal number of threads based on available cores
-    output_args['threads'] = 0
+    # Cap encoder threads to limit memory usage during encoding.
+    # On a 6.8GB system, 1-2 threads for software encoders keeps memory under control.
+    output_args['threads'] = max(1, min((os.cpu_count() or 2) - 1, 2))
 
     out = ffmpeg.output(
         v_stream,
@@ -725,6 +824,20 @@ def compile_video(
     return_code = -1
     try:
         import re
+        import time as _time
+
+        def _limit_ffmpeg_memory():
+            try:
+                import resource
+                # 6 GB virtual memory limit per FFmpeg process (total system is 6.8GB)
+                resource.setrlimit(resource.RLIMIT_AS, (6 * 1024**3, 6 * 1024**3))
+            except Exception:
+                pass
+
+        # Safety timeout: 3x audio duration or 30 minutes, whichever is larger
+        _ffmpeg_timeout = max(audio_duration * 3.0, 1800.0)
+        _ffmpeg_deadline = _time.monotonic() + _ffmpeg_timeout
+
         with subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
@@ -733,14 +846,34 @@ def compile_video(
             cwd=cwd,
             bufsize=1,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            preexec_fn=_limit_ffmpeg_memory
         ) as process:
+            import select
             while True:
-                line = process.stderr.readline()
+                remaining = _ffmpeg_deadline - _time.monotonic()
+                if remaining <= 0:
+                    logger.error(f"FFmpeg timeout after {_ffmpeg_timeout:.0f}s — killing process")
+                    process.kill()
+                    process.wait()
+                    raise RuntimeError(
+                        f"FFmpeg killed after {_ffmpeg_timeout:.0f}s timeout "
+                        f"(audio_duration={audio_duration:.1f}s)"
+                    )
+                # Poll stderr with a short timeout so the deadline check
+                # fires even when ffmpeg is initializing without progress output
+                r, _, _ = select.select([process.stderr], [], [], max(0.1, min(remaining, 5.0)))  # type: ignore[arg-type]
+                if not r:
+                    continue
+                try:
+                    line = process.stderr.readline()  # type: ignore[union-attr]
+                except Exception:
+                    break
                 if not line:
                     break
                 stderr_lines.append(line)
-                
+                print(line, end='', flush=True)
+
                 # Parse progress: "time=00:00:05.12"
                 if "time=" in line:
                     match = re.search(r"time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})", line)

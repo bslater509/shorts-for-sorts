@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom"
-import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X, RefreshCw } from "lucide-react"
+import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X, RefreshCw, Loader2 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { useAppStore } from "@/store/useAppStore"
@@ -7,6 +7,7 @@ import SystemStats from "./SystemStats"
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false)
+  const [restarting, setRestarting] = useState(false)
   const loadedPreset = useAppStore(state => state.appState.loaded_preset_name) || "None (Custom)"
 
   const navItems = [
@@ -18,13 +19,30 @@ export default function Sidebar() {
     { name: "Batch Generator", path: "/batch", icon: Layers },
   ]
 
+  const pollServer = (retries = 60, interval = 2000) => {
+    let count = 0;
+    const poll = () => {
+      count++;
+      fetch("/api/system_stats", { signal: AbortSignal.timeout(3000) })
+        .then(r => r.json())
+        .then(() => window.location.reload())
+        .catch(() => {
+          if (count < retries) setTimeout(poll, interval);
+          else { setRestarting(false); alert("Server restart timed out. Please refresh manually."); }
+        });
+    };
+    setTimeout(poll, 8000);
+  };
+
   const handleRestart = async () => {
     if (!window.confirm("Are you sure you want to restart the server? Any ongoing generations will be lost.")) return;
+    setRestarting(true);
     try {
       await fetch('/api/restart', { method: 'POST' });
-      alert("Server is restarting... Please wait a few seconds and then refresh the page.");
+      pollServer();
     } catch (e) {
       console.error(e);
+      setRestarting(false);
       alert("Failed to send restart command.");
     }
   }
@@ -87,10 +105,11 @@ export default function Sidebar() {
           <SystemStats />
           <button
             onClick={handleRestart}
-            className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-red-400 hover:bg-red-500/10 hover:text-red-500 border border-border hover:border-red-500/50"
+            disabled={restarting}
+            className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-red-400 hover:bg-red-500/10 hover:text-red-500 border border-border hover:border-red-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <RefreshCw size={16} />
-            Restart Server
+            {restarting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
+            {restarting ? "Restarting..." : "Restart Server"}
           </button>
         </div>
       </aside>

@@ -241,9 +241,9 @@ class SettingsModel(BaseModel):
     local_whisper_model: Optional[str] = "tiny"
     whisper_api_key: Optional[str] = ""
     whisper_base_url: Optional[str] = ""
-    render_resolution: Optional[str] = "1080p"
+    render_resolution: Optional[str] = "720p"
     render_preset: Optional[str] = "fast"
-    video_encoder: Optional[str] = "libx265"
+    video_encoder: Optional[str] = "libx264"
     max_words: Optional[int] = 130
     max_workers: Optional[int] = 1
     llm_max_workers: Optional[int] = 5
@@ -263,6 +263,7 @@ class SettingsModel(BaseModel):
     inactive_dim: Optional[bool] = True
     inactive_alpha: Optional[str] = "88"
     enable_emojis: Optional[bool] = True
+    enable_color_emoji: Optional[bool] = None
     sub_uppercase: Optional[bool] = True
     sub_border_style: Optional[int] = 1
     sub_shadow_width: Optional[int] = 0
@@ -296,6 +297,7 @@ class PresetModel(BaseModel):
     inactive_dim: bool
     inactive_alpha: str
     enable_emojis: bool
+    enable_color_emoji: bool = True
     sub_animation_style: str
     single_word_mode: Optional[bool] = False
     emoji_position: Optional[str] = "above"
@@ -324,6 +326,7 @@ class StateModel(BaseModel):
     words_per_screen: Optional[str] = None
     inactive_alpha: Optional[str] = None
     enable_emojis: Optional[bool] = None
+    enable_color_emoji: Optional[bool] = None
     sub_uppercase: Optional[bool] = None
     sub_border_style: Optional[int] = None
     sub_shadow_width: Optional[int] = None
@@ -1314,7 +1317,7 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                     "sub_font": sub_font, "sub_size": sub_size, "sub_color": sub_color,
                     "sub_highlight": sub_highlight, "sub_outline": sub_outline,
                     "sub_outline_width": sub_outline_width, "sub_bold": sub_bold,
-                    "enable_emojis": enable_emojis, "word_pop": word_pop,
+                    "enable_emojis": enable_emojis, "enable_color_emoji": True, "word_pop": word_pop,
                     "word_pop_scale": word_pop_scale, "inactive_dim": inactive_dim,
                     "inactive_alpha": inactive_alpha, "sub_uppercase": preset.get("sub_uppercase", True),
                     "voice_speed": preset.get("voice_speed"),
@@ -1336,16 +1339,17 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                     "topic": f"[{template_title}] {prompt[:35]}...",
                     "voice": voice_name,
                     "layout": "Split-Screen" if is_split else "Full Screen",
+                    "enable_emojis": enable_emojis,
                 }
 
-        max_workers = _resolve_worker_count("max_workers", max(1, min(2, (os.cpu_count() or 2) - 1)))
+        max_workers = _resolve_worker_count("max_workers", 1)
         llm_max_workers = _resolve_worker_count("llm_max_workers", 5)
 
         for i in range(1, num_shorts + 1):
             batch_state["shared_progress"][i] = "Queued"
 
         ctx = multiprocessing.get_context('spawn')
-        batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx)
+        batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, max_tasks_per_child=1)
         batch_state["llm_executor"] = ThreadPoolExecutor(max_workers=llm_max_workers)
 
         # Two-phase pipeline: phase 1 = all LLM, phase 2 = video as LLM completes
@@ -1484,8 +1488,25 @@ class BatchStartRequest(BaseModel):
     prompts: list[str] = []
 
 
+def _log_memory_warning():
+    try:
+        with open("/proc/meminfo") as f:
+            data = f.read()
+        m = {}
+        for line in data.splitlines():
+            parts = line.split(":")
+            if len(parts) == 2:
+                m[parts[0].strip()] = int(parts[1].strip().split()[0])
+        avail_mb = m.get("MemAvailable", 0) // 1024
+        total_mb = m.get("MemTotal", 0) // 1024
+        if avail_mb < 1024:
+            logger.warning(f"Low memory: {avail_mb}MB available / {total_mb}MB total — batch may risk OOM")
+    except Exception:
+        pass
+
 @app.post("/api/batch/start")
 def start_batch(data: BatchStartRequest):
+    _log_memory_warning()
     num_shorts = data.num_shorts
     if num_shorts < 1 or num_shorts > 100:
         raise HTTPException(
@@ -1542,6 +1563,7 @@ def get_batch_status():
             "topic": detail.get("topic", "Unknown"),
             "voice": detail.get("voice", "Unknown"),
             "layout": detail.get("layout", "Unknown"),
+            "enable_emojis": detail.get("enable_emojis", False),
             "status": status,
             "progress": pct if pct is not None else 0,
             "failed": pct is None,
@@ -1625,8 +1647,27 @@ def get_batch_report():
 def restart_server(background_tasks: BackgroundTasks):
     import sys
     import os
+    import subprocess
     import time
     def restart():
+        frontend_dir = os.path.join(BASE_DIR, "gui/frontend")
+        package_json = os.path.join(frontend_dir, "package.json")
+        if os.path.exists(package_json):
+            logger.info("Rebuilding frontend...")
+            npm = "npm.cmd" if sys.platform == "win32" else "npm"
+            result = subprocess.run(
+                [npm, "run", "build"],
+                cwd=frontend_dir,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            if result.returncode != 0:
+                logger.error(f"Frontend rebuild failed: {result.stderr.strip()}")
+                return
+            logger.info("Frontend rebuilt successfully.")
+        else:
+            logger.info("No frontend source found — skipping rebuild.")
         time.sleep(1)
         os.execv(sys.executable, [sys.executable] + sys.argv)
     background_tasks.add_task(restart)
