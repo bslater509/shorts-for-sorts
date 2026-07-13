@@ -81,6 +81,46 @@ export async function generateScript(prompt, voiceOverride, modelOverride) {
   });
 }
 
+export async function generateScriptStream(prompt, voiceOverride, modelOverride, onChunk, onDone) {
+  const res = await fetch('/api/script/generate/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt,
+      selected_voice: voiceOverride || null,
+      model_override: modelOverride || null
+    })
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Request failed: ${res.status} ${text}`);
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let fullText = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = JSON.parse(line.slice(6));
+        if (data.error) throw new Error(data.error);
+        if (data.done) { onDone?.(fullText); return fullText; }
+        if (data.chunk) {
+          fullText += data.chunk;
+          onChunk?.(data.chunk, data.word_count, fullText);
+        }
+      }
+    }
+  }
+  onDone?.(fullText);
+  return fullText;
+}
+
 export async function fetchVideos() {
   return await apiFetch('/api/assets/videos');
 }
@@ -186,11 +226,21 @@ export async function fetchPrompts() {
   return await apiFetch('/api/prompts');
 }
 
-export async function startBatch(numShorts, prompts = []) {
+export async function startBatch(numShorts, prompts = [], enableEmojis = true,
+    enableEmojiAnimation = true, emojiScaleFactor = 1.5, emojiHoldDuration = 0.5,
+    emojiThrowMaxCount = 3) {
   return await apiFetch('/api/batch/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ num_shorts: numShorts, prompts })
+    body: JSON.stringify({
+      num_shorts: numShorts,
+      prompts,
+      enable_emojis: enableEmojis,
+      enable_emoji_animation: enableEmojiAnimation,
+      emoji_scale_factor: emojiScaleFactor,
+      emoji_hold_duration: emojiHoldDuration,
+      emoji_throw_max_count: emojiThrowMaxCount,
+    })
   });
 }
 
@@ -210,6 +260,10 @@ export async function retryFailedBatch() {
 
 export async function getBatchReport() {
   return await apiFetch('/api/batch/report');
+}
+
+export async function getJobDetail(jobId) {
+  return await apiFetch(`/api/batch/job/${jobId}`);
 }
 
 export async function uploadTikTokVideo(filename, description, visibility) {

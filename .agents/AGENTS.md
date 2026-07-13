@@ -120,6 +120,10 @@ Split-Screen Chill, Lofi Storyteller, Fast-Paced Promo, TikTok Kinetic Pop, Retr
 - Primary contributor: bslater509 (8 commits)
 - Evolution: CLI → Textual TUI → unified CLI → FastAPI GUI
 
+### Verification
+After editing backend Python code, run: `python -m pytest tests/ -x -q`
+After editing frontend React code, run: `cd gui/frontend && npm run lint`
+
 ### Known Gotchas
 - TTS model (Kokoro) must be unloaded before spawning batch workers (GPU memory)
 - Whisper model cached module-level, reloaded only on model name change

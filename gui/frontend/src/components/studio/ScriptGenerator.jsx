@@ -10,6 +10,7 @@ export default function ScriptGenerator() {
   
   // Use local state for the text area to prevent sluggish typing if Zustand is too global
   const [localScript, setLocalScript] = useState(appState.script_text || '')
+  const [currentWordCount, setCurrentWordCount] = useState(0)
 
   useEffect(() => {
     setLocalScript(appState.script_text || '')
@@ -20,12 +21,22 @@ export default function ScriptGenerator() {
     
     setIsGenerating(true)
     try {
-      const data = await api.generateScript(prompt, appState.selected_voice, null)
-      updateAppState({ script_text: data.script })
-      await saveCurrentState()
+      setCurrentWordCount(0)
+      await api.generateScriptStream(
+        prompt,
+        appState.selected_voice,
+        null,
+        (chunk, wordCount, fullText) => {
+          setLocalScript(fullText)
+          setCurrentWordCount(wordCount)
+        },
+        async (fullText) => {
+          updateAppState({ script_text: fullText })
+          await saveCurrentState()
+        }
+      )
     } catch (err) {
       console.error("Failed to generate script:", err)
-      // TODO: implement toast
       alert(`Generation Failed: ${err.message}`)
     } finally {
       setIsGenerating(false)
@@ -85,7 +96,7 @@ export default function ScriptGenerator() {
               className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-2 rounded-md font-medium text-sm transition-all bg-blue-500 hover:bg-blue-600 text-white shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              {isGenerating ? 'Generating...' : 'Generate Script'}
+              {isGenerating ? `Generating... ${currentWordCount} words` : 'Generate Script'}
             </button>
           </div>
         </div>

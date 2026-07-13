@@ -13,7 +13,7 @@ import questionary
 import nltk
 import concurrent.futures
 
-from generator import generate_voice, generate_ass_subtitles, compile_video
+from generator import generate_voice, generate_ass_subtitles, compile_video, get_video_info
 from gui.state import state, settings
 from gui.config import (
     CACHE_DIR, OUTPUT_DIR, VIDEOS_DIR, TEMP_DIR, logger, console, load_emoji_map
@@ -70,11 +70,14 @@ def _process_chunk_worker(c_idx, chunk, total_chunks, job_id, voice, voice_speed
 
 def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress_callback=None, state_override=None):
     global _WHISPER_MODEL, _WHISPER_MODEL_NAME
+    _t0 = __import__('time').time()
     current_state = state_override if state_override is not None else state
     
     console.print("[bold yellow]5. COMPILE TIKTOK SHORT[/]")
     script = current_state["script_text"].strip()
     voice = current_state["selected_voice"]
+    word_count = len(script.split()) if script else 0
+    logger.info("[Compiler] Starting compilation: voice=%s words=%d job_id=%s", voice, word_count, __import__('uuid').uuid4().hex[:8])
     
     if not script:
         console.print("[red]Error: Script is empty. Please generate or edit a script first.[/]")
@@ -94,6 +97,22 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             and "sound effect" not in f.lower()
             and "sfx" not in f.lower()
         ]
+        
+    # Filter out corrupt/invalid video files to avoid ffprobe cascading failures
+    if video_files:
+        valid_video_files = []
+        for vf in video_files:
+            try:
+                info = get_video_info(vf, suppress_errors=True)
+                if info and info.get("width", 0) > 0 and info.get("height", 0) > 0:
+                    valid_video_files.append(vf)
+                else:
+                    logger.warning(f"Skipping corrupt/invalid video file: {os.path.basename(vf)}")
+            except Exception:
+                logger.warning(f"Skipping corrupt/invalid video file: {os.path.basename(vf)}")
+        video_files = valid_video_files
+        if not video_files:
+            logger.error("All available background videos are corrupt or invalid.")
         
     resolved_top_path = current_state["bg_video_path"]
     resolved_bottom_path = current_state["bg_video_bottom_path"]
@@ -178,6 +197,10 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             "enable_color_emoji": current_state.get("enable_color_emoji") if current_state.get("enable_color_emoji") is not None else settings.get("enable_color_emoji", True),
             "emoji_position": current_state.get("emoji_position") or settings.get("emoji_position", "above"),
             "emoji_font": current_state.get("emoji_font") or settings.get("emoji_font", "Symbola"),
+            "enable_emoji_animation": current_state.get("enable_emoji_animation") if current_state.get("enable_emoji_animation") is not None else settings.get("enable_emoji_animation", True),
+            "emoji_scale_factor": float(current_state.get("emoji_scale_factor") if current_state.get("emoji_scale_factor") is not None else settings.get("emoji_scale_factor", 1.5)),
+            "emoji_hold_duration": float(current_state.get("emoji_hold_duration") if current_state.get("emoji_hold_duration") is not None else settings.get("emoji_hold_duration", 0.5)),
+            "emoji_throw_max_count": int(current_state.get("emoji_throw_max_count") if current_state.get("emoji_throw_max_count") is not None else settings.get("emoji_throw_max_count", 1)),
             "words_per_screen": current_state.get("words_per_screen") or settings.get("words_per_screen", "3")
         }
         
@@ -189,6 +212,9 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             # Full screen: standard Alignment 5 (Middle center)
             sub_opts["alignment"] = 5
             sub_opts["margin_v"] = 10
+        
+        target_h = 1920 if (settings.get("render_resolution", "1080p") == '1080p') else 1280
+        sub_opts["target_h"] = target_h
         
         # Load volume settings
         voice_vol = current_state["voice_volume"]
@@ -239,7 +265,7 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                         f"Fell back to ~50-word sentence grouping: {len(raw_chunks)} chunk(s).")
 
         chunks = raw_chunks
-        console.print(f"[yellow]→ Script split into {len(chunks)} voice chunk(s) for generation.[/]")
+        console.print(f"[yellow]→ Script split into {len(chunks)} voice chunk(s).[/]")
 
         audio_arrays = []
         sample_rate = 24000  # Kokoro TTS output sample rate
@@ -272,6 +298,8 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             tts_workers = min(int(tts_workers), max(1, (os.cpu_count() or 2) - 1))
         except (ValueError, TypeError):
             tts_workers = 1
+        logger.info("[Compiler] Phase 1 — TTS: %d chunks, %d workers", total_chunks, tts_workers)
+        _t_tts_start = __import__('time').time()
         with concurrent.futures.ThreadPoolExecutor(max_workers=tts_workers) as executor:
             future_to_idx = {
                 executor.submit(
@@ -289,10 +317,13 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                     raise e
                     
         audio_arrays = results
+        _t_tts_end = __import__('time').time()
+        logger.info("[Compiler] Phase 1 — TTS done in %.1fs", _t_tts_end - _t_tts_start)
 
         # Unload TTS model now that generation is finished to save RAM
         from generator import unload_tts_model
         unload_tts_model()
+        from gui.batch import log_memory_usage; log_memory_usage("Video: after TTS generation")
         
         # Phase 3: Concatenate and Transcribe once
         if audio_arrays:
@@ -307,8 +338,16 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             
         total_duration = len(concatenated_audio) / sample_rate
         console.print(f"[yellow]  → Transcribing full audio file ({total_duration:.1f}s)...[/]")
+
+        del audio_arrays, concatenated_audio
+        import gc; gc.collect()
+        from gui.batch import log_memory_usage; log_memory_usage("Video: after audio concatenation")
+
         transcribed = False
         
+        logger.info("[Compiler] Phase 2 — Transcription starting (%s), audio duration=%.1fs",
+                     "local faster-whisper" if (use_local_whisper or w_client is None) else "OpenAI Whisper API",
+                     total_duration)
         if use_local_whisper or w_client is None:
             try:
                 from faster_whisper import WhisperModel
@@ -380,7 +419,7 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
                 
         if not words:
             # Fallback to dummy timing
-            duration = len(concatenated_audio) / sample_rate
+            duration = total_duration
             clean_sentence = re.sub(r'\[[^\]]+\]', '', script).strip()
             words = [{
                 "word": clean_sentence,
@@ -389,25 +428,58 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
             }]
             
         audio_duration = words[-1]["end"] + 0.5
+        logger.info("[Compiler] Phase 2 — Transcription done: %d words, duration=%.2fs", len(words), audio_duration)
         console.print(f"[green]Transcription complete: {len(words)} words. Duration: {audio_duration:.2f}s[/]")
+
+        unload_whisper_model()
+        from gui.batch import log_memory_usage; log_memory_usage("Video: after transcription")
         
         # 3. Create Styled Subtitles File
         console.print("[yellow][3/4] Generating ASS subtitle file with custom styling...[/]")
+        # Pre-check Playwright/Chromium availability for color emoji rendering
+        # Uses Python-level import check instead of shutil.which() to work reliably
+        # in subprocess workers (e.g. ProcessPoolExecutor for batch jobs) where PATH
+        # may not include the playwright CLI binary.
+        if sub_opts.get("enable_color_emoji"):
+            try:
+                import playwright
+                _chromium_ok = True
+            except ImportError:
+                _chromium_ok = False
+            if not _chromium_ok:
+                sub_opts["enable_color_emoji"] = False
+                logger.warning("Playwright/Chromium not available — color emoji rendering disabled. Install with: playwright install chromium")
         generate_ass_subtitles(words, subs_path, style_opts=sub_opts, emoji_map=load_emoji_map())
         console.print("[green]ASS subtitles generated.[/]")
-        
+
+        del words
+        from gui.batch import log_memory_usage; log_memory_usage("Video: after subtitle generation")
+
         # Check for color emoji overlay manifest
         emoji_overlay_path = None
         if sub_opts.get("enable_color_emoji"):
             manifest_path = subs_path + ".emoji.json"
             if os.path.exists(manifest_path):
-                emoji_overlay_path = manifest_path
+                try:
+                    with open(manifest_path) as mf:
+                        overlay_count = len(json.load(mf))
+                    logger.info("Emoji overlay manifest found: %d overlays in %s", overlay_count, manifest_path)
+                    emoji_overlay_path = manifest_path
+                except (json.JSONDecodeError, OSError) as e:
+                    logger.warning("Emoji manifest exists but unreadable at %s: %s", manifest_path, e)
+            else:
+                logger.debug("No emoji overlay manifest — no word-to-emoji matches in script")
         
         # 4. Render video using FFmpeg
         console.print("[yellow][4/4] Rendering vertical video using FFmpeg (cropping 9:16, mixing audio, burning subtitles)...[/]")
         render_preset = settings.get("render_preset", "fast")
         render_res = settings.get("render_resolution", "1080p")
         video_encoder = settings.get("video_encoder", "libx265")
+        logger.info("[Compiler] Phase 4 — FFmpeg render: encoder=%s preset=%s res=%s top=%s bottom=%s emoji=%s",
+                     video_encoder, render_preset, render_res,
+                     os.path.basename(resolved_top_path),
+                     os.path.basename(resolved_bottom_path) if resolved_bottom_path else "(none)",
+                     os.path.basename(emoji_overlay_path) if emoji_overlay_path else "(none)")
         compile_video(
             bg_video_path=resolved_top_path,
             audio_path=audio_path,
@@ -426,7 +498,19 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         )
         
         shutil.move(temp_output_path, output_path)
-        
+        from gui.batch import log_memory_usage; log_memory_usage("Video: after FFmpeg rendering")
+
+        # Write .txt sidecar with title, hashtags and script
+        try:
+            base_name = os.path.splitext(output_filename)[0]
+            txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write(f"{current_state.get('generated_title', '')}\n")
+                f.write(f"{current_state.get('generated_hashtags', '')}\n\n")
+                f.write(f"Script:\n{script}\n")
+        except Exception as e:
+            logger.warning(f"Failed to write metadata .txt: {e}")
+
         # Generate thumbnail for gallery preview
         try:
             import subprocess
@@ -443,6 +527,8 @@ def compile_video_flow(skip_confirm=False, custom_output_filename=None, progress
         except Exception as e:
             logger.warning(f"Thumbnail generation skipped (non-critical): {e}")
         
+        _t1 = __import__('time').time()
+        logger.info("[Compiler] ✅ Success in %.1fs — output/%s", _t1 - _t0, output_filename)
         console.print(f"\n[green]🎉 RENDER SUCCESSFUL! Saved to output/{output_filename}[/]\n")
         return True
     except Exception as e:

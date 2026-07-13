@@ -1,137 +1,1410 @@
 {
-    "science": "🧪",
-    "scientific": "🧪",
-    "scientist": "🧪",
-    "physics": "⚛️",
-    "chemistry": "🧪",
-    "biology": "🧬",
-    "space": "🌌",
-    "planet": "🪐",
-    "star": "⭐",
-    "earth": "🌍",
-    "moon": "🌙",
-    "sun": "☀️",
-    "universe": "🌌",
-    "galaxy": "🌌",
-    "alien": "👽",
-    "ufo": "🛸",
-    "fact": "💡",
-    "facts": "💡",
-    "real": "✅",
-    "fake": "❌",
-    "true": "💯",
-    "false": "🚫",
-    "nature": "🌿",
-    "animal": "🐾",
-    "water": "💧",
-    "fire": "🔥",
-    "ice": "❄️",
-    "history": "📜",
-    "historical": "📜",
-    "ancient": "🏛️",
-    "empire": "👑",
-    "king": "👑",
-    "queen": "👑",
-    "war": "⚔️",
-    "battle": "⚔️",
-    "soldier": "🪖",
-    "mystery": "🕵️‍♂️",
-    "mysterious": "🕵️‍♂️",
-    "secret": "🤫",
-    "secrets": "🤫",
-    "lost": "🗺️",
-    "find": "🔍",
-    "found": "🔍",
-    "search": "🔎",
-    "gold": "🪙",
-    "treasure": "🏴‍☠️",
-    "pirate": "🏴‍☠️",
-    "scary": "😨",
-    "creepy": "😰",
-    "ghost": "👻",
-    "dark": "🌑",
-    "phone": "📱",
-    "call": "📞",
-    "text": "💬",
-    "message": "✉️",
-    "number": "🔢",
-    "cry": "😭",
-    "scream": "😱",
-    "run": "🏃",
-    "fear": "😨",
-    "dead": "💀",
-    "death": "💀",
-    "kill": "🔪",
-    "killer": "🔪",
-    "blood": "🩸",
-    "night": "🌃",
-    "shadow": "👤",
-    "monster": "👹",
-    "demon": "😈",
-    "money": "💵",
-    "rich": "🤑",
-    "poor": "💸",
-    "buy": "🛒",
-    "sell": "🏷️",
-    "dollar": "💵",
-    "dollars": "💵",
-    "cash": "💰",
-    "wealth": "💎",
-    "business": "💼",
-    "job": "💼",
-    "boss": "👔",
-    "office": "🏢",
-    "motivation": "🔥",
-    "success": "🏆",
-    "lazy": "🛌",
-    "procrastinate": "⏳",
-    "procrastination": "⏳",
-    "work": "⚙️",
-    "life": "🌱",
-    "hack": "💡",
-    "hacks": "💡",
-    "morning": "🌅",
-    "routine": "📅",
-    "habit": "🔁",
-    "habits": "🔁",
-    "clock": "⏰",
-    "time": "⏱️",
-    "hour": "⏳",
-    "day": "☀️",
-    "school": "🏫",
-    "student": "🎓",
-    "learn": "📚",
-    "study": "📖",
-    "brain": "🧠",
-    "mind": "🧠",
-    "focus": "🎯",
-    "goal": "🥅",
-    "win": "🥇",
-    "lose": "❌",
-    "computer": "💻",
-    "internet": "🌐",
-    "code": "💻",
-    "ai": "🤖",
-    "robot": "🤖",
-    "game": "🎮",
-    "gaming": "🎮",
-    "play": "▶️",
-    "music": "🎵",
-    "song": "🎶",
-    "video": "📹",
-    "photo": "📷",
-    "love": "❤️",
-    "friend": "🤝",
-    "people": "👥",
-    "man": "👨",
-    "woman": "👩",
-    "food": "🍔",
-    "drink": "🥤",
-    "coffee": "☕",
-    "car": "🚗",
-    "plane": "✈️",
-    "house": "🏠",
-    "home": "🏠",
-    "city": "🏙️",
-    "world": "🌐"
+    "science": {
+        "emoji": "\ud83e\uddea",
+        "anim": "throw"
+    },
+    "scientific": {
+        "emoji": "\ud83e\uddea",
+        "anim": "throw"
+    },
+    "scientist": {
+        "emoji": "\ud83e\uddea",
+        "anim": "throw"
+    },
+    "physics": {
+        "emoji": "\u269b\ufe0f",
+        "anim": "throw"
+    },
+    "chemistry": {
+        "emoji": "\ud83e\uddea",
+        "anim": "throw"
+    },
+    "biology": {
+        "emoji": "\ud83e\uddec",
+        "anim": "throw"
+    },
+    "space": {
+        "emoji": "\ud83c\udf0c",
+        "anim": "throw"
+    },
+    "planet": {
+        "emoji": "\ud83e\ude90",
+        "anim": "throw"
+    },
+    "star": {
+        "emoji": "\u2b50",
+        "anim": "throw"
+    },
+    "earth": {
+        "emoji": "\ud83c\udf0d",
+        "anim": "throw"
+    },
+    "moon": {
+        "emoji": "\ud83c\udf19",
+        "anim": "throw"
+    },
+    "sun": {
+        "emoji": "\u2600\ufe0f",
+        "anim": "throw"
+    },
+    "universe": {
+        "emoji": "\ud83c\udf0c",
+        "anim": "throw"
+    },
+    "galaxy": {
+        "emoji": "\ud83c\udf0c",
+        "anim": "throw"
+    },
+    "alien": {
+        "emoji": "\ud83d\udc7d",
+        "anim": "throw"
+    },
+    "ufo": {
+        "emoji": "\ud83d\udef8",
+        "anim": "throw"
+    },
+    "fact": {
+        "emoji": "\ud83d\udca1",
+        "anim": "throw"
+    },
+    "facts": {
+        "emoji": "\ud83d\udca1",
+        "anim": "throw"
+    },
+    "real": {
+        "emoji": "\u2705",
+        "anim": "throw"
+    },
+    "fake": {
+        "emoji": "\u274c",
+        "anim": "throw"
+    },
+    "true": {
+        "emoji": "\ud83d\udcaf",
+        "anim": "throw"
+    },
+    "false": {
+        "emoji": "\ud83d\udeab",
+        "anim": "throw"
+    },
+    "nature": {
+        "emoji": "\ud83c\udf3f",
+        "anim": "throw"
+    },
+    "animal": {
+        "emoji": "\ud83d\udc3e",
+        "anim": "throw"
+    },
+    "water": {
+        "emoji": "\ud83d\udca7",
+        "anim": "throw"
+    },
+    "fire": {
+        "emoji": "\ud83d\udd25",
+        "anim": "throw"
+    },
+    "ice": {
+        "emoji": "\u2744\ufe0f",
+        "anim": "throw"
+    },
+    "history": {
+        "emoji": "\ud83d\udcdc",
+        "anim": "throw"
+    },
+    "historical": {
+        "emoji": "\ud83d\udcdc",
+        "anim": "throw"
+    },
+    "ancient": {
+        "emoji": "\ud83c\udfdb\ufe0f",
+        "anim": "throw"
+    },
+    "empire": {
+        "emoji": "\ud83d\udc51",
+        "anim": "throw"
+    },
+    "king": {
+        "emoji": "\ud83d\udc51",
+        "anim": "throw"
+    },
+    "queen": {
+        "emoji": "\ud83d\udc51",
+        "anim": "throw"
+    },
+    "war": {
+        "emoji": "\u2694\ufe0f",
+        "anim": "throw"
+    },
+    "battle": {
+        "emoji": "\u2694\ufe0f",
+        "anim": "throw"
+    },
+    "soldier": {
+        "emoji": "\ud83e\ude96",
+        "anim": "throw"
+    },
+    "mystery": {
+        "emoji": "\u2753",
+        "anim": "throw"
+    },
+    "mysterious": {
+        "emoji": "\u2753",
+        "anim": "throw"
+    },
+    "secret": {
+        "emoji": "\ud83e\udd2b",
+        "anim": "throw"
+    },
+    "secrets": {
+        "emoji": "\ud83e\udd2b",
+        "anim": "throw"
+    },
+    "lost": {
+        "emoji": "\ud83d\ude35\u200d\ud83d\udcab",
+        "anim": "throw"
+    },
+    "find": {
+        "emoji": "\ud83d\udd0d",
+        "anim": "throw"
+    },
+    "found": {
+        "emoji": "\ud83d\udd0d",
+        "anim": "throw"
+    },
+    "search": {
+        "emoji": "\ud83d\udd0e",
+        "anim": "throw"
+    },
+    "gold": {
+        "emoji": "\ud83e\ude99",
+        "anim": "throw"
+    },
+    "treasure": {
+        "emoji": "\ud83d\udc8e",
+        "anim": "throw"
+    },
+    "pirate": {
+        "emoji": "\ud83c\udff4\u200d\u2620\ufe0f",
+        "anim": "throw"
+    },
+    "scary": {
+        "emoji": "\ud83d\ude28",
+        "anim": "throw"
+    },
+    "creepy": {
+        "emoji": "\ud83d\ude30",
+        "anim": "throw"
+    },
+    "ghost": {
+        "emoji": "\ud83d\udc7b",
+        "anim": "throw"
+    },
+    "dark": {
+        "emoji": "\ud83c\udf11",
+        "anim": "throw"
+    },
+    "phone": {
+        "emoji": "\ud83d\udcf1",
+        "anim": "throw"
+    },
+    "call": {
+        "emoji": "\ud83d\udcde",
+        "anim": "throw"
+    },
+    "text": {
+        "emoji": "\ud83d\udcac",
+        "anim": "throw"
+    },
+    "message": {
+        "emoji": "\u2709\ufe0f",
+        "anim": "throw"
+    },
+    "number": {
+        "emoji": "\ud83d\udd22",
+        "anim": "throw"
+    },
+    "cry": {
+        "emoji": "\ud83d\ude2d",
+        "anim": "throw"
+    },
+    "scream": {
+        "emoji": "\ud83d\ude31",
+        "anim": "throw"
+    },
+    "run": {
+        "emoji": "\ud83c\udfc3",
+        "anim": "throw"
+    },
+    "fear": {
+        "emoji": "\ud83d\ude28",
+        "anim": "throw"
+    },
+    "dead": {
+        "emoji": "\ud83d\udc80",
+        "anim": "throw"
+    },
+    "death": {
+        "emoji": "\ud83d\udc80",
+        "anim": "throw"
+    },
+    "kill": {
+        "emoji": "\ud83d\udd2a",
+        "anim": "throw"
+    },
+    "killer": {
+        "emoji": "\ud83d\udd2a",
+        "anim": "throw"
+    },
+    "blood": {
+        "emoji": "\ud83e\ude78",
+        "anim": "throw"
+    },
+    "night": {
+        "emoji": "\ud83c\udf03",
+        "anim": "throw"
+    },
+    "shadow": {
+        "emoji": "\ud83d\udc64",
+        "anim": "throw"
+    },
+    "monster": {
+        "emoji": "\ud83d\udc79",
+        "anim": "throw"
+    },
+    "demon": {
+        "emoji": "\ud83d\ude08",
+        "anim": "throw"
+    },
+    "money": {
+        "emoji": "\ud83d\udcb5",
+        "anim": "throw"
+    },
+    "rich": {
+        "emoji": "\ud83e\udd11",
+        "anim": "throw"
+    },
+    "poor": {
+        "emoji": "\ud83d\udcb8",
+        "anim": "throw"
+    },
+    "buy": {
+        "emoji": "\ud83d\uded2",
+        "anim": "throw"
+    },
+    "sell": {
+        "emoji": "\ud83c\udff7\ufe0f",
+        "anim": "throw"
+    },
+    "dollar": {
+        "emoji": "\ud83d\udcb5",
+        "anim": "throw"
+    },
+    "dollars": {
+        "emoji": "\ud83d\udcb5",
+        "anim": "throw"
+    },
+    "cash": {
+        "emoji": "\ud83d\udcb0",
+        "anim": "throw"
+    },
+    "wealth": {
+        "emoji": "\ud83d\udc8e",
+        "anim": "throw"
+    },
+    "business": {
+        "emoji": "\ud83d\udcbc",
+        "anim": "throw"
+    },
+    "job": {
+        "emoji": "\ud83d\udcbc",
+        "anim": "throw"
+    },
+    "boss": {
+        "emoji": "\ud83d\udc54",
+        "anim": "throw"
+    },
+    "office": {
+        "emoji": "\ud83c\udfe2",
+        "anim": "throw"
+    },
+    "motivation": {
+        "emoji": "\ud83d\udd25",
+        "anim": "throw"
+    },
+    "success": {
+        "emoji": "\ud83c\udfc6",
+        "anim": "throw"
+    },
+    "lazy": {
+        "emoji": "\ud83d\udecc",
+        "anim": "throw"
+    },
+    "procrastinate": {
+        "emoji": "\u23f3",
+        "anim": "throw"
+    },
+    "procrastination": {
+        "emoji": "\u23f3",
+        "anim": "throw"
+    },
+    "work": {
+        "emoji": "\u2699\ufe0f",
+        "anim": "throw"
+    },
+    "life": {
+        "emoji": "\ud83c\udf31",
+        "anim": "throw"
+    },
+    "hack": {
+        "emoji": "\ud83d\udca1",
+        "anim": "throw"
+    },
+    "hacks": {
+        "emoji": "\ud83d\udca1",
+        "anim": "throw"
+    },
+    "morning": {
+        "emoji": "\ud83c\udf05",
+        "anim": "throw"
+    },
+    "routine": {
+        "emoji": "\ud83d\udcc5",
+        "anim": "throw"
+    },
+    "habit": {
+        "emoji": "\ud83d\udd01",
+        "anim": "throw"
+    },
+    "habits": {
+        "emoji": "\ud83d\udd01",
+        "anim": "throw"
+    },
+    "clock": {
+        "emoji": "\u23f0",
+        "anim": "throw"
+    },
+    "time": {
+        "emoji": "\u23f1\ufe0f",
+        "anim": "throw"
+    },
+    "hour": {
+        "emoji": "\u23f3",
+        "anim": "throw"
+    },
+    "day": {
+        "emoji": "\u2600\ufe0f",
+        "anim": "throw"
+    },
+    "school": {
+        "emoji": "\ud83c\udfeb",
+        "anim": "throw"
+    },
+    "student": {
+        "emoji": "\ud83c\udf93",
+        "anim": "throw"
+    },
+    "learn": {
+        "emoji": "\ud83d\udcda",
+        "anim": "throw"
+    },
+    "study": {
+        "emoji": "\ud83d\udcd6",
+        "anim": "throw"
+    },
+    "brain": {
+        "emoji": "\ud83e\udde0",
+        "anim": "throw"
+    },
+    "mind": {
+        "emoji": "\ud83e\udde0",
+        "anim": "throw"
+    },
+    "focus": {
+        "emoji": "\ud83c\udfaf",
+        "anim": "throw"
+    },
+    "goal": {
+        "emoji": "\ud83e\udd45",
+        "anim": "throw"
+    },
+    "win": {
+        "emoji": "\ud83e\udd47",
+        "anim": "throw"
+    },
+    "lose": {
+        "emoji": "\u274c",
+        "anim": "throw"
+    },
+    "computer": {
+        "emoji": "\ud83d\udcbb",
+        "anim": "throw"
+    },
+    "internet": {
+        "emoji": "\ud83c\udf10",
+        "anim": "throw"
+    },
+    "code": {
+        "emoji": "\ud83d\udcbb",
+        "anim": "throw"
+    },
+    "ai": {
+        "emoji": "\ud83e\udd16",
+        "anim": "throw"
+    },
+    "robot": {
+        "emoji": "\ud83e\udd16",
+        "anim": "throw"
+    },
+    "game": {
+        "emoji": "\ud83c\udfae",
+        "anim": "throw"
+    },
+    "gaming": {
+        "emoji": "\ud83c\udfae",
+        "anim": "throw"
+    },
+    "play": {
+        "emoji": "\u25b6\ufe0f",
+        "anim": "throw"
+    },
+    "music": {
+        "emoji": "\ud83c\udfb5",
+        "anim": "throw"
+    },
+    "song": {
+        "emoji": "\ud83c\udfb6",
+        "anim": "throw"
+    },
+    "video": {
+        "emoji": "\ud83d\udcf9",
+        "anim": "throw"
+    },
+    "photo": {
+        "emoji": "\ud83d\udcf7",
+        "anim": "throw"
+    },
+    "love": {
+        "emoji": "\u2764\ufe0f",
+        "anim": "throw"
+    },
+    "friend": {
+        "emoji": "\ud83e\udd1d",
+        "anim": "throw"
+    },
+    "people": {
+        "emoji": "\ud83d\udc65",
+        "anim": "throw"
+    },
+    "man": {
+        "emoji": "\ud83d\udc68",
+        "anim": "throw"
+    },
+    "woman": {
+        "emoji": "\ud83d\udc69",
+        "anim": "throw"
+    },
+    "food": {
+        "emoji": "\ud83c\udf54",
+        "anim": "throw"
+    },
+    "drink": {
+        "emoji": "\ud83e\udd64",
+        "anim": "throw"
+    },
+    "coffee": {
+        "emoji": "\u2615",
+        "anim": "throw"
+    },
+    "car": {
+        "emoji": "\ud83d\ude97",
+        "anim": "throw"
+    },
+    "plane": {
+        "emoji": "\u2708\ufe0f",
+        "anim": "throw"
+    },
+    "house": {
+        "emoji": "\ud83c\udfe0",
+        "anim": "throw"
+    },
+    "home": {
+        "emoji": "\ud83c\udfe0",
+        "anim": "throw"
+    },
+    "city": {
+        "emoji": "\ud83c\udfd9\ufe0f",
+        "anim": "throw"
+    },
+    "world": {
+        "emoji": "\ud83c\udf10",
+        "anim": "throw"
+    },
+    "doctor": {
+        "emoji": "\ud83d\udc68\u200d\u2695\ufe0f",
+        "anim": "throw"
+    },
+    "nurse": {
+        "emoji": "\ud83d\udc69\u200d\u2695\ufe0f",
+        "anim": "throw"
+    },
+    "hospital": {
+        "emoji": "\ud83c\udfe5",
+        "anim": "throw"
+    },
+    "medicine": {
+        "emoji": "\ud83d\udc8a",
+        "anim": "throw"
+    },
+    "pill": {
+        "emoji": "\ud83d\udc8a",
+        "anim": "throw"
+    },
+    "sick": {
+        "emoji": "\ud83e\udd12",
+        "anim": "throw"
+    },
+    "ill": {
+        "emoji": "\ud83e\udd12",
+        "anim": "throw"
+    },
+    "disease": {
+        "emoji": "\ud83e\udda0",
+        "anim": "throw"
+    },
+    "virus": {
+        "emoji": "\ud83e\udda0",
+        "anim": "throw"
+    },
+    "healthy": {
+        "emoji": "\ud83d\udcaa",
+        "anim": "throw"
+    },
+    "health": {
+        "emoji": "\u2764\ufe0f\u200d\ud83e\ude79",
+        "anim": "throw"
+    },
+    "exercise": {
+        "emoji": "\ud83c\udfcb\ufe0f",
+        "anim": "throw"
+    },
+    "gym": {
+        "emoji": "\ud83c\udfcb\ufe0f",
+        "anim": "throw"
+    },
+    "workout": {
+        "emoji": "\ud83c\udfcb\ufe0f",
+        "anim": "throw"
+    },
+    "injury": {
+        "emoji": "\ud83e\udd15",
+        "anim": "throw"
+    },
+    "pain": {
+        "emoji": "\ud83d\ude16",
+        "anim": "throw"
+    },
+    "surgery": {
+        "emoji": "\ud83e\ude7a",
+        "anim": "throw"
+    },
+    "tooth": {
+        "emoji": "\ud83e\uddb7",
+        "anim": "throw"
+    },
+    "athlete": {
+        "emoji": "\ud83c\udfc3",
+        "anim": "throw"
+    },
+    "champion": {
+        "emoji": "\ud83c\udfc6",
+        "anim": "throw"
+    },
+    "competition": {
+        "emoji": "\ud83e\udd3c",
+        "anim": "throw"
+    },
+    "compete": {
+        "emoji": "\ud83e\udd3c",
+        "anim": "throw"
+    },
+    "race": {
+        "emoji": "\ud83c\udfc1",
+        "anim": "throw"
+    },
+    "fight": {
+        "emoji": "\ud83e\udd3c\u200d\u2642\ufe0f",
+        "anim": "throw"
+    },
+    "strong": {
+        "emoji": "\ud83d\udcaa",
+        "anim": "throw"
+    },
+    "football": {
+        "emoji": "\ud83c\udfc8",
+        "anim": "throw"
+    },
+    "basketball": {
+        "emoji": "\ud83c\udfc0",
+        "anim": "throw"
+    },
+    "soccer": {
+        "emoji": "\u26bd",
+        "anim": "throw"
+    },
+    "tennis": {
+        "emoji": "\ud83c\udfbe",
+        "anim": "throw"
+    },
+    "baseball": {
+        "emoji": "\u26be",
+        "anim": "throw"
+    },
+    "boxing": {
+        "emoji": "\ud83e\udd4a",
+        "anim": "throw"
+    },
+    "medal": {
+        "emoji": "\ud83e\udd47",
+        "anim": "throw"
+    },
+    "coach": {
+        "emoji": "\ud83e\udde2",
+        "anim": "throw"
+    },
+    "trainer": {
+        "emoji": "\ud83e\udde2",
+        "anim": "throw"
+    },
+    "happy": {
+        "emoji": "\ud83d\ude0a",
+        "anim": "throw"
+    },
+    "sad": {
+        "emoji": "\ud83d\ude22",
+        "anim": "throw"
+    },
+    "angry": {
+        "emoji": "\ud83d\ude21",
+        "anim": "throw"
+    },
+    "anger": {
+        "emoji": "\ud83d\ude21",
+        "anim": "throw"
+    },
+    "mad": {
+        "emoji": "\ud83d\ude21",
+        "anim": "throw"
+    },
+    "surprised": {
+        "emoji": "\ud83d\ude32",
+        "anim": "throw"
+    },
+    "shocked": {
+        "emoji": "\ud83d\ude31",
+        "anim": "throw"
+    },
+    "laugh": {
+        "emoji": "\ud83d\ude02",
+        "anim": "throw"
+    },
+    "funny": {
+        "emoji": "\ud83d\ude02",
+        "anim": "throw"
+    },
+    "joke": {
+        "emoji": "\ud83e\udd23",
+        "anim": "throw"
+    },
+    "crazy": {
+        "emoji": "\ud83e\udd2a",
+        "anim": "throw"
+    },
+    "confused": {
+        "emoji": "\ud83d\ude15",
+        "anim": "throw"
+    },
+    "tired": {
+        "emoji": "\ud83d\ude29",
+        "anim": "throw"
+    },
+    "exhausted": {
+        "emoji": "\ud83d\ude2b",
+        "anim": "throw"
+    },
+    "stressed": {
+        "emoji": "\ud83d\ude30",
+        "anim": "throw"
+    },
+    "calm": {
+        "emoji": "\ud83e\uddd8",
+        "anim": "throw"
+    },
+    "relax": {
+        "emoji": "\ud83e\uddd8",
+        "anim": "throw"
+    },
+    "nervous": {
+        "emoji": "\ud83d\ude2c",
+        "anim": "throw"
+    },
+    "awkward": {
+        "emoji": "\ud83d\ude2c",
+        "anim": "throw"
+    },
+    "proud": {
+        "emoji": "\ud83d\ude0c",
+        "anim": "throw"
+    },
+    "embarrassed": {
+        "emoji": "\ud83d\ude33",
+        "anim": "throw"
+    },
+    "shy": {
+        "emoji": "\ud83e\udd2d",
+        "anim": "throw"
+    },
+    "bored": {
+        "emoji": "\ud83e\udd71",
+        "anim": "throw"
+    },
+    "lonely": {
+        "emoji": "\ud83e\udd7a",
+        "anim": "throw"
+    },
+    "police": {
+        "emoji": "\ud83d\udc6e",
+        "anim": "throw"
+    },
+    "cop": {
+        "emoji": "\ud83d\udc6e",
+        "anim": "throw"
+    },
+    "lawyer": {
+        "emoji": "\u2696\ufe0f",
+        "anim": "throw"
+    },
+    "court": {
+        "emoji": "\u2696\ufe0f",
+        "anim": "throw"
+    },
+    "judge": {
+        "emoji": "\u2696\ufe0f",
+        "anim": "throw"
+    },
+    "prison": {
+        "emoji": "\u26d3\ufe0f",
+        "anim": "throw"
+    },
+    "jail": {
+        "emoji": "\u26d3\ufe0f",
+        "anim": "throw"
+    },
+    "thief": {
+        "emoji": "\ud83e\udd77",
+        "anim": "throw"
+    },
+    "steal": {
+        "emoji": "\ud83e\udd77",
+        "anim": "throw"
+    },
+    "stolen": {
+        "emoji": "\ud83e\udd77",
+        "anim": "throw"
+    },
+    "crime": {
+        "emoji": "\ud83d\udd2b",
+        "anim": "throw"
+    },
+    "criminal": {
+        "emoji": "\u26d3\ufe0f",
+        "anim": "throw"
+    },
+    "trial": {
+        "emoji": "\u2696\ufe0f",
+        "anim": "throw"
+    },
+    "arrest": {
+        "emoji": "\ud83d\ude94",
+        "anim": "throw"
+    },
+    "witness": {
+        "emoji": "\ud83d\udc40",
+        "anim": "throw"
+    },
+    "lie": {
+        "emoji": "\ud83e\udd25",
+        "anim": "throw"
+    },
+    "liar": {
+        "emoji": "\ud83e\udd25",
+        "anim": "throw"
+    },
+    "innocent": {
+        "emoji": "\ud83d\ude07",
+        "anim": "throw"
+    },
+    "guilty": {
+        "emoji": "\ud83d\ude08",
+        "anim": "throw"
+    },
+    "family": {
+        "emoji": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67\u200d\ud83d\udc66",
+        "anim": "throw"
+    },
+    "baby": {
+        "emoji": "\ud83d\udc76",
+        "anim": "throw"
+    },
+    "child": {
+        "emoji": "\ud83e\uddd2",
+        "anim": "throw"
+    },
+    "parent": {
+        "emoji": "\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67",
+        "anim": "throw"
+    },
+    "mother": {
+        "emoji": "\ud83d\udc69\u200d\ud83d\udc67",
+        "anim": "throw"
+    },
+    "father": {
+        "emoji": "\ud83d\udc68\u200d\ud83d\udc67",
+        "anim": "throw"
+    },
+    "mom": {
+        "emoji": "\ud83d\udc69\u200d\ud83d\udc67",
+        "anim": "throw"
+    },
+    "dad": {
+        "emoji": "\ud83d\udc68\u200d\ud83d\udc67",
+        "anim": "throw"
+    },
+    "wedding": {
+        "emoji": "\ud83d\udc8d",
+        "anim": "throw"
+    },
+    "married": {
+        "emoji": "\ud83d\udc8d",
+        "anim": "throw"
+    },
+    "couple": {
+        "emoji": "\ud83d\udc91",
+        "anim": "throw"
+    },
+    "kiss": {
+        "emoji": "\ud83d\udc8b",
+        "anim": "throw"
+    },
+    "hug": {
+        "emoji": "\ud83e\udd17",
+        "anim": "throw"
+    },
+    "pet": {
+        "emoji": "\ud83d\udc36",
+        "anim": "throw"
+    },
+    "dog": {
+        "emoji": "\ud83d\udc36",
+        "anim": "throw"
+    },
+    "cat": {
+        "emoji": "\ud83d\udc31",
+        "anim": "throw"
+    },
+    "broken": {
+        "emoji": "\ud83d\udc94",
+        "anim": "throw"
+    },
+    "cheat": {
+        "emoji": "\ud83c\udccf",
+        "anim": "throw"
+    },
+    "alone": {
+        "emoji": "\ud83e\uddcd",
+        "anim": "throw"
+    },
+    "storm": {
+        "emoji": "\ud83c\udf29\ufe0f",
+        "anim": "throw"
+    },
+    "thunder": {
+        "emoji": "\u26c8\ufe0f",
+        "anim": "throw"
+    },
+    "lightning": {
+        "emoji": "\u26a1",
+        "anim": "throw"
+    },
+    "rain": {
+        "emoji": "\ud83c\udf27\ufe0f",
+        "anim": "throw"
+    },
+    "snowy": {
+        "emoji": "\ud83c\udf28\ufe0f",
+        "anim": "throw"
+    },
+    "tornado": {
+        "emoji": "\ud83c\udf2a\ufe0f",
+        "anim": "throw"
+    },
+    "wind": {
+        "emoji": "\ud83d\udca8",
+        "anim": "throw"
+    },
+    "rainbow": {
+        "emoji": "\ud83c\udf08",
+        "anim": "throw"
+    },
+    "flood": {
+        "emoji": "\ud83c\udf0a",
+        "anim": "throw"
+    },
+    "disaster": {
+        "emoji": "\u2604\ufe0f",
+        "anim": "throw"
+    },
+    "cloud": {
+        "emoji": "\u2601\ufe0f",
+        "anim": "throw"
+    },
+    "fog": {
+        "emoji": "\ud83c\udf2b\ufe0f",
+        "anim": "throw"
+    },
+    "volcano": {
+        "emoji": "\ud83c\udf0b",
+        "anim": "throw"
+    },
+    "luck": {
+        "emoji": "\ud83c\udf40",
+        "anim": "throw"
+    },
+    "lucky": {
+        "emoji": "\ud83c\udf40",
+        "anim": "throw"
+    },
+    "magic": {
+        "emoji": "\u2728",
+        "anim": "throw"
+    },
+    "magical": {
+        "emoji": "\u2728",
+        "anim": "throw"
+    },
+    "dream": {
+        "emoji": "\ud83d\udcad",
+        "anim": "throw"
+    },
+    "nightmare": {
+        "emoji": "\ud83d\udc79",
+        "anim": "throw"
+    },
+    "fate": {
+        "emoji": "\ud83d\udd2e",
+        "anim": "throw"
+    },
+    "destiny": {
+        "emoji": "\ud83d\udd2e",
+        "anim": "throw"
+    },
+    "miracle": {
+        "emoji": "\ud83d\ude4f",
+        "anim": "throw"
+    },
+    "legendary": {
+        "emoji": "\ud83c\udfc6",
+        "anim": "throw"
+    },
+    "myth": {
+        "emoji": "\ud83d\udc09",
+        "anim": "throw"
+    },
+    "fantasy": {
+        "emoji": "\ud83e\udd84",
+        "anim": "throw"
+    },
+    "dragon": {
+        "emoji": "\ud83d\udc09",
+        "anim": "throw"
+    },
+    "unicorn": {
+        "emoji": "\ud83e\udd84",
+        "anim": "throw"
+    },
+    "castle": {
+        "emoji": "\ud83c\udff0",
+        "anim": "throw"
+    },
+    "hero": {
+        "emoji": "\ud83e\uddb8",
+        "anim": "throw"
+    },
+    "villain": {
+        "emoji": "\ud83e\uddb9",
+        "anim": "throw"
+    },
+    "brave": {
+        "emoji": "\ud83e\udd81",
+        "anim": "throw"
+    },
+    "art": {
+        "emoji": "\ud83c\udfa8",
+        "anim": "throw"
+    },
+    "paint": {
+        "emoji": "\ud83d\udd8c\ufe0f",
+        "anim": "throw"
+    },
+    "draw": {
+        "emoji": "\u270d\ufe0f",
+        "anim": "throw"
+    },
+    "design": {
+        "emoji": "\ud83c\udfa8",
+        "anim": "throw"
+    },
+    "creative": {
+        "emoji": "\ud83d\udca1",
+        "anim": "throw"
+    },
+    "imagine": {
+        "emoji": "\ud83d\udcad",
+        "anim": "throw"
+    },
+    "write": {
+        "emoji": "\u270d\ufe0f",
+        "anim": "throw"
+    },
+    "story": {
+        "emoji": "\ud83d\udcd6",
+        "anim": "throw"
+    },
+    "author": {
+        "emoji": "\u270d\ufe0f",
+        "anim": "throw"
+    },
+    "poem": {
+        "emoji": "\ud83d\udcdd",
+        "anim": "throw"
+    },
+    "poetry": {
+        "emoji": "\ud83d\udcdd",
+        "anim": "throw"
+    },
+    "theater": {
+        "emoji": "\ud83c\udfad",
+        "anim": "throw"
+    },
+    "stage": {
+        "emoji": "\ud83c\udfad",
+        "anim": "throw"
+    },
+    "drama": {
+        "emoji": "\ud83c\udfad",
+        "anim": "throw"
+    },
+    "pizza": {
+        "emoji": "\ud83c\udf55",
+        "anim": "throw"
+    },
+    "sushi": {
+        "emoji": "\ud83c\udf63",
+        "anim": "throw"
+    },
+    "cake": {
+        "emoji": "\ud83c\udf82",
+        "anim": "throw"
+    },
+    "wine": {
+        "emoji": "\ud83c\udf77",
+        "anim": "throw"
+    },
+    "beer": {
+        "emoji": "\ud83c\udf7a",
+        "anim": "throw"
+    },
+    "fruit": {
+        "emoji": "\ud83c\udf4e",
+        "anim": "throw"
+    },
+    "sweet": {
+        "emoji": "\ud83c\udf6c",
+        "anim": "throw"
+    },
+    "spicy": {
+        "emoji": "\ud83c\udf36\ufe0f",
+        "anim": "throw"
+    },
+    "cook": {
+        "emoji": "\ud83d\udc68\u200d\ud83c\udf73",
+        "anim": "throw"
+    },
+    "chef": {
+        "emoji": "\ud83d\udc68\u200d\ud83c\udf73",
+        "anim": "throw"
+    },
+    "restaurant": {
+        "emoji": "\ud83c\udf7d\ufe0f",
+        "anim": "throw"
+    },
+    "hungry": {
+        "emoji": "\ud83e\udd24",
+        "anim": "throw"
+    },
+    "taste": {
+        "emoji": "\ud83d\udc45",
+        "anim": "throw"
+    },
+    "delicious": {
+        "emoji": "\ud83d\ude0b",
+        "anim": "throw"
+    },
+    "adventure": {
+        "emoji": "\ud83e\udded",
+        "anim": "throw"
+    },
+    "explore": {
+        "emoji": "\ud83d\udd0d",
+        "anim": "throw"
+    },
+    "discover": {
+        "emoji": "\ud83d\udd0d",
+        "anim": "throw"
+    },
+    "beach": {
+        "emoji": "\ud83c\udfd6\ufe0f",
+        "anim": "throw"
+    },
+    "mountain": {
+        "emoji": "\ud83c\udfd4\ufe0f",
+        "anim": "throw"
+    },
+    "island": {
+        "emoji": "\ud83c\udfdd\ufe0f",
+        "anim": "throw"
+    },
+    "trip": {
+        "emoji": "\ud83e\uddf3",
+        "anim": "throw"
+    },
+    "vacation": {
+        "emoji": "\ud83c\udf34",
+        "anim": "throw"
+    },
+    "camp": {
+        "emoji": "\ud83c\udfd5\ufe0f",
+        "anim": "throw"
+    },
+    "hike": {
+        "emoji": "\ud83e\udd7e",
+        "anim": "throw"
+    },
+    "hiking": {
+        "emoji": "\ud83e\udd7e",
+        "anim": "throw"
+    },
+    "ocean": {
+        "emoji": "\ud83c\udf0a",
+        "anim": "throw"
+    },
+    "forest": {
+        "emoji": "\ud83c\udf32",
+        "anim": "throw"
+    },
+    "river": {
+        "emoji": "\ud83c\udfde\ufe0f",
+        "anim": "throw"
+    },
+    "desert": {
+        "emoji": "\ud83c\udfdc\ufe0f",
+        "anim": "throw"
+    },
+    "passport": {
+        "emoji": "\ud83d\udec2",
+        "anim": "throw"
+    },
+    "compass": {
+        "emoji": "\ud83e\udded",
+        "anim": "throw"
+    },
+    "travel": {
+        "emoji": "\u2708\ufe0f",
+        "anim": "throw"
+    },
+    "traveler": {
+        "emoji": "\ud83e\uddf3",
+        "anim": "throw"
+    },
+    "dance": {
+        "emoji": "\ud83d\udc83",
+        "anim": "throw"
+    },
+    "dancer": {
+        "emoji": "\ud83d\udc83",
+        "anim": "throw"
+    },
+    "party": {
+        "emoji": "\ud83c\udf89",
+        "anim": "throw"
+    },
+    "celebrate": {
+        "emoji": "\ud83e\udd73",
+        "anim": "throw"
+    },
+    "celebration": {
+        "emoji": "\ud83c\udf8a",
+        "anim": "throw"
+    },
+    "fashion": {
+        "emoji": "\ud83d\udc57",
+        "anim": "throw"
+    },
+    "beauty": {
+        "emoji": "\ud83d\udc84",
+        "anim": "throw"
+    },
+    "pray": {
+        "emoji": "\ud83d\ude4f",
+        "anim": "throw"
+    },
+    "prayer": {
+        "emoji": "\ud83d\ude4f",
+        "anim": "throw"
+    },
+    "bless": {
+        "emoji": "\u2728",
+        "anim": "throw"
+    },
+    "blessed": {
+        "emoji": "\u2728",
+        "anim": "throw"
+    },
+    "curse": {
+        "emoji": "\ud83e\udd2c",
+        "anim": "throw"
+    },
+    "cursed": {
+        "emoji": "\ud83d\ude08",
+        "anim": "throw"
+    },
+    "haunted": {
+        "emoji": "\ud83c\udfda\ufe0f",
+        "anim": "throw"
+    },
+    "future": {
+        "emoji": "\ud83d\udd2e",
+        "anim": "throw"
+    },
+    "past": {
+        "emoji": "\u231b",
+        "anim": "throw"
+    },
+    "energy": {
+        "emoji": "\u26a1",
+        "anim": "throw"
+    },
+    "energetic": {
+        "emoji": "\u26a1",
+        "anim": "throw"
+    },
+    "soul": {
+        "emoji": "\ud83d\udd4a\ufe0f",
+        "anim": "throw"
+    },
+    "spirit": {
+        "emoji": "\u2728",
+        "anim": "throw"
+    },
+    "spiritual": {
+        "emoji": "\ud83d\udd6f\ufe0f",
+        "anim": "throw"
+    },
+    "devil": {
+        "emoji": "\ud83d\ude08",
+        "anim": "throw"
+    },
+    "angel": {
+        "emoji": "\ud83d\ude07",
+        "anim": "throw"
+    },
+    "warrior": {
+        "emoji": "\u2694\ufe0f",
+        "anim": "throw"
+    },
+    "hunt": {
+        "emoji": "\ud83c\udff9",
+        "anim": "throw"
+    },
+    "hunter": {
+        "emoji": "\ud83c\udff9",
+        "anim": "throw"
+    },
+    "smile": {
+        "emoji": "\ud83d\ude0a",
+        "anim": "throw"
+    },
+    "grin": {
+        "emoji": "\ud83d\ude01",
+        "anim": "throw"
+    },
+    "afraid": {
+        "emoji": "\ud83d\ude28",
+        "anim": "throw"
+    },
+    "terrified": {
+        "emoji": "\ud83d\ude31",
+        "anim": "throw"
+    },
+    "protect": {
+        "emoji": "\ud83d\udee1\ufe0f",
+        "anim": "throw"
+    },
+    "protection": {
+        "emoji": "\ud83d\udee1\ufe0f",
+        "anim": "throw"
+    },
+    "build": {
+        "emoji": "\ud83d\udd27",
+        "anim": "throw"
+    },
+    "builder": {
+        "emoji": "\ud83d\udc77",
+        "anim": "throw"
+    },
+    "grow": {
+        "emoji": "\ud83c\udf31",
+        "anim": "throw"
+    },
+    "growth": {
+        "emoji": "\ud83d\udcc8",
+        "anim": "throw"
+    },
+    "fly": {
+        "emoji": "\ud83d\udd4a\ufe0f",
+        "anim": "throw"
+    },
+    "swim": {
+        "emoji": "\ud83c\udfca",
+        "anim": "throw"
+    },
+    "read": {
+        "emoji": "\ud83d\udcd6",
+        "anim": "throw"
+    },
+    "sing": {
+        "emoji": "\ud83c\udfa4",
+        "anim": "throw"
+    },
+    "singer": {
+        "emoji": "\ud83c\udfa4",
+        "anim": "throw"
+    },
+    "style": {
+        "emoji": "\ud83d\udc85",
+        "anim": "throw"
+    },
+    "tears": {
+        "emoji": "\ud83d\ude2d",
+        "anim": "throw"
+    }
 }

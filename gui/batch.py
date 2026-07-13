@@ -2,6 +2,7 @@ import os
 import re
 import traceback
 import time
+import psutil
 from rich.table import Table
 
 from gui import state as shared_state
@@ -9,7 +10,18 @@ from gui.config import console, logger
 from gui.compiler import compile_video_flow
 from dataclasses import dataclass, fields
 from typing import Optional
-from contextlib import redirect_stdout, redirect_stderr
+
+
+
+def log_memory_usage(stage: str):
+    proc = psutil.Process()
+    rss_mb = proc.memory_info().rss / 1024 / 1024
+    mem = psutil.virtual_memory()
+    logger.info(
+        f"[Batch Memory] {stage}: RSS={rss_mb:.0f}MB | "
+        f"Avail={mem.available/1024/1024:.0f}MB / "
+        f"{mem.total/1024/1024:.0f}MB ({mem.percent}%)"
+    )
 
 @dataclass
 class BatchJobConfig:
@@ -34,6 +46,11 @@ class BatchJobConfig:
     sub_outline_width: int = 5
     sub_bold: bool = False
     enable_emojis: bool = False
+    enable_color_emoji: bool = True
+    enable_emoji_animation: bool = True
+    emoji_scale_factor: float = 1.5
+    emoji_hold_duration: float = 0.5
+    emoji_throw_max_count: int = 3
     word_pop: bool = False
     word_pop_scale: float = 1.0
     inactive_dim: bool = False
@@ -69,9 +86,16 @@ class ProgressConsole:
         
     def print(self, *args, **kwargs):
         msg = " ".join(str(a) for a in args)
+        # Direct float/numeric progress callback (e.g., FFmpeg progress percentage)
         try:
-            if "Generating voice for sentence" in msg:
-                match = re.search(r"sentence (\d+/\d+)", msg)
+            pct = float(msg)
+            self.p_dict[self.idx] = f"FFmpeg Rendering ({pct:.1f}%)"
+            return
+        except (TypeError, ValueError):
+            pass
+        try:
+            if "Generating voice for sentence" in msg or "Generating voice for chunk" in msg:
+                match = re.search(r"(?:sentence|chunk) (\d+/\d+)", msg)
                 if match:
                     self.p_dict[self.idx] = f"Voice Generation ({match.group(1)})"
                 else:
@@ -92,8 +116,19 @@ class ProgressConsole:
                     self.p_dict[self.idx] = "FFmpeg Rendering"
             elif "[4/4]" in msg:
                 self.p_dict[self.idx] = "FFmpeg Rendering"
+            elif "Emoji Sprite" in msg:
+                self.p_dict[self.idx] = msg
+            elif "Emoji Render" in msg:
+                self.p_dict[self.idx] = msg
+            elif "Rendering emoji" in msg:
+                self.p_dict[self.idx] = "Emoji Sprites"
+            elif "Emoji overlay applied" in msg:
+                self.p_dict[self.idx] = "Emoji Overlay ✓"
             elif "ℹ️ Found cached" in msg:
                 self.p_dict[self.idx] = "Reusing Cache (Voice)"
+            elif "emoji overlay failed" in msg.lower():
+                self.p_dict[self.idx] = f"{self.p_dict.get(self.idx, '')} ⚠ Emoji Fallback"
+                logger.warning("[Batch job %d] %s", self.idx, msg)
         except Exception:
             pass
             
@@ -106,6 +141,11 @@ def get_progress_percentage(status):
     elif status == "Waiting for LLM":
         return 5
     elif status.startswith("LLM Script"):
+        match = re.search(r"\((\d+)\s*words\)", status)
+        if match:
+            word_count = int(match.group(1))
+            pct = min(14, 5 + int((word_count / 400) * 9))
+            return pct
         return 10
     elif status == "LLM Metadata":
         return 15
@@ -130,6 +170,10 @@ def get_progress_percentage(status):
             return 45 + int((pct / 100) * 10)
         return 48
     elif status == "Subtitles":
+        return 55
+    elif (status.startswith("Emoji Sprites") or status.startswith("Emoji Render")
+            or status.startswith("Emoji Sprite") or status.startswith("Rendering emoji")
+            or status.startswith("Emoji Overlay")):
         return 55
     elif status.startswith("FFmpeg Rendering"):
         match = re.search(r"\((\d+\.?\d*)%\)", status)
@@ -224,6 +268,7 @@ def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executo
         progress_dict[idx] = "Waiting for LLM"
         
         # 1. Run LLM in ThreadPool
+        log_memory_usage(f"Job {idx}: before LLM")
         future_llm = llm_executor.submit(llm_job_worker, job_config, progress_dict)
         success, script_text, err_msg = future_llm.result()
         
@@ -235,10 +280,13 @@ def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executo
         job_config["script_text"] = script_text
         
         progress_dict[idx] = "Waiting for Compilation"
+        log_memory_usage(f"Job {idx}: after LLM, before video")
         
         # 2. Run Video Generation in ProcessPool
         future_video = video_executor.submit(video_job_worker, job_config, progress_dict)
-        return future_video.result()
+        result = future_video.result()
+        log_memory_usage(f"Job {idx}: video complete")
+        return result
         
     except Exception as e:
         progress_dict[idx] = f"Failed: {str(e)}"
@@ -268,9 +316,69 @@ def retry_with_backoff(func, max_attempts=3, base_delay=1.0):
             delay = base_delay * (2 ** attempt)
             time.sleep(delay)
 
+def parse_title_hashtags(script_text: str) -> tuple:
+    """Extract TITLE/HASHTAGS lines from LLM output, case-insensitive.
+    Returns (cleaned_script, title, hashtags).
+    """
+    title = ""
+    hashtags = ""
+    cleaned_lines = []
+    for line in script_text.split('\n'):
+        m_title = re.match(r'^title\s*:\s*(.*)', line, re.I)
+        m_h_tags = re.match(r'^hashtags?\s*:\s*(.*)', line, re.I)
+        if m_title:
+            title = m_title.group(1).strip()
+        elif m_h_tags:
+            hashtags = m_h_tags.group(1).strip()
+        else:
+            cleaned_lines.append(line)
+    cleaned = "\n".join(cleaned_lines).strip()
+
+    if not title:
+        words = cleaned.split()
+        title = " ".join(words[:8]) if words else ""
+
+    return cleaned, title, hashtags
+
+
+def generate_title_hashtags(script_text: str, client, model: str, temperature: float = 0.7) -> tuple:
+    """Generate title and hashtags from a finished script via a dedicated LLM call.
+    Always uses a second call — never expects TITLE/HASHTAGS in the first response.
+    Returns (title, hashtags).
+    """
+    prompt = (
+        "Based on the following short-form video script, "
+        "generate a catchy title (under 5 words) "
+        "and 5 trending, relevant hashtags.\n\n"
+        "Script:\n" + script_text + "\n\n"
+        "Respond with exactly:\n"
+        "TITLE: <title>\nHASHTAGS: <5 hashtags>"
+    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature
+        )
+        reply = (response.choices[0].message.content or "").strip()
+        _, title, hashtags = parse_title_hashtags(reply)
+    except Exception:
+        logger.warning("Title/hashtag LLM call failed; falling back")
+        title = ""
+        hashtags = ""
+
+    if not title:
+        words = script_text.split()
+        title = " ".join(words[:8]) if words else ""
+
+    return title, hashtags
+
+
 def llm_job_worker(job_config, progress_dict):
     idx = job_config["index"]
     progress_dict[idx] = "LLM Script"
+    logger.info("[Batch LLM #%d] Starting script generation (model=%s, temp=%.2f)",
+                 idx, job_config.get("model", "?"), job_config.get("script_temp", 0.7))
     try:
         from openai import OpenAI
         from gui.utils import discover_opencode_keys
@@ -339,68 +447,46 @@ def llm_job_worker(job_config, progress_dict):
                     _last_wc = word_count
                 
         script_text = script_text.strip()
-        
+        # Defensively strip any TITLE/HASHTAGS lines that might be in the response
+        script_text, _, _ = parse_title_hashtags(script_text)
+
+        # Always use a dedicated second LLM call for title and hashtags
         try:
-            progress_dict[idx] = "LLM Metadata"
-            meta_prompt = f"Based on the following script, provide 1 short, catchy title (under 5 words) and exactly 5 trending TikTok hashtags. Format your response exactly as follows:\nTITLE: <title>\nHASHTAGS: <hashtags>\n\nScript:\n{script_text}"
-            
-            for attempt in range(3):
-                try:
-                    meta_response = client.chat.completions.create(
-                        model=job_config["model"],
-                        messages=[{"role": "user", "content": meta_prompt}],
-                        temperature=job_config.get("meta_temp", 0.7)
-                    )
-                    break
-                except Exception as e:
-                    err_str = str(e).lower()
-                    if "bad request" in err_str or "auth" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
-                        raise
-                    is_retryable = (
-                        isinstance(e, (ConnectionError, TimeoutError))
-                        or any(w in err_str for w in ["rate", "timeout", "connection", "overloaded", "api_error"])
-                    )
-                    if not is_retryable or attempt == 2:
-                        raise
-                    progress_dict[idx] = f"LLM Metadata (retry {attempt+1}/3)"
-                    time.sleep(1.0 * (2 ** attempt))
-            meta_text = meta_response.choices[0].message.content.strip()
-            
-            title = "batch_video"
-            hashtags = ""
-            for line in meta_text.split('\n'):
-                if line.startswith("TITLE:"):
-                    title = line.replace("TITLE:", "").strip()
-                elif line.startswith("HASHTAGS:"):
-                    hashtags = line.replace("HASHTAGS:", "").strip()
-                    
+            title, hashtags = generate_title_hashtags(
+                script_text, client, job_config["model"],
+                job_config.get("meta_temp", job_config.get("script_temp", 0.7))
+            )
+
             safe_title = re.sub(r'[\s\-]+', '_', title.lower())
             safe_title = re.sub(r'[^\w_]', '', safe_title).strip('_')
             if not safe_title:
                 safe_title = "batch_video"
-                
+
             orig_filename = job_config["output_filename"]
             timestamp_match = re.search(r"rendered_batch_(\d+)_", orig_filename)
             timestamp = timestamp_match.group(1) if timestamp_match else str(int(time.time()))
-            
+
             new_filename = f"{safe_title}_{timestamp}_{idx}.mp4"
             job_config["output_filename"] = new_filename
-            job_config["generated_title"] = title
-            job_config["generated_hashtags"] = hashtags
+            job_config["generated_title"] = title or "Batch Video"
+            job_config["generated_hashtags"] = hashtags or "#shorts #video"
         except Exception as e:
-            # Fallback if secondary call fails
+            # Fallback if title/hashtag generation fails
             job_config["generated_title"] = "Batch Video"
             job_config["generated_hashtags"] = "#shorts #video"
             
+        logger.info("[Batch LLM #%d] Script done: %d words, title=%s", idx, len(script_text.split()), job_config.get("generated_title", "(none)"))
         return True, script_text, None
 
     except Exception as e:
+        logger.warning("[Batch LLM #%d] Failed: %s", idx, str(e))
         return False, None, str(e)
 
 def video_job_worker(job_config, progress_dict):
         
     idx = job_config["index"]
     output_filename = job_config["output_filename"]
+    logger.info("[Batch Video #%d] Starting compilation -> %s", idx, output_filename)
     
     # Update process-local state and settings dictionaries
     shared_state.state.clear()
@@ -420,12 +506,19 @@ def video_job_worker(job_config, progress_dict):
         "sub_outline_width": job_config["sub_outline_width"],
         "sub_bold": job_config["sub_bold"],
         "enable_emojis": job_config["enable_emojis"],
+        "enable_color_emoji": job_config.get("enable_color_emoji", True),
+        "enable_emoji_animation": job_config.get("enable_emoji_animation", True),
+        "emoji_scale_factor": job_config.get("emoji_scale_factor", 1.5),
+        "emoji_hold_duration": job_config.get("emoji_hold_duration", 0.5),
+        "emoji_throw_max_count": job_config.get("emoji_throw_max_count", 3),
         "word_pop": job_config["word_pop"],
         "word_pop_scale": job_config["word_pop_scale"],
         "inactive_dim": job_config["inactive_dim"],
         "inactive_alpha": job_config["inactive_alpha"],
         "voice_speed": job_config.get("voice_speed", 1.0),
         "loaded_preset_name": "Randomized Batch Job",
+        "generated_title": job_config.get("generated_title", "Batch Video"),
+        "generated_hashtags": job_config.get("generated_hashtags", "#shorts #video"),
     })
     
     shared_state.settings.clear()
@@ -436,35 +529,27 @@ def video_job_worker(job_config, progress_dict):
     console.print = progress_console.print
     console.clear = progress_console.clear
     
+    log_memory_usage(f"Job {idx}: starting compilation")
+    
     try:
         try: progress_dict[idx] = "Compiling"
         except Exception:
             logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
         
-        def ffmpeg_progress(pct):
+        success = retry_with_backoff(
+            lambda: compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=progress_console.print)
+        )
+        if success:
             try:
-                pct = float(pct)
-            except (TypeError, ValueError):
-                pct = 0.0
-            console.print(f"FFmpeg Rendering ({pct:.1f}%)")
-
-        with open(os.devnull, 'w') as devnull, \
-             redirect_stdout(devnull), \
-             redirect_stderr(devnull):
-            success = retry_with_backoff(
-                lambda: compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=ffmpeg_progress)
-            )
-            if success:
-                try:
-                    from gui.config import OUTPUT_DIR
-                    base_name = os.path.splitext(output_filename)[0]
-                    txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
-                    with open(txt_path, "w", encoding="utf-8") as f:
-                        f.write(f"{job_config.get('generated_title', 'Batch Video')}\n")
-                        f.write(f"{job_config.get('generated_hashtags', '#shorts')}\n\n")
-                        f.write(f"Script:\n{job_config.get('script_text', '')}\n")
-                except Exception:
-                    logger.warning(f"Batch job {idx}: failed to write metadata .txt (manager may have shut down)", exc_info=True)
+                from gui.config import OUTPUT_DIR
+                base_name = os.path.splitext(output_filename)[0]
+                txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
+                with open(txt_path, "w", encoding="utf-8") as f:
+                    f.write(f"{job_config.get('generated_title', 'Batch Video')}\n")
+                    f.write(f"{job_config.get('generated_hashtags', '#shorts')}\n\n")
+                    f.write(f"Script:\n{job_config.get('script_text', '')}\n")
+            except Exception:
+                logger.warning(f"Batch job {idx}: failed to write metadata .txt (manager may have shut down)", exc_info=True)
         
         if success:
             try:

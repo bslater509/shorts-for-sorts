@@ -24,6 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File, Form, HTTPException, WebSocket, Request, Header
 import json
+import re
 import shutil
 import urllib.parse
 import urllib.request
@@ -45,6 +46,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Optional
 import psutil
 import asyncio
+from gui.batch import parse_title_hashtags, generate_title_hashtags
 
 
 app = FastAPI(title="Shorts for Sorts Web GUI")
@@ -244,7 +246,7 @@ class SettingsModel(BaseModel):
     render_resolution: Optional[str] = "720p"
     render_preset: Optional[str] = "fast"
     video_encoder: Optional[str] = "libx264"
-    max_words: Optional[int] = 130
+    max_words: Optional[int] = 400
     max_workers: Optional[int] = 1
     llm_max_workers: Optional[int] = 5
     words_per_screen: Optional[str] = "3"
@@ -273,6 +275,9 @@ class SettingsModel(BaseModel):
     emoji_position: Optional[str] = "above"
     emoji_font: Optional[str] = "Symbola"
     sub_animation_style: Optional[str] = "tiktok_pop"
+    enable_emoji_animation: Optional[bool] = True
+    emoji_scale_factor: Optional[float] = 1.5
+    emoji_hold_duration: Optional[float] = 0.5
     sentry_dsn: Optional[str] = ""
     tiktok_sessionid: Optional[str] = ""
 
@@ -335,6 +340,12 @@ class StateModel(BaseModel):
     single_word_mode: Optional[bool] = None
     emoji_position: Optional[str] = None
     emoji_font: Optional[str] = None
+    enable_emoji_animation: Optional[bool] = None
+    emoji_scale_factor: Optional[float] = None
+    emoji_hold_duration: Optional[float] = None
+    emoji_throw_max_count: Optional[int] = None
+    voice_speed: Optional[float] = None
+    batch_num_shorts: Optional[int] = None
     sub_animation_style: Optional[str] = None
     loaded_preset_name: Optional[str] = None
 
@@ -647,6 +658,7 @@ def list_gallery_videos():
             except Exception:
                 pass
 
+            title = ""
             hashtags = ""
             txt_file = os.path.splitext(fp)[0] + ".txt"
             if os.path.exists(txt_file):
@@ -654,16 +666,18 @@ def list_gallery_videos():
                     with open(txt_file, "r", encoding="utf-8") as tf:
                         lines = tf.readlines()
                         if lines:
-                            if any(l.startswith("Hashtags:") for l in lines):
-                                # Old format parsing
+                            if any(re.match(r'^hashtags?\s*:', l, re.I) for l in lines):
+                                # Old format: find line starting with Hashtag(s):
                                 for line in lines:
-                                    if line.startswith("Hashtags:"):
-                                        hashtags = line.split("Hashtags:", 1)[1].strip()
+                                    m = re.match(r'^hashtags?\s*:\s*(.*)', line, re.I)
+                                    if m:
+                                        hashtags = m.group(1).strip()
                                         break
                             else:
                                 # New format: line 0 is title, line 1 is hashtags
                                 if len(lines) >= 2:
-                                    hashtags = f"{lines[0].strip()}\n{lines[1].strip()}"
+                                    title = lines[0].strip()
+                                    hashtags = lines[1].strip()
                 except Exception:
                     pass
 
@@ -682,6 +696,7 @@ def list_gallery_videos():
                 "size": size,
                 "modified": modified,
                 "duration": duration,
+                "title": title,
                 "hashtags": hashtags,
                 "thumbnail": thumbnail
             })
@@ -918,25 +933,13 @@ def generate_viral_script(data: ScriptGenerateRequest):
 
     from openai import OpenAI
     client = OpenAI(api_key=api_key, base_url=base_url)
-    max_words = shared_state.settings.get("max_words", 130)
-    default_system_prompt = (
-        "You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content. "
-        "Write a highly engaging vertical video script based on the user's topic.\n\n"
-        "Strict Guidelines:\n"
-        "1. The Hook (First 3s): Start immediately with a scroll-stopping statement, provocative question, or mind-blowing fact. No introductions.\n"
-        "2. Format & Pacing: Keep it conversational, punchy, and fast-paced. Use short sentences. Eliminate all fluff.\n"
-        "3. Length: Strictly under {max_words} words (approx. {max_words_seconds} seconds when spoken).\n"
-        "4. Content: Structure with 3 key points or a rapid-fire narrative. Deliver value immediately. End with a strong, natural Call to Action (CTA).\n"
-        "5. Tone: Sound authentic and human. Avoid robotic, academic, or overly dramatic AI clichés.\n"
-        "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
-        "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this.\n"
-        "8. Source: Never mention Reddit, subreddits, or forums. Tell the story directly as if it happened to someone."
-    )
+    max_words = shared_state.settings.get("max_words", 400)
+    from gui.config import DEFAULT_SCRIPT_SYSTEM_PROMPT
+    default_system_prompt = DEFAULT_SCRIPT_SYSTEM_PROMPT
     raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
     try:
         system_prompt = raw_system_prompt.format(max_words=max_words, max_words_seconds=int(max_words / 2.3))
     except (KeyError, ValueError):
-        # User's custom prompt contains literal {braces} — fall back to the raw string
         system_prompt = raw_system_prompt
 
     try:
@@ -948,24 +951,135 @@ def generate_viral_script(data: ScriptGenerateRequest):
             ],
             temperature=shared_state.settings.get("llm_temp_script", 0.7)
         )
-        script_text = response.choices[0].message.content.strip()
+        script_text = (response.choices[0].message.content or "").strip()
+        # Defensively strip any TITLE/HASHTAGS lines (guideline #9 is no longer in prompt)
+        script_text, _, _ = parse_title_hashtags(script_text)
+
+        # Always use a dedicated second LLM call for title and hashtags
+        try:
+            title, hashtags = generate_title_hashtags(
+                script_text, client, model,
+                shared_state.settings.get("llm_temp_title", 0.7)
+            )
+        except Exception as e:
+            logger.warning(f"Title/hashtag generation failed: {e}")
+            words = script_text.split()
+            title = " ".join(words[:8]) if words else ""
+            hashtags = ""
+
         shared_state.state["script_text"] = script_text
+        shared_state.state["generated_title"] = title
+        shared_state.state["generated_hashtags"] = hashtags
 
         # Save state to disk (lock to prevent concurrent write corruption)
         with _state_file_lock:
             with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump(shared_state.state, f, indent=2)
 
-        return {"status": "success", "script": script_text}
+        return {"status": "success", "script": script_text, "title": title, "hashtags": hashtags}
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Script generation failed: {str(e)}")
+
+
+@app.post("/api/script/generate/stream")
+def generate_script_stream(data: ScriptGenerateRequest):
+    active_profile = get_active_llm_profile()
+    api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
+    base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+
+    opencode_key, _ = discover_opencode_keys()
+    if not api_key:
+        api_key = opencode_key
+        if api_key and not base_url:
+            base_url = "https://opencode.ai/zen/go/v1"
+
+    if not api_key:
+        raise HTTPException(
+            status_code=400, detail="OpenAI/OpenCode API key is missing. Set it in Settings.")
+
+    default_model = active_profile.get("model", "gpt-4o-mini")
+    model = data.model_override.strip() if (
+        data.model_override and data.model_override.strip()) else default_model
+
+    if not model:
+        if base_url and "opencode.ai" in base_url:
+            model = "deepseek-v4-flash"
+        else:
+            model = "gpt-4o-mini"
+
+    if data.selected_voice:
+        shared_state.state["selected_voice"] = data.selected_voice
+        shared_state.state["loaded_preset_name"] = None
+
+    logger.info(f"[AI Script/Stream] Generating script with model '{model}' for prompt: '{data.prompt}'")
+
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    max_words = shared_state.settings.get("max_words", 400)
+    from gui.config import DEFAULT_SCRIPT_SYSTEM_PROMPT
+    default_system_prompt = DEFAULT_SCRIPT_SYSTEM_PROMPT
+    raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
+    try:
+        system_prompt = raw_system_prompt.format(max_words=max_words, max_words_seconds=int(max_words / 2.3))
+    except (KeyError, ValueError):
+        system_prompt = raw_system_prompt
+
+    def event_stream():
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": data.prompt}
+                ],
+                temperature=shared_state.settings.get("llm_temp_script", 0.7),
+                stream=True
+            )
+            script_text = ""
+            word_count = 0
+            for chunk in response:
+                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content is not None:
+                    content = chunk.choices[0].delta.content
+                    script_text += content
+                    word_count = len(script_text.split())
+                    yield f"data: {json.dumps({'chunk': content, 'word_count': word_count})}\n\n"
+
+            script_text = script_text.strip()
+            # Defensively strip any TITLE/HASHTAGS lines (guideline #9 is no longer in prompt)
+            script_text, _, _ = parse_title_hashtags(script_text)
+
+            # Always use a dedicated second LLM call for title and hashtags
+            try:
+                title, hashtags = generate_title_hashtags(
+                    script_text, client, model,
+                    shared_state.settings.get("llm_temp_title", 0.7)
+                )
+            except Exception as e:
+                logger.warning(f"Title/hashtag generation failed: {e}")
+                words = script_text.split()
+                title = " ".join(words[:8]) if words else ""
+                hashtags = ""
+
+            shared_state.state["script_text"] = script_text
+            shared_state.state["generated_title"] = title
+            shared_state.state["generated_hashtags"] = hashtags
+            with _state_file_lock:
+                with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(shared_state.state, f, indent=2)
+
+            yield f"data: {json.dumps({'done': True, 'word_count': word_count, 'title': title, 'hashtags': hashtags})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            raise
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
 
 class TiktokUploadRequest(BaseModel):
     filename: str
     description: str
     visibility: str = "Public"
-
 @app.post("/api/tiktok/upload")
 def upload_tiktok_video(data: TiktokUploadRequest, background_tasks: BackgroundTasks):
     sessionid = shared_state.settings.get("tiktok_sessionid", "").strip()
@@ -1151,7 +1265,9 @@ def _sync_progress(batch_state, num_shorts):
             batch_state["progress_dict"][end_key] = batch_state["shared_progress"][end_key]
 
 
-def batch_worker_thread(num_shorts, selected_prompts=None):
+def batch_worker_thread(num_shorts, selected_prompts=None, enable_emojis=None,
+                        enable_emoji_animation=None, emoji_scale_factor=None,
+                        emoji_hold_duration=None, emoji_throw_max_count=None):
     batch_state["in_progress"] = True
     batch_state["should_cancel"] = False
     batch_state["failed_job_configs"] = []
@@ -1167,7 +1283,8 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
         unload_whisper_model()
         
         from gui.config import load_prompt_templates
-        from gui.batch import llm_job_worker, video_job_worker
+        from gui.batch import llm_job_worker, video_job_worker, log_memory_usage
+        log_memory_usage("After model unloading")
 
         templates = load_prompt_templates()
         presets = load_presets()
@@ -1188,25 +1305,13 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
         if not active_profile.get("model") and base_url and "opencode.ai" in base_url:
             model = "deepseek-v4-flash"
 
-        max_words = shared_state.settings.get("max_words", 130)
-        default_system_prompt = (
-            "You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content. "
-            "Write a highly engaging vertical video script based on the user's topic.\n\n"
-            "Strict Guidelines:\n"
-            "1. The Hook (First 3s): Start immediately with a scroll-stopping statement, provocative question, or mind-blowing fact. No introductions.\n"
-            "2. Format & Pacing: Keep it conversational, punchy, and fast-paced. Use short sentences. Eliminate all fluff.\n"
-            "3. Length: Strictly under {max_words} words (approx. {max_words_seconds} seconds when spoken).\n"
-            "4. Content: Structure with 3 key points or a rapid-fire narrative. Deliver value immediately. End with a strong, natural Call to Action (CTA).\n"
-            "5. Tone: Sound authentic and human. Avoid robotic, academic, or overly dramatic AI clichés.\n"
-            "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
-            "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this.\n"
-            "8. Source: Never mention Reddit, subreddits, or forums. Tell the story directly as if it happened to someone."
-        )
+        from gui.config import DEFAULT_SCRIPT_SYSTEM_PROMPT
+        default_system_prompt = DEFAULT_SCRIPT_SYSTEM_PROMPT
+        max_words = shared_state.settings.get("max_words", 400)
         raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
         try:
             system_prompt = raw_system_prompt.format(max_words=max_words, max_words_seconds=int(max_words / 2.3))
         except (KeyError, ValueError):
-            # User's custom prompt contains literal {braces} — fall back to raw string
             system_prompt = raw_system_prompt
 
         job_configs = {}
@@ -1288,7 +1393,7 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                 sub_outline_width = random.randint(4, 7)
                 sub_bold = random.choice([True, False])
 
-                enable_emojis = random.choice([True, False])
+                enable_emojis = enable_emojis if enable_emojis is not None else shared_state.settings.get("enable_emojis", True)
                 word_pop = random.choice([True, False])
                 word_pop_scale = round(random.uniform(
                     1.10, 1.25), 2) if word_pop else 1.0
@@ -1317,7 +1422,7 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                     "sub_font": sub_font, "sub_size": sub_size, "sub_color": sub_color,
                     "sub_highlight": sub_highlight, "sub_outline": sub_outline,
                     "sub_outline_width": sub_outline_width, "sub_bold": sub_bold,
-                    "enable_emojis": enable_emojis, "enable_color_emoji": True, "word_pop": word_pop,
+                    "enable_emojis": enable_emojis, "enable_color_emoji": shared_state.settings.get("enable_color_emoji", True), "emoji_scale_factor": emoji_scale_factor if emoji_scale_factor is not None else shared_state.settings.get("emoji_scale_factor", 1.5), "emoji_hold_duration": emoji_hold_duration if emoji_hold_duration is not None else shared_state.settings.get("emoji_hold_duration", 0.5), "enable_emoji_animation": enable_emoji_animation if enable_emoji_animation is not None else shared_state.settings.get("enable_emoji_animation", True), "emoji_throw_max_count": emoji_throw_max_count if emoji_throw_max_count is not None else shared_state.settings.get("emoji_throw_max_count", 3), "word_pop": word_pop,
                     "word_pop_scale": word_pop_scale, "inactive_dim": inactive_dim,
                     "inactive_alpha": inactive_alpha, "sub_uppercase": preset.get("sub_uppercase", True),
                     "voice_speed": preset.get("voice_speed"),
@@ -1342,8 +1447,12 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                     "enable_emojis": enable_emojis,
                 }
 
+        batch_state["job_configs"] = job_configs
+
         max_workers = _resolve_worker_count("max_workers", 1)
         llm_max_workers = _resolve_worker_count("llm_max_workers", 5)
+        logger.info("[Batch Thread] Starting %d shorts with %d video workers, %d LLM workers, failure_mode=%s",
+                     num_shorts, max_workers, llm_max_workers, failure_mode)
 
         for i in range(1, num_shorts + 1):
             batch_state["shared_progress"][i] = "Queued"
@@ -1351,6 +1460,7 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
         ctx = multiprocessing.get_context('spawn')
         batch_state["executor"] = ProcessPoolExecutor(max_workers=max_workers, mp_context=ctx, max_tasks_per_child=1)
         batch_state["llm_executor"] = ThreadPoolExecutor(max_workers=llm_max_workers)
+        log_memory_usage("Before LLM phase")
 
         # Two-phase pipeline: phase 1 = all LLM, phase 2 = video as LLM completes
         llm_futures = []
@@ -1363,6 +1473,7 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
         batch_state["futures"] = []  # regenerate for API compatibility
 
         # Main polling loop — two-phase: LLM then Video
+        _sync_progress(batch_state, num_shorts)
         while llm_futures or video_futures:
             if batch_state["should_cancel"]:
                 # Cancel all remaining futures
@@ -1377,6 +1488,9 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                         batch_state["shared_progress"][i] = "Failed: Batch cancelled"
                 break
 
+            # Sync progress for API (before processing futures to capture last LLM/video state)
+            _sync_progress(batch_state, num_shorts)
+
             # --- Process completed LLM futures ---
             still_llm = []
             for i, f in llm_futures:
@@ -1385,10 +1499,13 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                         success, script_text, err_msg = f.result()
                         if success:
                             job_configs[i]["script_text"] = script_text
+                            logger.info("[Batch] Job #%d — LLM done: %d words, submitting to video phase",
+                                         i, len(script_text.split()))
                             batch_state["shared_progress"][i] = "Waiting for Compilation"
                             vf = batch_state["executor"].submit(video_job_worker, job_configs[i], batch_state["shared_progress"])
                             video_futures.append((i, vf))
                         else:
+                            logger.warning("[Batch] Job #%d — LLM failed: %s", i, err_msg)
                             batch_state["shared_progress"][i] = f"Failed: {err_msg}"
                             batch_state["failed_job_configs"].append(job_configs[i])
                             if failure_mode == "stop_all":
@@ -1405,6 +1522,9 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                     still_llm.append((i, f))
             llm_futures = still_llm
 
+            if not llm_futures and video_futures:
+                log_memory_usage("LLM phase complete")
+
             if batch_state["should_cancel"]:
                 continue
 
@@ -1414,7 +1534,10 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                 if f.done():
                     try:
                         idx, success, msg = f.result()
-                        if not success:
+                        if success:
+                            logger.info("[Batch] Job #%d — video done: %s", idx, msg)
+                        else:
+                            logger.warning("[Batch] Job #%d — video failed: %s", idx, msg)
                             batch_state["failed_job_configs"].append(job_configs[i])
                             if failure_mode == "stop_all":
                                 logger.error(f"[Batch Thread] Video job {idx} failed: {msg}. Cancelling batch.")
@@ -1435,12 +1558,11 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
             if batch_state["should_cancel"]:
                 continue
 
-            # Sync progress for API
-            _sync_progress(batch_state, num_shorts)
             time.sleep(0.5)
 
         # Final sync
         _sync_progress(batch_state, num_shorts)
+        log_memory_usage("All jobs complete (before cleanup)")
 
         # Populate batch_results for the report endpoint
         batch_state["batch_results"] = []
@@ -1464,6 +1586,11 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
                 "script_text": config.get("script_text", "")[:200],
             })
 
+        # Log batch summary
+        done = sum(1 for i in range(1, num_shorts + 1) if batch_state["shared_progress"].get(i) == "Done")
+        failed = sum(1 for i in range(1, num_shorts + 1) if str(batch_state["shared_progress"].get(i, "")).startswith("Failed"))
+        logger.info("[Batch Thread] Batch complete: %d/%d done, %d failed", done, num_shorts, failed)
+
     except Exception as e:
         logger.error(f"[Batch Thread] Crash: {e}")
         logger.exception("Exception occurred")
@@ -1476,6 +1603,16 @@ def batch_worker_thread(num_shorts, selected_prompts=None):
             batch_state["manager"].shutdown()
         batch_state["in_progress"] = False
 
+        import gc
+        gc.collect()
+        try:
+            import ctypes
+            libc = ctypes.CDLL("libc.so.6")
+            libc.malloc_trim(0)
+        except Exception:
+            pass
+        log_memory_usage("After cleanup")
+
 
 @app.get("/api/prompts")
 def get_prompts():
@@ -1486,6 +1623,11 @@ def get_prompts():
 class BatchStartRequest(BaseModel):
     num_shorts: int = 5
     prompts: list[str] = []
+    enable_emojis: Optional[bool] = None
+    enable_emoji_animation: Optional[bool] = None
+    emoji_scale_factor: Optional[float] = None
+    emoji_hold_duration: Optional[float] = None
+    emoji_throw_max_count: Optional[int] = None
 
 
 def _log_memory_warning():
@@ -1528,7 +1670,9 @@ def start_batch(data: BatchStartRequest):
         batch_state["shared_progress"] = new_shared
 
     t = threading.Thread(target=batch_worker_thread,
-                         args=(num_shorts, data.prompts), daemon=True)
+                         args=(num_shorts, data.prompts, data.enable_emojis,
+                               data.enable_emoji_animation, data.emoji_scale_factor,
+                               data.emoji_hold_duration, data.emoji_throw_max_count), daemon=True)
     t.start()
     return {"status": "started", "message": f"Batch generation of {num_shorts} shorts started."}
 
@@ -1536,6 +1680,16 @@ def start_batch(data: BatchStartRequest):
 @app.get("/api/batch/status")
 def get_batch_status():
     from gui.batch import get_progress_percentage, format_elapsed
+
+    # Compute average completion time from finished jobs
+    completed_durations = []
+    for i in range(1, batch_state["num_shorts"] + 1):
+        st = batch_state["progress_dict"].get(f"{i}_start")
+        et = batch_state["progress_dict"].get(f"{i}_end")
+        status_i = batch_state["progress_dict"].get(i, "Queued")
+        if st and et and status_i == "Done":
+            completed_durations.append(et - st)
+    avg_completion_time = sum(completed_durations) / len(completed_durations) if completed_durations else None
 
     jobs = []
     for i in range(1, batch_state["num_shorts"] + 1):
@@ -1553,8 +1707,13 @@ def get_batch_status():
             if status == "Done":
                 elapsed_str += " (Done)"
                 eta_str = "0s"
-            elif pct and pct > 0 and pct < 100:
-                eta_seconds = duration / pct * (100 - pct)
+            elif pct and pct > 0:
+                if avg_completion_time is not None and avg_completion_time > duration:
+                    eta_seconds = avg_completion_time - duration
+                elif pct < 100:
+                    eta_seconds = duration / pct * (100 - pct)
+                else:
+                    eta_seconds = 0
                 eta_str = format_elapsed(eta_seconds)
 
         detail = batch_state["job_details"].get(i, {})
@@ -1584,6 +1743,112 @@ def get_batch_status():
             {"name": "Transcribe", "start": 45, "end": 55},
             {"name": "Render", "start": 55, "end": 100},
         ]
+    }
+
+
+@app.get("/api/batch/job/{job_id}")
+def get_batch_job_detail(job_id: int):
+    from gui.batch import get_progress_percentage, format_elapsed
+
+    # Check if the job exists
+    if job_id < 1 or job_id > batch_state["num_shorts"]:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    # Get progress info
+    status = batch_state["progress_dict"].get(job_id, "Unknown")
+    pct = get_progress_percentage(status)
+
+    start_time = batch_state["progress_dict"].get(f"{job_id}_start")
+    end_time = batch_state["progress_dict"].get(f"{job_id}_end")
+    elapsed_str = "--"
+    eta_str = "--"
+    eta_seconds = 0.0
+    # Compute average completion time from finished jobs
+    completed_durations = []
+    for i in range(1, batch_state["num_shorts"] + 1):
+        st = batch_state["progress_dict"].get(f"{i}_start")
+        et = batch_state["progress_dict"].get(f"{i}_end")
+        status_i = batch_state["progress_dict"].get(i, "Queued")
+        if st and et and status_i == "Done":
+            completed_durations.append(et - st)
+    avg_completion_time = sum(completed_durations) / len(completed_durations) if completed_durations else None
+
+    if start_time:
+        import time
+        duration = (end_time if end_time else time.time()) - start_time
+        elapsed_str = format_elapsed(duration)
+        if status == "Done":
+            elapsed_str += " (Done)"
+            eta_str = "0s"
+        elif pct and pct > 0:
+            if avg_completion_time is not None and avg_completion_time > duration:
+                eta_seconds = avg_completion_time - duration
+            elif pct < 100:
+                eta_seconds = duration / pct * (100 - pct)
+            else:
+                eta_seconds = 0
+            eta_str = format_elapsed(eta_seconds)
+
+    # Get detail and config
+    detail = batch_state["job_details"].get(job_id, {})
+    config = batch_state.get("job_configs", {}).get(job_id, {})
+
+    # Build response with ALL job settings
+    return {
+        "id": job_id,
+        "topic": detail.get("topic", ""),
+        "voice_name": detail.get("voice", "Unknown"),
+        "layout": detail.get("layout", "Unknown"),
+        "enable_emojis": detail.get("enable_emojis", False),
+        "status": status,
+        "progress": pct if pct is not None else 0,
+        "failed": pct is None,
+        "elapsed": elapsed_str,
+        "eta": eta_str,
+        "eta_seconds": eta_seconds,
+        # Full config fields (all optional - use empty string/0/False defaults)
+        "prompt": config.get("prompt", ""),
+        "voice_id": config.get("voice_id", ""),
+        "bg_video_path": config.get("bg_video_path", ""),
+        "bg_video_bottom_path": config.get("bg_video_bottom_path"),
+        "bg_music_path": config.get("bg_music_path"),
+        "music_volume": config.get("music_volume", 0),
+        "voice_volume": config.get("voice_volume", 0),
+        "sub_font": config.get("sub_font", ""),
+        "sub_size": config.get("sub_size", 0),
+        "sub_color": config.get("sub_color", ""),
+        "sub_highlight": config.get("sub_highlight", ""),
+        "sub_outline": config.get("sub_outline", ""),
+        "sub_outline_width": config.get("sub_outline_width", 0),
+        "sub_bold": config.get("sub_bold", False),
+        "word_pop": config.get("word_pop", False),
+        "word_pop_scale": config.get("word_pop_scale", 0),
+        "inactive_dim": config.get("inactive_dim", False),
+        "inactive_alpha": config.get("inactive_alpha", ""),
+        "sub_uppercase": config.get("sub_uppercase", False),
+        "voice_speed": config.get("voice_speed"),
+        "sub_border_style": config.get("sub_border_style", 0),
+        "sub_shadow_width": config.get("sub_shadow_width", 0),
+        "sub_bg_color": config.get("sub_bg_color", ""),
+        "sub_bg_alpha": config.get("sub_bg_alpha", ""),
+        "single_word_mode": config.get("single_word_mode", False),
+        "words_per_screen": config.get("words_per_screen", ""),
+        "emoji_position": config.get("emoji_position", ""),
+        "emoji_font": config.get("emoji_font", ""),
+        "sub_animation_style": config.get("sub_animation_style", ""),
+        "enable_emoji_animation": config.get("enable_emoji_animation", False),
+        "enable_color_emoji": config.get("enable_color_emoji", False),
+        "emoji_scale_factor": config.get("emoji_scale_factor", 0),
+        "emoji_hold_duration": config.get("emoji_hold_duration", 0),
+        "emoji_throw_max_count": config.get("emoji_throw_max_count", 0),
+        "script_temp": config.get("script_temp", 0),
+        "meta_temp": config.get("meta_temp", 0),
+        "model": config.get("model", ""),
+        "system_prompt": config.get("system_prompt", ""),
+        "output_filename": config.get("output_filename", ""),
+        "generated_title": config.get("generated_title", ""),
+        "generated_hashtags": config.get("generated_hashtags", ""),
+        "script_text": config.get("script_text", ""),
     }
 
 
@@ -1672,6 +1937,11 @@ def restart_server(background_tasks: BackgroundTasks):
         os.execv(sys.executable, [sys.executable] + sys.argv)
     background_tasks.add_task(restart)
     return {"status": "restarting"}
+
+
+@app.get("/api/health")
+def health_check():
+    return {"status": "ok"}
 
 
 @app.get("/{full_path:path}")

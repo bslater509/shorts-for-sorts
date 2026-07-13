@@ -1,7 +1,12 @@
 {
-  "Story / Drama": "Write a compelling story or narrative. It can be fictional or based on true events, such as a mystery, thriller, or dramatic personal experience.",
-  "Educational / Fact": "Explain a fascinating fact, concept, or historical event in a clear, engaging, and informative way.",
-  "Advice / Self-Improvement": "Provide practical advice, a productivity hack, or a motivational message that encourages personal growth.",
-  "Humorous Observation": "Share a funny, lighthearted observation about everyday life or a relatable situation.",
-  "Pop Culture / Entertainment": "Analyze a significant trend, hidden detail, or interesting piece of trivia from movies, music, or internet culture."
+  "Romantic Drama": "Tell a story about two people whose love is forbidden or tested by impossible circumstances, societal expectations, or tragic timing.",
+  "Family Drama": "Explore the complex dynamics of a family grappling with deep secrets, irreparable loss, betrayal, or a long-overdue reconciliation.",
+  "Historical Drama": "Set a dramatic narrative in a pivotal moment in history, showing how the era's events force ordinary people to confront extraordinary stakes.",
+  "Psychological Drama": "Plunge into the mind of a character facing a spiraling internal crisis, moral dilemma, or slow unraveling of their reality.",
+  "Crime Drama": "Write a tense story of crime and consequences where the characters wrestle with guilt, justice, revenge, or the chance at redemption.",
+  "Survival Drama": "Throw characters into a harsh, unforgiving environment where they must fight to survive against nature, circumstance, or each other.",
+  "Political Drama": "Craft a story of power, betrayal, and ambition where ideals clash with corruption, and every alliance has a price.",
+  "Tragedy": "Write a classic dramatic tragedy in which a character's greatest strength becomes their fatal flaw, leading inexorably to their downfall.",
+  "Character-Driven Drama": "Focus entirely on the inner transformation of a protagonist confronting a single life-changing event that redefines who they are.",
+  "Mystery Drama": "Weave a dramatic tale where one character slowly uncovers a dark, buried secret and discovers that knowing the truth may be worse than ignorance."
 }

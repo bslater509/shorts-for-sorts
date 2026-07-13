@@ -2,6 +2,7 @@ import os
 import json
 import logging
 import atexit
+import multiprocessing
 from logging.handlers import RotatingFileHandler
 from rich.console import Console
 import sentry_sdk
@@ -48,15 +49,19 @@ class JSONFormatter(logging.Formatter):
 
 # Logger Initialization
 logger = logging.getLogger("shorts_creator")
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 if not logger.handlers:
     # Rich console handler
     rich_handler = RichHandler(console=console, rich_tracebacks=True, show_path=False)
-    rich_handler.setLevel(logging.INFO)
+    rich_handler.setLevel(logging.DEBUG)
     logger.addHandler(rich_handler)
 
-    # JSON File handler
+    # JSON File handler (only on main process to avoid spawn-child truncation)
     json_log_file = os.path.join(LOGS_DIR, "server.json.log")
+    app_log_file = os.path.join(LOGS_DIR, "app.log")
+    if multiprocessing.current_process().name == "MainProcess":
+        for f in (json_log_file, app_log_file):
+            open(f, "w").close()
     json_handler = RotatingFileHandler(json_log_file, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
     json_handler.setFormatter(JSONFormatter())
     json_handler.setLevel(logging.INFO)
@@ -83,7 +88,6 @@ def clear_cache():
                     except Exception as e:
                         logger.debug(f"Failed to remove cache file {fp}: {e}")
 
-import multiprocessing
 if multiprocessing.current_process().name == "MainProcess":
     atexit.register(clear_cache)
 
@@ -108,7 +112,11 @@ BUILTIN_PRESETS = {
         "inactive_dim": True,
         "inactive_alpha": "88",
         "enable_emojis": True,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     },
     "Lofi Storyteller (Cyan Highlight)": {
         "name": "Lofi Storyteller (Cyan Highlight)",
@@ -130,7 +138,11 @@ BUILTIN_PRESETS = {
         "inactive_dim": True,
         "inactive_alpha": "88",
         "enable_emojis": True,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     },
     "Fast-Paced Promo (Magenta Highlight)": {
         "name": "Fast-Paced Promo (Magenta Highlight)",
@@ -152,7 +164,11 @@ BUILTIN_PRESETS = {
         "inactive_dim": True,
         "inactive_alpha": "88",
         "enable_emojis": True,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     },
     "TikTok Kinetic Pop (Green Highlight)": {
         "name": "TikTok Kinetic Pop (Green Highlight)",
@@ -174,7 +190,11 @@ BUILTIN_PRESETS = {
         "inactive_dim": True,
         "inactive_alpha": "66",
         "enable_emojis": True,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     },
     "Retro Synthwave (Purple Highlight)": {
         "name": "Retro Synthwave (Purple Highlight)",
@@ -196,7 +216,11 @@ BUILTIN_PRESETS = {
         "inactive_dim": True,
         "inactive_alpha": "AA",
         "enable_emojis": True,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     },
     "Cinematic Documentary (Gold Highlight)": {
         "name": "Cinematic Documentary (Gold Highlight)",
@@ -218,7 +242,11 @@ BUILTIN_PRESETS = {
         "inactive_dim": False,
         "inactive_alpha": "FF",
         "enable_emojis": False,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     },
     "Cyberpunk Red (Red Highlight)": {
         "name": "Cyberpunk Red (Red Highlight)",
@@ -240,7 +268,11 @@ BUILTIN_PRESETS = {
         "inactive_dim": True,
         "inactive_alpha": "66",
         "enable_emojis": False,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     },
     "Classic Serif Storyteller (Amber Highlight)": {
         "name": "Classic Serif Storyteller (Amber Highlight)",
@@ -262,41 +294,16 @@ BUILTIN_PRESETS = {
         "inactive_dim": True,
         "inactive_alpha": "88",
         "enable_emojis": True,
-        "enable_color_emoji": True
+        "enable_color_emoji": True,
+        "enable_emoji_animation": True,
+        "emoji_scale_factor": 1.5,
+        "emoji_hold_duration": 0.5,
+        "emoji_throw_max_count": 3
     }
 }
 
-DEFAULT_EMOJI_MAP = {
-    "science": "🧪", "scientific": "🧪", "scientist": "🧪",
-    "physics": "⚛️", "chemistry": "🧪", "biology": "🧬",
-    "space": "🌌", "planet": "🪐", "star": "⭐", "earth": "🌍", "moon": "🌙", "sun": "☀️",
-    "universe": "🌌", "galaxy": "🌌", "alien": "👽", "ufo": "🛸",
-    "fact": "💡", "facts": "💡", "real": "✅", "fake": "❌", "true": "💯", "false": "🚫",
-    "nature": "🌿", "animal": "🐾", "water": "💧", "fire": "🔥", "ice": "❄️",
-    "history": "📜", "historical": "📜", "ancient": "🏛️", "empire": "👑", "king": "👑", "queen": "👑",
-    "war": "⚔️", "battle": "⚔️", "soldier": "🪖",
-    "mystery": "🕵️‍♂️", "mysterious": "🕵️‍♂️", "secret": "🤫", "secrets": "🤫",
-    "lost": "🗺️", "find": "🔍", "found": "🔍", "search": "🔎",
-    "gold": "🪙", "treasure": "🏴‍☠️", "pirate": "🏴‍☠️",
-    "scary": "😨", "creepy": "😰", "ghost": "👻", "dark": "🌑", "phone": "📱", "call": "📞",
-    "text": "💬", "message": "✉️", "number": "🔢", "cry": "😭", "scream": "😱", "run": "🏃",
-    "fear": "😨", "dead": "💀", "death": "💀", "kill": "🔪", "killer": "🔪", "blood": "🩸",
-    "night": "🌃", "shadow": "👤", "monster": "👹", "demon": "😈",
-    "money": "💵", "rich": "🤑", "poor": "💸", "buy": "🛒", "sell": "🏷️",
-    "dollar": "💵", "dollars": "💵", "cash": "💰", "wealth": "💎",
-    "business": "💼", "job": "💼", "boss": "👔", "office": "🏢",
-    "motivation": "🔥", "success": "🏆", "lazy": "🛌", "procrastinate": "⏳", "procrastination": "⏳",
-    "work": "⚙️", "life": "🌱", "hack": "💡", "hacks": "💡", "morning": "🌅", "routine": "📅",
-    "habit": "🔁", "habits": "🔁", "clock": "⏰", "time": "⏱️", "hour": "⏳", "day": "☀️",
-    "school": "🏫", "student": "🎓", "learn": "📚", "study": "📖", "brain": "🧠", "mind": "🧠",
-    "focus": "🎯", "goal": "🥅", "win": "🥇", "lose": "❌",
-    "computer": "💻", "phone": "📱", "internet": "🌐", "code": "💻", "ai": "🤖", "robot": "🤖",
-    "game": "🎮", "gaming": "🎮", "play": "▶️",
-    "music": "🎵", "song": "🎶", "video": "📹", "photo": "📷",
-    "love": "❤️", "friend": "🤝", "people": "👥", "man": "👨", "woman": "👩",
-    "food": "🍔", "drink": "🥤", "coffee": "☕", "car": "🚗", "plane": "✈️",
-    "house": "🏠", "home": "🏠", "city": "🏙️", "world": "🌐"
-}
+DEFAULT_EMOJI_MAP = {"science": {"emoji": "🧪", "anim": "fade"}, "scientific": {"emoji": "🧪", "anim": "fade"}, "scientist": {"emoji": "🧪", "anim": "fade"}, "physics": {"emoji": "⚛️", "anim": "fade"}, "chemistry": {"emoji": "🧪", "anim": "fade"}, "biology": {"emoji": "🧬", "anim": "fade"}, "space": {"emoji": "🌌", "anim": "float_up"}, "planet": {"emoji": "🪐", "anim": "float_up"}, "star": {"emoji": "⭐", "anim": "pop_in"}, "earth": {"emoji": "🌍", "anim": "fade"}, "moon": {"emoji": "🌙", "anim": "float_up"}, "sun": {"emoji": "☀️", "anim": "bounce"}, "universe": {"emoji": "🌌", "anim": "float_up"}, "galaxy": {"emoji": "🌌", "anim": "float_up"}, "alien": {"emoji": "👽", "anim": "float_up"}, "ufo": {"emoji": "🛸", "anim": "float_up"}, "fact": {"emoji": "💡", "anim": "fade"}, "facts": {"emoji": "💡", "anim": "fade"}, "real": {"emoji": "✅", "anim": "pop_in"}, "fake": {"emoji": "❌", "anim": "pop_in"}, "true": {"emoji": "💯", "anim": "pop_in"}, "false": {"emoji": "🚫", "anim": "pop_in"}, "nature": {"emoji": "🌿", "anim": "fade"}, "animal": {"emoji": "🐾", "anim": "fade"}, "water": {"emoji": "💧", "anim": "fade"}, "fire": {"emoji": "🔥", "anim": "bounce"}, "ice": {"emoji": "❄️", "anim": "fade"}, "history": {"emoji": "📜", "anim": "fade"}, "historical": {"emoji": "📜", "anim": "fade"}, "ancient": {"emoji": "🏛️", "anim": "fade"}, "empire": {"emoji": "👑", "anim": "pop_in"}, "king": {"emoji": "👑", "anim": "pop_in"}, "queen": {"emoji": "👑", "anim": "pop_in"}, "war": {"emoji": "⚔️", "anim": "shake"}, "battle": {"emoji": "⚔️", "anim": "shake"}, "soldier": {"emoji": "🪖", "anim": "shake"}, "mystery": {"emoji": "❓", "anim": "fade"}, "mysterious": {"emoji": "❓", "anim": "fade"}, "secret": {"emoji": "🤫", "anim": "float_up"}, "secrets": {"emoji": "🤫", "anim": "float_up"}, "lost": {"emoji": "😵‍💫", "anim": "fade"}, "find": {"emoji": "🔍", "anim": "fade"}, "found": {"emoji": "🔍", "anim": "fade"}, "search": {"emoji": "🔎", "anim": "fade"}, "gold": {"emoji": "🪙", "anim": "pop_in"}, "treasure": {"emoji": "💎", "anim": "pop_in"}, "pirate": {"emoji": "🏴‍☠️", "anim": "pop_in"}, "scary": {"emoji": "😨", "anim": "shake"}, "creepy": {"emoji": "😰", "anim": "float_up"}, "ghost": {"emoji": "👻", "anim": "float_up"}, "dark": {"emoji": "🌑", "anim": "fade"}, "phone": {"emoji": "📱", "anim": "bounce"}, "call": {"emoji": "📞", "anim": "bounce"}, "text": {"emoji": "💬", "anim": "bounce"}, "message": {"emoji": "✉️", "anim": "bounce"}, "number": {"emoji": "🔢", "anim": "bounce"}, "cry": {"emoji": "😭", "anim": "fade"}, "scream": {"emoji": "😱", "anim": "shake"}, "run": {"emoji": "🏃", "anim": "bounce"}, "fear": {"emoji": "😨", "anim": "shake"}, "dead": {"emoji": "💀", "anim": "shake"}, "death": {"emoji": "💀", "anim": "shake"}, "kill": {"emoji": "🔪", "anim": "shake"}, "killer": {"emoji": "🔪", "anim": "shake"}, "blood": {"emoji": "🩸", "anim": "shake"}, "night": {"emoji": "🌃", "anim": "float_up"}, "shadow": {"emoji": "👤", "anim": "fade"}, "monster": {"emoji": "👹", "anim": "shake"}, "demon": {"emoji": "😈", "anim": "shake"}, "money": {"emoji": "💵", "anim": "pop_in"}, "rich": {"emoji": "🤑", "anim": "pop_in"}, "poor": {"emoji": "💸", "anim": "pop_in"}, "buy": {"emoji": "🛒", "anim": "pop_in"}, "sell": {"emoji": "🏷️", "anim": "pop_in"}, "dollar": {"emoji": "💵", "anim": "pop_in"}, "dollars": {"emoji": "💵", "anim": "pop_in"}, "cash": {"emoji": "💰", "anim": "pop_in"}, "wealth": {"emoji": "💎", "anim": "pop_in"}, "business": {"emoji": "💼", "anim": "pop_in"}, "job": {"emoji": "💼", "anim": "pop_in"}, "boss": {"emoji": "👔", "anim": "pop_in"}, "office": {"emoji": "🏢", "anim": "pop_in"}, "motivation": {"emoji": "🔥", "anim": "bounce"}, "success": {"emoji": "🏆", "anim": "pop_in"}, "lazy": {"emoji": "🛌", "anim": "fade"}, "procrastinate": {"emoji": "⏳", "anim": "bounce"}, "procrastination": {"emoji": "⏳", "anim": "bounce"}, "work": {"emoji": "⚙️", "anim": "bounce"}, "life": {"emoji": "🌱", "anim": "bounce"}, "hack": {"emoji": "💡", "anim": "fade"}, "hacks": {"emoji": "💡", "anim": "fade"}, "morning": {"emoji": "🌅", "anim": "bounce"}, "routine": {"emoji": "📅", "anim": "bounce"}, "habit": {"emoji": "🔁", "anim": "bounce"}, "habits": {"emoji": "🔁", "anim": "bounce"}, "clock": {"emoji": "⏰", "anim": "bounce"}, "time": {"emoji": "⏱️", "anim": "bounce"}, "hour": {"emoji": "⏳", "anim": "bounce"}, "day": {"emoji": "☀️", "anim": "bounce"}, "school": {"emoji": "🏫", "anim": "fade"}, "student": {"emoji": "🎓", "anim": "fade"}, "learn": {"emoji": "📚", "anim": "fade"}, "study": {"emoji": "📖", "anim": "fade"}, "brain": {"emoji": "🧠", "anim": "fade"}, "mind": {"emoji": "🧠", "anim": "fade"}, "focus": {"emoji": "🎯", "anim": "bounce"}, "goal": {"emoji": "🥅", "anim": "pop_in"}, "win": {"emoji": "🥇", "anim": "pop_in"}, "lose": {"emoji": "❌", "anim": "pop_in"}, "computer": {"emoji": "💻", "anim": "bounce"}, "internet": {"emoji": "🌐", "anim": "bounce"}, "code": {"emoji": "💻", "anim": "bounce"}, "ai": {"emoji": "🤖", "anim": "bounce"}, "robot": {"emoji": "🤖", "anim": "bounce"}, "game": {"emoji": "🎮", "anim": "bounce"}, "gaming": {"emoji": "🎮", "anim": "bounce"}, "play": {"emoji": "▶️", "anim": "bounce"}, "music": {"emoji": "🎵", "anim": "bounce"}, "song": {"emoji": "🎶", "anim": "bounce"}, "video": {"emoji": "📹", "anim": "bounce"}, "photo": {"emoji": "📷", "anim": "bounce"}, "love": {"emoji": "❤️", "anim": "pop_in"}, "friend": {"emoji": "🤝", "anim": "fade"}, "people": {"emoji": "👥", "anim": "fade"}, "man": {"emoji": "👨", "anim": "fade"}, "woman": {"emoji": "👩", "anim": "fade"}, "food": {"emoji": "🍔", "anim": "bounce"}, "drink": {"emoji": "🥤", "anim": "bounce"}, "coffee": {"emoji": "☕", "anim": "bounce"}, "car": {"emoji": "🚗", "anim": "fade"}, "plane": {"emoji": "✈️", "anim": "fade"}, "house": {"emoji": "🏠", "anim": "fade"}, "home": {"emoji": "🏠", "anim": "fade"}, "city": {"emoji": "🏙️", "anim": "fade"}, "world": {"emoji": "🌐", "anim": "fade"}, "doctor": {"emoji": "👨‍⚕️", "anim": "shake"}, "nurse": {"emoji": "👩‍⚕️", "anim": "shake"}, "hospital": {"emoji": "🏥", "anim": "shake"}, "medicine": {"emoji": "💊", "anim": "shake"}, "pill": {"emoji": "💊", "anim": "shake"}, "sick": {"emoji": "🤒", "anim": "shake"}, "ill": {"emoji": "🤒", "anim": "shake"}, "disease": {"emoji": "🦠", "anim": "shake"}, "virus": {"emoji": "🦠", "anim": "shake"}, "healthy": {"emoji": "💪", "anim": "shake"}, "health": {"emoji": "❤️‍🩹", "anim": "shake"}, "exercise": {"emoji": "🏋️", "anim": "bounce"}, "gym": {"emoji": "🏋️", "anim": "bounce"}, "workout": {"emoji": "🏋️", "anim": "bounce"}, "injury": {"emoji": "🤕", "anim": "shake"}, "pain": {"emoji": "😖", "anim": "shake"}, "surgery": {"emoji": "🩺", "anim": "shake"}, "tooth": {"emoji": "🦷", "anim": "shake"}, "athlete": {"emoji": "🏃", "anim": "bounce"}, "champion": {"emoji": "🏆", "anim": "pop_in"}, "competition": {"emoji": "🤼", "anim": "shake"}, "compete": {"emoji": "🤼", "anim": "shake"}, "race": {"emoji": "🏁", "anim": "bounce"}, "fight": {"emoji": "🤼‍♂️", "anim": "shake"}, "strong": {"emoji": "💪", "anim": "bounce"}, "football": {"emoji": "🏈", "anim": "bounce"}, "basketball": {"emoji": "🏀", "anim": "bounce"}, "soccer": {"emoji": "⚽", "anim": "bounce"}, "tennis": {"emoji": "🎾", "anim": "bounce"}, "baseball": {"emoji": "⚾", "anim": "bounce"}, "boxing": {"emoji": "🥊", "anim": "shake"}, "medal": {"emoji": "🥇", "anim": "pop_in"}, "coach": {"emoji": "🧢", "anim": "bounce"}, "trainer": {"emoji": "🧢", "anim": "bounce"}, "happy": {"emoji": "😊", "anim": "bounce"}, "sad": {"emoji": "😢", "anim": "fade"}, "angry": {"emoji": "😡", "anim": "shake"}, "anger": {"emoji": "😡", "anim": "shake"}, "mad": {"emoji": "😡", "anim": "shake"}, "surprised": {"emoji": "😲", "anim": "pop_in"}, "shocked": {"emoji": "😱", "anim": "shake"}, "laugh": {"emoji": "😂", "anim": "bounce"}, "funny": {"emoji": "😂", "anim": "bounce"}, "joke": {"emoji": "🤣", "anim": "bounce"}, "crazy": {"emoji": "🤪", "anim": "bounce"}, "confused": {"emoji": "😕", "anim": "fade"}, "tired": {"emoji": "😩", "anim": "fade"}, "exhausted": {"emoji": "😫", "anim": "fade"}, "stressed": {"emoji": "😰", "anim": "shake"}, "calm": {"emoji": "🧘", "anim": "fade"}, "relax": {"emoji": "🧘", "anim": "fade"}, "nervous": {"emoji": "😬", "anim": "shake"}, "awkward": {"emoji": "😬", "anim": "shake"}, "proud": {"emoji": "😌", "anim": "fade"}, "embarrassed": {"emoji": "😳", "anim": "fade"}, "shy": {"emoji": "🤭", "anim": "fade"}, "bored": {"emoji": "🥱", "anim": "fade"}, "lonely": {"emoji": "🥺", "anim": "fade"}, "police": {"emoji": "👮", "anim": "shake"}, "cop": {"emoji": "👮", "anim": "shake"}, "lawyer": {"emoji": "⚖️", "anim": "shake"}, "court": {"emoji": "⚖️", "anim": "shake"}, "judge": {"emoji": "⚖️", "anim": "shake"}, "prison": {"emoji": "⛓️", "anim": "shake"}, "jail": {"emoji": "⛓️", "anim": "shake"}, "thief": {"emoji": "🥷", "anim": "shake"}, "steal": {"emoji": "🥷", "anim": "shake"}, "stolen": {"emoji": "🥷", "anim": "shake"}, "crime": {"emoji": "🔫", "anim": "shake"}, "criminal": {"emoji": "⛓️", "anim": "shake"}, "trial": {"emoji": "⚖️", "anim": "shake"}, "arrest": {"emoji": "🚔", "anim": "shake"}, "witness": {"emoji": "👀", "anim": "fade"}, "lie": {"emoji": "🤥", "anim": "fade"}, "liar": {"emoji": "🤥", "anim": "fade"}, "innocent": {"emoji": "😇", "anim": "fade"}, "guilty": {"emoji": "😈", "anim": "shake"}, "family": {"emoji": "👨‍👩‍👧‍👦", "anim": "pop_in"}, "baby": {"emoji": "👶", "anim": "pop_in"}, "child": {"emoji": "🧒", "anim": "pop_in"}, "parent": {"emoji": "👨‍👩‍👧", "anim": "pop_in"}, "mother": {"emoji": "👩‍👧", "anim": "pop_in"}, "father": {"emoji": "👨‍👧", "anim": "pop_in"}, "mom": {"emoji": "👩‍👧", "anim": "pop_in"}, "dad": {"emoji": "👨‍👧", "anim": "pop_in"}, "wedding": {"emoji": "💍", "anim": "pop_in"}, "married": {"emoji": "💍", "anim": "pop_in"}, "couple": {"emoji": "💑", "anim": "pop_in"}, "kiss": {"emoji": "💋", "anim": "pop_in"}, "hug": {"emoji": "🤗", "anim": "pop_in"}, "pet": {"emoji": "🐶", "anim": "bounce"}, "dog": {"emoji": "🐶", "anim": "bounce"}, "cat": {"emoji": "🐱", "anim": "bounce"}, "broken": {"emoji": "💔", "anim": "shake"}, "cheat": {"emoji": "🃏", "anim": "shake"}, "alone": {"emoji": "🧍", "anim": "fade"}, "storm": {"emoji": "🌩️", "anim": "shake"}, "thunder": {"emoji": "⛈️", "anim": "shake"}, "lightning": {"emoji": "⚡", "anim": "shake"}, "rain": {"emoji": "🌧️", "anim": "fade"}, "snowy": {"emoji": "🌨️", "anim": "float_up"}, "tornado": {"emoji": "🌪️", "anim": "shake"}, "wind": {"emoji": "💨", "anim": "float_up"}, "rainbow": {"emoji": "🌈", "anim": "fade"}, "flood": {"emoji": "🌊", "anim": "shake"}, "disaster": {"emoji": "☄️", "anim": "shake"}, "cloud": {"emoji": "☁️", "anim": "float_up"}, "fog": {"emoji": "🌫️", "anim": "fade"}, "volcano": {"emoji": "🌋", "anim": "shake"}, "luck": {"emoji": "🍀", "anim": "pop_in"}, "lucky": {"emoji": "🍀", "anim": "pop_in"}, "magic": {"emoji": "✨", "anim": "pop_in"}, "magical": {"emoji": "✨", "anim": "pop_in"}, "dream": {"emoji": "💭", "anim": "float_up"}, "nightmare": {"emoji": "👹", "anim": "shake"}, "fate": {"emoji": "🔮", "anim": "fade"}, "destiny": {"emoji": "🔮", "anim": "fade"}, "miracle": {"emoji": "🙏", "anim": "fade"}, "legendary": {"emoji": "🏆", "anim": "pop_in"}, "myth": {"emoji": "🐉", "anim": "fade"}, "fantasy": {"emoji": "🦄", "anim": "float_up"}, "dragon": {"emoji": "🐉", "anim": "shake"}, "unicorn": {"emoji": "🦄", "anim": "pop_in"}, "castle": {"emoji": "🏰", "anim": "fade"}, "hero": {"emoji": "🦸", "anim": "pop_in"}, "villain": {"emoji": "🦹", "anim": "shake"}, "brave": {"emoji": "🦁", "anim": "bounce"}, "art": {"emoji": "🎨", "anim": "fade"}, "paint": {"emoji": "🖌️", "anim": "fade"}, "draw": {"emoji": "✍️", "anim": "fade"}, "design": {"emoji": "🎨", "anim": "fade"}, "creative": {"emoji": "💡", "anim": "bounce"}, "imagine": {"emoji": "💭", "anim": "fade"}, "write": {"emoji": "✍️", "anim": "fade"}, "story": {"emoji": "📖", "anim": "fade"}, "author": {"emoji": "✍️", "anim": "fade"}, "poem": {"emoji": "📝", "anim": "fade"}, "poetry": {"emoji": "📝", "anim": "fade"}, "theater": {"emoji": "🎭", "anim": "fade"}, "stage": {"emoji": "🎭", "anim": "fade"}, "drama": {"emoji": "🎭", "anim": "shake"}, "pizza": {"emoji": "🍕", "anim": "bounce"}, "sushi": {"emoji": "🍣", "anim": "bounce"}, "cake": {"emoji": "🎂", "anim": "pop_in"}, "wine": {"emoji": "🍷", "anim": "bounce"}, "beer": {"emoji": "🍺", "anim": "bounce"}, "fruit": {"emoji": "🍎", "anim": "bounce"}, "sweet": {"emoji": "🍬", "anim": "bounce"}, "spicy": {"emoji": "🌶️", "anim": "shake"}, "cook": {"emoji": "👨‍🍳", "anim": "bounce"}, "chef": {"emoji": "👨‍🍳", "anim": "bounce"}, "restaurant": {"emoji": "🍽️", "anim": "bounce"}, "hungry": {"emoji": "🤤", "anim": "fade"}, "taste": {"emoji": "👅", "anim": "bounce"}, "delicious": {"emoji": "😋", "anim": "bounce"}, "adventure": {"emoji": "🧭", "anim": "bounce"}, "explore": {"emoji": "🔍", "anim": "fade"}, "discover": {"emoji": "🔍", "anim": "fade"}, "beach": {"emoji": "🏖️", "anim": "fade"}, "mountain": {"emoji": "🏔️", "anim": "float_up"}, "island": {"emoji": "🏝️", "anim": "fade"}, "trip": {"emoji": "🧳", "anim": "fade"}, "vacation": {"emoji": "🌴", "anim": "fade"}, "camp": {"emoji": "🏕️", "anim": "fade"}, "hike": {"emoji": "🥾", "anim": "bounce"}, "hiking": {"emoji": "🥾", "anim": "bounce"}, "ocean": {"emoji": "🌊", "anim": "bounce"}, "forest": {"emoji": "🌲", "anim": "fade"}, "river": {"emoji": "🏞️", "anim": "fade"}, "desert": {"emoji": "🏜️", "anim": "shake"}, "passport": {"emoji": "🛂", "anim": "fade"}, "compass": {"emoji": "🧭", "anim": "fade"}, "travel": {"emoji": "✈️", "anim": "fade"}, "traveler": {"emoji": "🧳", "anim": "fade"}, "dance": {"emoji": "💃", "anim": "bounce"}, "dancer": {"emoji": "💃", "anim": "bounce"}, "party": {"emoji": "🎉", "anim": "pop_in"}, "celebrate": {"emoji": "🥳", "anim": "pop_in"}, "celebration": {"emoji": "🎊", "anim": "pop_in"}, "fashion": {"emoji": "👗", "anim": "fade"}, "beauty": {"emoji": "💄", "anim": "fade"}, "pray": {"emoji": "🙏", "anim": "fade"}, "prayer": {"emoji": "🙏", "anim": "fade"}, "bless": {"emoji": "✨", "anim": "fade"}, "blessed": {"emoji": "✨", "anim": "fade"}, "curse": {"emoji": "🤬", "anim": "shake"}, "cursed": {"emoji": "😈", "anim": "shake"}, "haunted": {"emoji": "🏚️", "anim": "shake"}, "future": {"emoji": "🔮", "anim": "float_up"}, "past": {"emoji": "⌛", "anim": "fade"}, "energy": {"emoji": "⚡", "anim": "shake"}, "energetic": {"emoji": "⚡", "anim": "shake"}, "soul": {"emoji": "🕊️", "anim": "float_up"}, "spirit": {"emoji": "✨", "anim": "float_up"}, "spiritual": {"emoji": "🕯️", "anim": "fade"}, "devil": {"emoji": "😈", "anim": "shake"}, "angel": {"emoji": "😇", "anim": "fade"}, "warrior": {"emoji": "⚔️", "anim": "shake"}, "hunt": {"emoji": "🏹", "anim": "shake"}, "hunter": {"emoji": "🏹", "anim": "shake"}, "smile": {"emoji": "😊", "anim": "bounce"}, "grin": {"emoji": "😁", "anim": "bounce"}, "afraid": {"emoji": "😨", "anim": "shake"}, "terrified": {"emoji": "😱", "anim": "shake"}, "protect": {"emoji": "🛡️", "anim": "fade"}, "protection": {"emoji": "🛡️", "anim": "fade"}, "build": {"emoji": "🔧", "anim": "bounce"}, "builder": {"emoji": "👷", "anim": "bounce"}, "grow": {"emoji": "🌱", "anim": "float_up"}, "growth": {"emoji": "📈", "anim": "float_up"}, "fly": {"emoji": "🕊️", "anim": "float_up"}, "swim": {"emoji": "🏊", "anim": "bounce"}, "read": {"emoji": "📖", "anim": "fade"}, "sing": {"emoji": "🎤", "anim": "bounce"}, "singer": {"emoji": "🎤", "anim": "bounce"}, "style": {"emoji": "💅", "anim": "fade"}, "tears": {"emoji": "😭", "anim": "fade"},}
+
 
 def load_presets():
     presets = BUILTIN_PRESETS.copy()
@@ -346,23 +353,39 @@ def delete_custom_preset(name):
             return False
     return False
 
-def load_emoji_map():
+def _normalize_emoji_map(raw_map: dict) -> dict:
+    """Normalize emoji_map entries so each value is a dict with 'emoji' and 'anim' keys."""
+    normalized = {}
+    for key, value in raw_map.items():
+        if isinstance(value, str):
+            normalized[key] = {"emoji": value, "anim": "none"}
+        elif isinstance(value, dict):
+            normalized[key] = {
+                "emoji": value.get("emoji", "❓"),
+                "anim": value.get("anim", "none"),
+            }
+        else:
+            normalized[key] = {"emoji": str(value), "anim": "none"}
+    return normalized
+
+def load_emoji_map() -> dict:
     if not os.path.exists(EMOJIS_FILE):
         try:
             with open(EMOJIS_FILE, "w", encoding="utf-8") as f:
                 json.dump(DEFAULT_EMOJI_MAP, f, indent=4, ensure_ascii=False)
-            return DEFAULT_EMOJI_MAP
+            return _normalize_emoji_map(DEFAULT_EMOJI_MAP)
         except Exception as e:
             logger.warning(f"Failed to create default emoji map file at {EMOJIS_FILE}: {e}", exc_info=True)
-            return DEFAULT_EMOJI_MAP
+            return _normalize_emoji_map(DEFAULT_EMOJI_MAP)
     try:
         with open(EMOJIS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            raw = json.load(f)
+            return _normalize_emoji_map(raw)
     except Exception as e:
         logger.warning(f"Failed to load emoji map from {EMOJIS_FILE}: {e}", exc_info=True)
-        return DEFAULT_EMOJI_MAP
+        return _normalize_emoji_map(DEFAULT_EMOJI_MAP)
 
-def save_emoji_map(emoji_map):
+def save_emoji_map(emoji_map: dict) -> bool:
     try:
         with open(EMOJIS_FILE, "w", encoding="utf-8") as f:
             json.dump(emoji_map, f, indent=4, ensure_ascii=False)
@@ -457,6 +480,20 @@ def save_settings(settings_dict):
     except Exception as e:
         logger.warning(f"Failed to save settings to {SETTINGS_FILE}: {e}", exc_info=True)
         return False
+
+DEFAULT_SCRIPT_SYSTEM_PROMPT = (
+    "You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content. "
+    "Write a highly engaging vertical video script based on the user's topic.\n\n"
+    "Strict Guidelines:\n"
+    "1. The Hook (First 5-10s): Start immediately with a scroll-stopping statement, provocative question, or intriguing hook that grabs attention. No slow introductions.\n"
+    "2. Story Arc: Structure with a clear narrative arc — setup, rising tension or details, and a strong payoff or conclusion. Use rich details and examples to make the content compelling.\n"
+    "3. Length: Aim for approximately {max_words} words (approx. {max_words_seconds} seconds when spoken). This is a medium-to-long Short so pace the story naturally.\n"
+    "4. Pacing: Vary sentence length. Use short punchy lines for impact and longer descriptive sentences for storytelling. Build momentum toward key reveals.\n"
+    "5. Tone: Sound authentic and human — conversational but informed. Avoid robotic, academic, or overly dramatic AI clichés.\n"
+    "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
+    "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this.\n"
+    "8. Source: Never mention Reddit, subreddits, or forums. Tell the story directly as if it happened to someone."
+)
 
 DEFAULT_PROMPTS = {
     "History's Coolest Coincidences": "Tell the story of one of the most unbelievable coincidences in history that shaped the world.",

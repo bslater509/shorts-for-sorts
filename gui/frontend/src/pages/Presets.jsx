@@ -37,6 +37,9 @@ export default function Presets() {
     word_pop: true,
     inactive_dim: true,
     emoji_position: 'above',
+    enable_emoji_animation: true,
+    emoji_scale_factor: 1.5,
+    emoji_hold_duration: 0.5,
     sub_animation_style: 'tiktok_pop'
   })
 
@@ -88,6 +91,9 @@ export default function Presets() {
       word_pop: p.word_pop !== false,
       inactive_dim: p.inactive_dim !== false,
       emoji_position: p.emoji_position || (p.enable_emojis === false ? 'none' : 'above'),
+      enable_emoji_animation: p.enable_emoji_animation !== false,
+      emoji_scale_factor: p.emoji_scale_factor || 1.5,
+      emoji_hold_duration: p.emoji_hold_duration ?? 0.5,
       sub_animation_style: p.sub_animation_style || 'tiktok_pop'
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -112,6 +118,9 @@ export default function Presets() {
       const payload = {
         ...form,
         enable_emojis: form.emoji_position !== 'none',
+        enable_emoji_animation: form.enable_emoji_animation,
+        emoji_scale_factor: form.emoji_scale_factor,
+        emoji_hold_duration: form.emoji_hold_duration,
         voice_volume: 1.2,
         music_volume: 0.15,
         word_pop_scale: 1.15,
@@ -234,6 +243,21 @@ export default function Presets() {
                       <option value="same_line">Next to Word</option>
                       <option value="none">Disabled (No emojis)</option>
                     </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Emoji Animation</label>
+                    <select name="enable_emoji_animation" value={form.enable_emoji_animation.toString()} onChange={handleChange} className="input-base">
+                      <option value="true">Enabled (pop/bounce/float/fade/shake)</option>
+                      <option value="false">Disabled (static emojis)</option>
+                    </select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Emoji Size Scale</label>
+                    <input type="number" name="emoji_scale_factor" value={form.emoji_scale_factor} onChange={handleChange} step="0.1" min="0.5" max="3.0" className="input-base" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Emoji Hold (seconds)</label>
+                    <input type="number" name="emoji_hold_duration" value={form.emoji_hold_duration} onChange={handleChange} step="0.1" min="0" max="2.0" className="input-base" />
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium">Word Scale Pop-up</label>

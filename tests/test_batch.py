@@ -221,7 +221,8 @@ class TestGetProgressPercentage(unittest.TestCase):
 
     def test_llm_script_returns_10(self):
         self.assertEqual(get_progress_percentage("LLM Script"), 10)
-        self.assertEqual(get_progress_percentage("LLM Script (42 words)"), 10)
+        self.assertEqual(get_progress_percentage("LLM Script (42 words)"), 5)
+        self.assertEqual(get_progress_percentage("LLM Script (400 words)"), 14)
 
     def test_voice_generation_percentage(self):
         # 3/6 → 20 + int(3/6 * 25) = 20 + int(12.5) = 32

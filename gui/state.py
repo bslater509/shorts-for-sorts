@@ -45,8 +45,13 @@ state = {
     "single_word_mode": None,
     "emoji_position": None,
     "emoji_font": None,
+    "enable_emoji_animation": None,
+    "emoji_scale_factor": None,
+    "emoji_hold_duration": None,
+    "emoji_throw_max_count": None,
     "sub_animation_style": None,
     "loaded_preset_name": None,
+    "batch_num_shorts": None,
 }
 
 # Global Settings (loaded from config/settings.json)

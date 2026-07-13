@@ -6,7 +6,7 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState({
     llm_profiles: [],
     active_llm_profile_id: '',
-    max_words: 130,
+    max_words: 400,
     system_prompt: '',
     pexels_api_key: '',
     local_whisper: true,
@@ -97,7 +97,7 @@ export default function SettingsPage() {
     try {
       const payload = {
         ...settings,
-        max_words: parseInt(settings.max_words) || 130,
+        max_words: parseInt(settings.max_words) || 400,
         max_workers: parseInt(settings.max_workers) || 1,
         llm_max_workers: parseInt(settings.llm_max_workers) || 5,
         llm_temp_script: parseFloat(settings.llm_temp_script ?? 0.7),

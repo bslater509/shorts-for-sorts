@@ -35,7 +35,7 @@ export function syncSettingsUI() {
   setVal('settings-api-key', s.api_key || '');
   setVal('settings-base-url', s.base_url || '');
   setVal('settings-model', s.model || 'gpt-4o-mini');
-  setVal('settings-max-words', s.max_words || 130);
+  setVal('settings-max-words', s.max_words || 400);
   setVal('settings-pexels-key', s.pexels_api_key || '');
   
   const whisperModeSelect = document.getElementById('settings-whisper-mode');
@@ -60,7 +60,7 @@ async function saveSettingsToServer() {
     api_key: getVal('settings-api-key'),
     base_url: getVal('settings-base-url'),
     model: getVal('settings-model'),
-    max_words: parseInt(getVal('settings-max-words')) || 130,
+    max_words: parseInt(getVal('settings-max-words')) || 400,
     pexels_api_key: getVal('settings-pexels-key'),
     local_whisper: getVal('settings-whisper-mode') === 'local',
     local_whisper_model: getVal('settings-whisper-model'),

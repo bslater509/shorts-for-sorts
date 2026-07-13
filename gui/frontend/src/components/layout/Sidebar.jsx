@@ -23,7 +23,7 @@ export default function Sidebar() {
     let count = 0;
     const poll = () => {
       count++;
-      fetch("/api/system_stats", { signal: AbortSignal.timeout(3000) })
+      fetch("/api/health", { signal: AbortSignal.timeout(3000) })
         .then(r => r.json())
         .then(() => window.location.reload())
         .catch(() => {

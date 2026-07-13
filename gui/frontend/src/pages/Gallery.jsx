@@ -52,7 +52,8 @@ export default function Gallery() {
 
   const handleShare = async (video) => {
     try {
-      const textToCopy = `${video.filename.replace('.mp4', '')}\n${video.hashtags || ''}`;
+      const videoTitle = video.title || video.filename.replace('.mp4', '')
+      const textToCopy = `${videoTitle}\n${video.hashtags || ''}`;
       try {
         await navigator.clipboard.writeText(textToCopy);
       } catch (err) {
@@ -86,20 +87,22 @@ export default function Gallery() {
     }
   }
 
-  const handleCopyHashtags = async (hashtags) => {
-    if (!hashtags) return
+  const handleCopyHashtags = async (video) => {
+    if (!video.hashtags) return
+    const videoTitle = video.title || video.filename.replace('.mp4', '')
     try {
-      await navigator.clipboard.writeText(hashtags)
-      alert("Hashtags copied to clipboard!")
+      await navigator.clipboard.writeText(`${videoTitle}\n${video.hashtags}`)
+      alert("Title and hashtags copied to clipboard!")
     } catch (err) {
-      console.error("Failed to copy hashtags:", err)
-      alert("Failed to copy hashtags.")
+      console.error("Failed to copy:", err)
+      alert("Failed to copy title and hashtags.")
     }
   }
 
   const openUploadModal = (video) => {
     setSelectedVideo(video)
-    setTiktokDescription(`${video.filename.replace('.mp4', '')}\n${video.hashtags || ''}`)
+    const videoTitle = video.title || video.filename.replace('.mp4', '')
+    setTiktokDescription(`${videoTitle}\n${video.hashtags || ''}`)
     setTiktokVisibility("Public")
     setIsUploadModalOpen(true)
   }
@@ -198,7 +201,7 @@ export default function Gallery() {
                   <div className="flex items-center gap-2 mt-auto pt-2">
                     {v.hashtags && (
                       <button 
-                        onClick={() => handleCopyHashtags(v.hashtags)}
+                        onClick={() => handleCopyHashtags(v)}
                         className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white rounded-md text-xs font-semibold transition-colors"
                         title="Copy Hashtags"
                       >
