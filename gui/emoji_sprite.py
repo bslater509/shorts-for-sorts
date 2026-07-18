@@ -1,7 +1,9 @@
-import os
-import subprocess
+import contextlib
 import logging
 import math
+import os
+import subprocess
+
 import numpy as np
 from PIL import Image
 
@@ -45,18 +47,28 @@ def render_emoji_sprite(
         logger.debug("Sprite: no emoji overlays to render")
         return ""
     if not emoji_png_cache:
-        logger.warning("Sprite: %d emoji overlays provided but no PNG cache — did Playwright emoji rendering fail?",
-                       len(emoji_overlays))
+        logger.warning(
+            "Sprite: %d emoji overlays provided but no PNG cache — did Playwright emoji rendering fail?",
+            len(emoji_overlays),
+        )
         return ""
 
     total_frames = int(duration * fps)
     if total_frames <= 0:
-        logger.warning("Sprite: invalid duration %.2fs at %dfps = %d frames", duration, fps, total_frames)
+        logger.warning(
+            "Sprite: invalid duration %.2fs at %dfps = %d frames", duration, fps, total_frames
+        )
         return ""
 
-    unique_requested = len(set(o["emoji"] for o in emoji_overlays))
-    logger.info("Sprite: rendering %d overlays (%d unique emojis) across %d frames at %dx%d",
-                len(emoji_overlays), unique_requested, total_frames, output_w, output_h)
+    unique_requested = len({o["emoji"] for o in emoji_overlays})
+    logger.info(
+        "Sprite: rendering %d overlays (%d unique emojis) across %d frames at %dx%d",
+        len(emoji_overlays),
+        unique_requested,
+        total_frames,
+        output_w,
+        output_h,
+    )
 
     # ------------------------------------------------------------------
     # 1. Pre-load and pre-scale emoji images
@@ -90,7 +102,12 @@ def render_emoji_sprite(
             emoji_cache[key] = np.asarray(img, dtype=np.uint8)
             loaded += 1
         except Exception:
-            logger.warning("Sprite: failed to load/process emoji PNG %r at %s", emoji_char, png_path, exc_info=True)
+            logger.warning(
+                "Sprite: failed to load/process emoji PNG %r at %s",
+                emoji_char,
+                png_path,
+                exc_info=True,
+            )
             failed += 1
             continue
 
@@ -131,24 +148,39 @@ def render_emoji_sprite(
             active_overlays_counted += 1
 
     frames_with_content = sum(1 for f in frame_lookup if f)
-    logger.info("Sprite: %d/%d frames have active overlays (%d total overlay-instances)",
-                frames_with_content, total_frames, active_overlays_counted)
+    logger.info(
+        "Sprite: %d/%d frames have active overlays (%d total overlay-instances)",
+        frames_with_content,
+        total_frames,
+        active_overlays_counted,
+    )
 
     # ------------------------------------------------------------------
     # 3. Encode sprite video by piping raw RGBA frames into FFmpeg
     # ------------------------------------------------------------------
     cmd = [
-        "ffmpeg", "-y",
-        "-f", "rawvideo",
-        "-vcodec", "rawvideo",
-        "-s", f"{output_w}x{output_h}",
-        "-pix_fmt", "rgba",
-        "-r", str(fps),
-        "-i", "-",
-        "-c:v", "ffv1",
-        "-pix_fmt", "yuva420p",
-        "-level", "3",
-        "-slicecrc", "1",
+        "ffmpeg",
+        "-y",
+        "-f",
+        "rawvideo",
+        "-vcodec",
+        "rawvideo",
+        "-s",
+        f"{output_w}x{output_h}",
+        "-pix_fmt",
+        "rgba",
+        "-r",
+        str(fps),
+        "-i",
+        "-",
+        "-c:v",
+        "ffv1",
+        "-pix_fmt",
+        "yuva420p",
+        "-level",
+        "3",
+        "-slicecrc",
+        "1",
         sprite_path,
     ]
     logger.debug("Sprite: FFmpeg command: %s", " ".join(cmd))
@@ -167,10 +199,8 @@ def render_emoji_sprite(
                 report_interval = max(1, total_frames // 20)
                 if frame_idx % report_interval == 0:
                     pct = int((frame_idx / total_frames) * 100)
-                    try:
+                    with contextlib.suppress(Exception):
                         progress_callback(f"Emoji Sprite ({pct}%)")
-                    except Exception:
-                        pass
 
             if not active:
                 proc.stdin.write(empty_frame.tobytes())
@@ -194,13 +224,15 @@ def render_emoji_sprite(
                     pop_duration = float(overlay.get("pop_duration", 0.15))
                     if elapsed < pop_duration:
                         scale_factor = elapsed / pop_duration
-                        scale_factor = max(0.01, scale_factor ** 0.5)
+                        scale_factor = max(0.01, scale_factor**0.5)
                     else:
                         scale_factor = 1.0
                     if scale_factor < 1.0:
                         new_w = max(1, int(w * scale_factor))
                         new_h = max(1, int(h * scale_factor))
-                        scaled = np.array(Image.fromarray(src_arr).resize((new_w, new_h), Image.LANCZOS))
+                        scaled = np.array(
+                            Image.fromarray(src_arr).resize((new_w, new_h), Image.LANCZOS)
+                        )
                         src_arr = scaled
                         x = x + (w - new_w) // 2
                         y = y + (h - new_h) // 2
@@ -250,7 +282,11 @@ def render_emoji_sprite(
                         cos_a, sin_a = abs(math.cos(rad)), abs(math.sin(rad))
                         new_w = max(1, int(w * cos_a + h * sin_a))
                         new_h = max(1, int(w * sin_a + h * cos_a))
-                        rotated = np.array(Image.fromarray(src_arr).rotate(angle, expand=True, resample=Image.BICUBIC))
+                        rotated = np.array(
+                            Image.fromarray(src_arr).rotate(
+                                angle, expand=True, resample=Image.BICUBIC
+                            )
+                        )
                         rh, rw = rotated.shape[:2]
                         src_arr = rotated
                         x = x + (w - rw) // 2
@@ -261,7 +297,9 @@ def render_emoji_sprite(
                     wobble_speed = float(overlay.get("wobble_speed", 12.0))
                     wobble_amount = float(overlay.get("wobble_amount", 15.0))
                     tilt = int(math.sin(elapsed * wobble_speed) * wobble_amount)
-                    rotated = np.array(Image.fromarray(src_arr).rotate(tilt, expand=False, resample=Image.BICUBIC))
+                    rotated = np.array(
+                        Image.fromarray(src_arr).rotate(tilt, expand=False, resample=Image.BICUBIC)
+                    )
                     rh, rw = rotated.shape[:2]
                     src_arr = rotated
                     x = x + (w - rw) // 2
@@ -274,7 +312,9 @@ def render_emoji_sprite(
                     pulse_scale = 1.0 + math.sin(elapsed * pulse_speed) * pulse_amount
                     new_w = max(1, int(w * pulse_scale))
                     new_h = max(1, int(h * pulse_scale))
-                    scaled = np.array(Image.fromarray(src_arr).resize((new_w, new_h), Image.LANCZOS))
+                    scaled = np.array(
+                        Image.fromarray(src_arr).resize((new_w, new_h), Image.LANCZOS)
+                    )
                     src_arr = scaled
                     x = x + (w - new_w) // 2
                     y = y + (h - new_h) // 2
@@ -286,9 +326,15 @@ def render_emoji_sprite(
                     emoji_char = overlay.get("emoji", "")
                     # Deterministic random left/right per emoji instance
                     throw_from_right = (
-                        hash((emoji_char, str(int(overlay.get("x", 0))),
-                              str(int(overlay.get("y", 0)))))
-                        % 2 == 0
+                        hash(
+                            (
+                                emoji_char,
+                                str(int(overlay.get("x", 0))),
+                                str(int(overlay.get("y", 0))),
+                            )
+                        )
+                        % 2
+                        == 0
                     )
                     arc_height = float(overlay.get("throw_arc_height", 25.0))
                     fall_distance = float(overlay.get("throw_fall_distance", output_h * 0.08))
@@ -310,7 +356,7 @@ def render_emoji_sprite(
 
                     # --- Vertical: descend from apex (cosine quarter-wave) + gravity fall toward bottom ---
                     arc_offset = -arc_height * math.cos(p * math.pi / 2)
-                    gravity_offset = fall_distance * (p ** 2)
+                    gravity_offset = fall_distance * (p**2)
                     new_y = int(y + arc_offset + gravity_offset)
 
                     # --- Tumbling rotation ---
@@ -345,8 +391,7 @@ def render_emoji_sprite(
 
                 src_x0 = x0 - x
                 src_y0 = y0 - y
-                src_view = src_arr[src_y0:src_y0 + y1 - y0,
-                                   src_x0:src_x0 + x1 - x0]
+                src_view = src_arr[src_y0 : src_y0 + y1 - y0, src_x0 : src_x0 + x1 - x0]
 
                 dst_view = frame[y0:y1, x0:x1]
 
@@ -358,9 +403,7 @@ def render_emoji_sprite(
                 blended_rgb = fg[:, :, :3] * alpha + bg[:, :, :3] * (1.0 - alpha)
                 out_alpha = alpha + bg[:, :, 3:4] * (1.0 - alpha)
 
-                dst_view[:] = np.concatenate(
-                    [blended_rgb, out_alpha], axis=2
-                ) * 255.0
+                dst_view[:] = np.concatenate([blended_rgb, out_alpha], axis=2) * 255.0
 
             proc.stdin.write(frame.tobytes())
 
@@ -372,8 +415,14 @@ def render_emoji_sprite(
             return ""
 
         file_size = os.path.getsize(sprite_path)
-        logger.info("Sprite: successfully created %s (%d bytes, %d frames, %.1fs at %dfps)",
-                    sprite_path, file_size, total_frames, duration, fps)
+        logger.info(
+            "Sprite: successfully created %s (%d bytes, %d frames, %.1fs at %dfps)",
+            sprite_path,
+            file_size,
+            total_frames,
+            duration,
+            fps,
+        )
         return os.path.abspath(sprite_path)
 
     except (BrokenPipeError, OSError):

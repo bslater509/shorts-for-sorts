@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom"
-import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X, RefreshCw, Loader2 } from "lucide-react"
+import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Terminal as TerminalIcon, Menu, X, RefreshCw, Loader2 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { useAppStore } from "@/store/useAppStore"
@@ -17,6 +17,8 @@ export default function Sidebar() {
     { name: "Video Gallery", path: "/gallery", icon: Film },
     { name: "Settings", path: "/settings", icon: Settings },
     { name: "Batch Generator", path: "/batch", icon: Layers },
+    { name: "Terminal", path: "/terminal", icon: TerminalIcon },
+    { name: "Playground", path: "/playground", icon: Wand2 },
   ]
 
   const pollServer = (retries = 60, interval = 2000) => {

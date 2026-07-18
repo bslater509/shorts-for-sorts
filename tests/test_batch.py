@@ -1,15 +1,15 @@
-import unittest
-import sys
 import os
+import sys
+import unittest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from gui.batch import (
     BatchJobConfig,
-    get_progress_percentage,
-    format_elapsed,
-    make_progress_bar,
     ProgressConsole,
+    format_elapsed,
+    get_progress_percentage,
+    make_progress_bar,
 )
 
 
@@ -47,7 +47,7 @@ class TestBatchJobConfig(unittest.TestCase):
             "sub_bg_alpha": "60",
             "single_word_mode": True,
             "emoji_position": "below",
-            "emoji_font": "NotoEmoji",
+            "emoji_style": "NotoEmoji",
             "sub_animation_style": "typewriter",
             "script_temp": 0.9,
             "meta_temp": 0.5,
@@ -95,7 +95,7 @@ class TestBatchJobConfig(unittest.TestCase):
         self.assertEqual(cfg.sub_bg_alpha, "60")
         self.assertTrue(cfg.single_word_mode)
         self.assertEqual(cfg.emoji_position, "below")
-        self.assertEqual(cfg.emoji_font, "NotoEmoji")
+        self.assertEqual(cfg.emoji_style, "NotoEmoji")
         self.assertEqual(cfg.sub_animation_style, "typewriter")
         self.assertEqual(cfg.script_temp, 0.9)
         self.assertEqual(cfg.meta_temp, 0.5)
@@ -151,7 +151,7 @@ class TestBatchJobConfig(unittest.TestCase):
         self.assertEqual(cfg.sub_bg_alpha, "80")
         self.assertFalse(cfg.single_word_mode)
         self.assertEqual(cfg.emoji_position, "above")
-        self.assertEqual(cfg.emoji_font, "Symbola")
+        self.assertEqual(cfg.emoji_style, "Symbola")
         self.assertEqual(cfg.sub_animation_style, "tiktok_pop")
         self.assertEqual(cfg.script_temp, 0.7)
         self.assertEqual(cfg.meta_temp, 0.7)
@@ -269,12 +269,15 @@ class TestProgressConsole(unittest.TestCase):
 
     def test_progress_console_exception_safety(self):
         """If the Manager dict is broken/readonly, .print() should not crash."""
+
         # Simulate a broken dict-like object that raises on __setitem__
         class BrokenDict:
             def __setitem__(self, key, value):
                 raise RuntimeError("Cannot write to readonly dict")
+
             def __getitem__(self, key):
                 raise KeyError(key)
+
             def __contains__(self, key):
                 return False
 
@@ -327,5 +330,5 @@ class TestMakeProgressBar(unittest.TestCase):
         self.assertIn("Compiling...", result)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

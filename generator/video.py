@@ -1,16 +1,15 @@
-import os
-import subprocess
+import contextlib
 import json
-import random
-import uuid
 import logging
+import os
+import random
 import re
+import subprocess
+import sys
 import time
-from typing import Optional
+import uuid
 
 import ffmpeg
-
-from generator.utils import format_time
 
 logger = logging.getLogger("shorts_creator.generator")
 if not logger.handlers and not logging.getLogger("shorts_creator").handlers:
@@ -28,11 +27,15 @@ def get_video_info(video_path: str, suppress_errors: bool = False) -> dict:
 
     cmd = [
         "ffprobe",
-        "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=width,height,duration",
-        "-of", "json",
-        video_path
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,duration",
+        "-of",
+        "json",
+        video_path,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -45,13 +48,17 @@ def get_video_info(video_path: str, suppress_errors: bool = False) -> dict:
         )
         if not suppress_errors:
             logger.error(err_msg, exc_info=True)
+        if suppress_errors:
+            return {"width": 0, "height": 0, "duration": 0.0}
         raise RuntimeError(err_msg) from e
     except Exception as e:
         if not suppress_errors:
             logger.error(
                 f"An unexpected error occurred while running ffprobe on '{video_path}': {e}",
-                exc_info=True
+                exc_info=True,
             )
+        if suppress_errors:
+            return {"width": 0, "height": 0, "duration": 0.0}
         raise RuntimeError(
             f"An unexpected error occurred while running ffprobe on '{video_path}': {e}"
         ) from e
@@ -59,6 +66,8 @@ def get_video_info(video_path: str, suppress_errors: bool = False) -> dict:
     try:
         info = json.loads(result.stdout)
     except json.JSONDecodeError as e:
+        if suppress_errors:
+            return {"width": 0, "height": 0, "duration": 0.0}
         raise RuntimeError(
             f"Failed to parse JSON output from ffprobe for '{video_path}': {e}"
         ) from e
@@ -69,12 +78,12 @@ def get_video_info(video_path: str, suppress_errors: bool = False) -> dict:
             return {
                 "width": int(stream.get("width", 0)),
                 "height": int(stream.get("height", 0)),
-                "duration": float(stream.get("duration") or 0.0)
+                "duration": float(stream.get("duration") or 0.0),
             }
         except (ValueError, TypeError) as e:
-            raise RuntimeError(
-                f"Invalid stream format metadata in video file '{video_path}': {e}"
-            )
+            if suppress_errors:
+                return {"width": 0, "height": 0, "duration": 0.0}
+            raise RuntimeError(f"Invalid stream format metadata in video file '{video_path}': {e}") from e
     return {"width": 0, "height": 0, "duration": 0.0}
 
 
@@ -84,15 +93,16 @@ def compile_video(
     subs_path: str,
     output_path: str,
     audio_duration: float,
-    music_path: Optional[str] = None,
+    music_path: str | None = None,
     voice_volume: float = 1.0,
     music_volume: float = 0.15,
-    bg_video_bottom_path: Optional[str] = None,
-    render_preset: str = 'fast',
-    render_resolution: str = '720p',
-    video_encoder: str = 'libx264',
+    bg_video_bottom_path: str | None = None,
+    render_preset: str = "fast",
+    render_resolution: str = "720p",
+    video_encoder: str = "libx264",
     progress_callback=None,
-    emoji_overlay_path: Optional[str] = None,
+    emoji_overlay_path: str | None = None,
+    emoji_style: str = "apple",
 ):
     """
     Renders the final vertical video using FFmpeg.
@@ -191,8 +201,8 @@ def compile_video(
 
     top_video_in = ffmpeg.input(bg_video_path, **input_args_top).video
 
-    target_w = 1080 if render_resolution == '1080p' else 720
-    target_h = 1920 if render_resolution == '1080p' else 1280
+    target_w = 1080 if render_resolution == "1080p" else 720
+    target_h = 1920 if render_resolution == "1080p" else 1280
 
     if is_split:
         bg_video_bottom_path = os.path.abspath(bg_video_bottom_path)  # type: ignore[arg-type]
@@ -201,150 +211,176 @@ def compile_video(
             input_args_bottom["ss"] = f"{start_offset_bottom:.2f}"
         bottom_video_in = ffmpeg.input(bg_video_bottom_path, **input_args_bottom).video
 
-        top_v = top_video_in.filter('crop', crop_w_top, crop_h_top, offset_x_top, offset_y_top).filter('scale', target_w, target_h // 2)
-        bottom_v = bottom_video_in.filter('crop', crop_w_bottom, crop_h_bottom, offset_x_bottom, offset_y_bottom).filter('scale', target_w, target_h // 2)
-        v_stream = ffmpeg.filter([top_v, bottom_v], 'vstack')
+        top_v = top_video_in.filter(
+            "crop", crop_w_top, crop_h_top, offset_x_top, offset_y_top
+        ).filter("scale", target_w, target_h // 2)
+        bottom_v = bottom_video_in.filter(
+            "crop", crop_w_bottom, crop_h_bottom, offset_x_bottom, offset_y_bottom
+        ).filter("scale", target_w, target_h // 2)
+        v_stream = ffmpeg.filter([top_v, bottom_v], "vstack")
     else:
-        v_stream = top_video_in.filter('crop', crop_w, crop_h, offset_x, offset_y).filter('scale', target_w, target_h)
+        v_stream = top_video_in.filter("crop", crop_w, crop_h, offset_x, offset_y).filter(
+            "scale", target_w, target_h
+        )
 
     # Apply subtitles to the video stream (look for fonts in the fonts folder)
     fonts_dir = os.path.join(BASE_DIR, "fonts")
     os.makedirs(fonts_dir, exist_ok=True)
-    v_stream = v_stream.filter('subtitles', filename=os.path.abspath(subs_path), fontsdir=fonts_dir)
+    v_stream = v_stream.filter("subtitles", filename=os.path.abspath(subs_path), fontsdir=fonts_dir)
 
     # Apply color emoji overlays if manifest provided
-    if emoji_overlay_path:
-        if not os.path.exists(emoji_overlay_path):
-            logger.warning("Emoji overlay manifest not found at %s — skipping color emoji", emoji_overlay_path)
-            emoji_overlay_path = None
+    _temp_cleanup = []
+    if emoji_overlay_path and not os.path.exists(emoji_overlay_path):
+        logger.warning(
+            "Emoji overlay manifest not found at %s — skipping color emoji", emoji_overlay_path
+        )
+        emoji_overlay_path = None
     if emoji_overlay_path:
         try:
-            with open(emoji_overlay_path, "r") as ef:
+            with open(emoji_overlay_path) as ef:
                 emoji_overlays = json.load(ef)
         except (json.JSONDecodeError, OSError) as e:
             logger.error("Failed to read emoji overlay manifest %s: %s", emoji_overlay_path, e)
             emoji_overlays = []
         if emoji_overlays:
-            logger.info("Processing %d emoji overlays from manifest: %s",
-                        len(emoji_overlays), os.path.basename(emoji_overlay_path))
+            logger.info(
+                "Processing %d emoji overlays from manifest: %s",
+                len(emoji_overlays),
+                os.path.basename(emoji_overlay_path),
+            )
             if progress_callback:
                 progress_callback("Rendering emoji sprites...")
 
             # Render unique emojis in a single Playwright browser session
             import asyncio as _asyncio
-            from gui.emoji_renderer import render_emoji_pngs_batch, evict_stale_emoji_cache
+
+            from gui.emoji_renderer import evict_stale_emoji_cache, render_emoji_pngs_batch
 
             evict_stale_emoji_cache()
-            unique_emojis = set(e["emoji"] for e in emoji_overlays)
-            logger.info("Rendering %d unique emojis to PNG via batch Playwright", len(unique_emojis))
+            unique_emojis = {e["emoji"] for e in emoji_overlays}
+            logger.info(
+                "Rendering %d unique emojis to PNG via batch Playwright", len(unique_emojis)
+            )
             emoji_png_cache = _asyncio.run(
-                render_emoji_pngs_batch(unique_emojis, 128, progress_callback=progress_callback)
+                render_emoji_pngs_batch(unique_emojis, 128, style=emoji_style, progress_callback=progress_callback)
             )
 
             cache_hits = sum(1 for v in emoji_png_cache.values() if v)
             cache_misses = len(unique_emojis) - cache_hits
             if cache_misses > 0:
-                logger.warning("Emoji PNG rendering: %d/%d cached, %d failed",
-                               cache_hits, len(unique_emojis), cache_misses)
+                logger.warning(
+                    "Emoji PNG rendering: %d/%d cached, %d failed",
+                    cache_hits,
+                    len(unique_emojis),
+                    cache_misses,
+                )
             else:
                 logger.info("Emoji PNG rendering: all %d emojis cached successfully", cache_hits)
 
             # Render a single composited sprite video instead of per-instance overlays
             from gui.emoji_sprite import render_emoji_sprite
 
-            sprite_path = os.path.join(
-                BASE_DIR,
-                "temp",
-                f"emoji_sprite_{uuid.uuid4().hex[:8]}.mkv"
-            )
+            sprite_path = os.path.join(BASE_DIR, "temp", f"emoji_sprite_{uuid.uuid4().hex[:8]}.mkv")
             os.makedirs(os.path.join(BASE_DIR, "temp"), exist_ok=True)
+            _temp_cleanup.append(sprite_path)
             sprite_result = render_emoji_sprite(
-                emoji_overlays, emoji_png_cache, target_w, target_h,
-                30, audio_duration, sprite_path,
-                progress_callback=progress_callback
+                emoji_overlays,
+                emoji_png_cache,
+                target_w,
+                target_h,
+                30,
+                audio_duration,
+                sprite_path,
+                progress_callback=progress_callback,
             )
             if sprite_result:
                 sprite_input = ffmpeg.input(sprite_result)
-                v_stream = v_stream.overlay(sprite_input, x='0', y='0')
-                logger.info("Color emoji sprite applied to video stream: %s", os.path.basename(sprite_result))
+                v_stream = v_stream.overlay(sprite_input, x="0", y="0")
+                logger.info(
+                    "Color emoji sprite applied to video stream: %s",
+                    os.path.basename(sprite_result),
+                )
                 if progress_callback:
                     progress_callback("Emoji overlay applied")
             else:
-                logger.warning("Color emoji overlay failed — falling back to text emoji in subtitles")
+                logger.warning(
+                    "Color emoji overlay failed — falling back to text emoji in subtitles"
+                )
                 if progress_callback:
                     progress_callback("⚠ Emoji overlay failed — using text fallback")
 
     # Add smooth transitions: Video Fade-in / Fade-out (0.5s duration)
-    v_stream = v_stream.filter('fade', type='in', start_time=0, duration=0.5)
-    v_stream = v_stream.filter('fade', type='out', start_time=max(0, audio_duration - 0.5), duration=0.5)
+    v_stream = v_stream.filter("fade", type="in", start_time=0, duration=0.5)
+    v_stream = v_stream.filter(
+        "fade", type="out", start_time=max(0, audio_duration - 0.5), duration=0.5
+    )
 
     # 3. Audio Streams Setup
     audio_path = os.path.abspath(audio_path)
-    voice_audio = ffmpeg.input(audio_path).audio.filter('volume', voice_volume)
+    voice_audio = ffmpeg.input(audio_path).audio.filter("volume", voice_volume)
 
     has_music = music_path is not None and os.path.exists(music_path)
     if has_music:
         music_path = os.path.abspath(music_path)  # type: ignore[arg-type]
-        music_audio = ffmpeg.input(music_path, stream_loop=-1).audio.filter('volume', music_volume)
+        music_audio = ffmpeg.input(music_path, stream_loop=-1).audio.filter("volume", music_volume)
 
         # Mix voice and music
-        a_stream = ffmpeg.filter([voice_audio, music_audio], 'amix', inputs=2, duration='first', dropout_transition=0)
+        a_stream = ffmpeg.filter(
+            [voice_audio, music_audio], "amix", inputs=2, duration="first", dropout_transition=0
+        )
     else:
         a_stream = voice_audio
 
     output_path = os.path.abspath(output_path)
     # 4. output node
     output_args = {
-        'vcodec': video_encoder,
-        'acodec': 'aac',
-        'audio_bitrate': '192k',
-        'pix_fmt': 'yuv420p',
-        'r': 30,
-        't': f"{audio_duration:.2f}"
+        "vcodec": video_encoder,
+        "acodec": "aac",
+        "audio_bitrate": "192k",
+        "pix_fmt": "yuv420p",
+        "r": 30,
+        "t": f"{audio_duration:.2f}",
     }
 
-    if '265' in video_encoder or 'hevc' in video_encoder:
-        output_args['profile:v'] = 'main'
-        output_args['tag:v'] = 'hvc1'
+    if "265" in video_encoder or "hevc" in video_encoder:
+        output_args["profile:v"] = "main"
+        output_args["tag:v"] = "hvc1"
     else:
-        output_args['profile:v'] = 'high'
+        output_args["profile:v"] = "high"
 
     # Handle encoder-specific options
-    is_hw_encoder = any(video_encoder.endswith(suffix) for suffix in ['_amf', '_nvenc', '_qsv', '_videotoolbox'])
+    is_hw_encoder = any(
+        video_encoder.endswith(suffix) for suffix in ["_amf", "_nvenc", "_qsv", "_videotoolbox"]
+    )
 
     if is_hw_encoder:
-        if 'amf' in video_encoder:
-            if render_preset in ['ultrafast', 'superfast', 'veryfast', 'faster']:
-                output_args['preset'] = 'speed'
-            elif render_preset in ['fast']:
-                output_args['preset'] = 'balanced'
+        if "amf" in video_encoder:
+            if render_preset in ["ultrafast", "superfast", "veryfast", "faster"]:
+                output_args["preset"] = "speed"
+            elif render_preset in ["fast"]:
+                output_args["preset"] = "balanced"
             else:
-                output_args['preset'] = 'quality'
-        elif 'nvenc' in video_encoder:
-            if render_preset in ['ultrafast', 'superfast']:
-                output_args['preset'] = 'p1'
-            elif render_preset in ['veryfast', 'faster']:
-                output_args['preset'] = 'p3'
-            elif render_preset in ['fast']:
-                output_args['preset'] = 'p4'
+                output_args["preset"] = "quality"
+        elif "nvenc" in video_encoder:
+            if render_preset in ["ultrafast", "superfast"]:
+                output_args["preset"] = "p1"
+            elif render_preset in ["veryfast", "faster"]:
+                output_args["preset"] = "p3"
+            elif render_preset in ["fast"]:
+                output_args["preset"] = "p4"
             else:
-                output_args['preset'] = 'p7'
+                output_args["preset"] = "p7"
         # Do not include crf for HW encoders (they don't support it)
     else:
-        output_args['preset'] = render_preset
-        if video_encoder == 'libx265':
-            output_args['crf'] = 28
+        output_args["preset"] = render_preset
+        if video_encoder == "libx265":
+            output_args["crf"] = 28
         else:
-            output_args['crf'] = 23
+            output_args["crf"] = 23
 
-    output_args['threads'] = os.cpu_count() or 2
+    output_args["threads"] = os.cpu_count() or 2
 
-    out = ffmpeg.output(
-        v_stream,
-        a_stream,
-        output_path,
-        **output_args
-    )
+    out = ffmpeg.output(v_stream, a_stream, output_path, **output_args)
 
     # Compile ffmpeg-python stream spec to command line arguments list
     cmd = ffmpeg.compile(out, overwrite_output=True)
@@ -360,8 +396,9 @@ def compile_video(
         def _limit_ffmpeg_memory():
             try:
                 import resource
+
                 # 6 GB virtual memory limit per FFmpeg process (total system is 6.8GB)
-                resource.setrlimit(resource.RLIMIT_AS, (6 * 1024 ** 3, 6 * 1024 ** 3))
+                resource.setrlimit(resource.RLIMIT_AS, (6 * 1024**3, 6 * 1024**3))
             except Exception:
                 pass
 
@@ -369,17 +406,19 @@ def compile_video(
         _ffmpeg_timeout = max(audio_duration * 3.0, 1800.0)
         _ffmpeg_deadline = time.monotonic() + _ffmpeg_timeout
 
-        with subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            cwd=cwd,
-            bufsize=1,
-            encoding='utf-8',
-            errors='replace',
-            preexec_fn=_limit_ffmpeg_memory
-        ) as process:
+        _popen_kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "cwd": cwd,
+            "bufsize": 1,
+            "encoding": "utf-8",
+            "errors": "replace",
+        }
+        if sys.platform != "win32":
+            _popen_kwargs["preexec_fn"] = _limit_ffmpeg_memory
+
+        with subprocess.Popen(cmd, **_popen_kwargs) as process:
             while True:
                 remaining = _ffmpeg_deadline - time.monotonic()
                 if remaining <= 0:
@@ -413,10 +452,8 @@ def compile_video(
                         if audio_duration > 0:
                             pct = min(100.0, (elapsed / audio_duration) * 100.0)
                             if progress_callback:
-                                try:
+                                with contextlib.suppress(Exception):
                                     progress_callback(pct)
-                                except Exception:
-                                    pass
                     else:
                         match_sec = re.search(r"time=(\d{2}):(\d{2}):(\d{2})", line)
                         if match_sec:
@@ -427,14 +464,14 @@ def compile_video(
                             if audio_duration > 0:
                                 pct = min(100.0, (elapsed / audio_duration) * 100.0)
                                 if progress_callback:
-                                    try:
+                                    with contextlib.suppress(Exception):
                                         progress_callback(pct)
-                                    except Exception:
-                                        pass
             process.wait()
             return_code = process.returncode
     except Exception as e:
-        logger.error(f"Failed to execute FFmpeg command compiled via ffmpeg-python: {e}", exc_info=True)
+        logger.error(
+            f"Failed to execute FFmpeg command compiled via ffmpeg-python: {e}", exc_info=True
+        )
         raise RuntimeError(f"FFmpeg execution failed: {e}") from e
 
     if return_code != 0:
@@ -446,3 +483,9 @@ def compile_video(
         )
         logger.error(err_msg)
         raise RuntimeError(err_msg)
+
+    # Clean up temp sprite files after successful or failed compilation
+    for cleanup_path in _temp_cleanup:
+        with contextlib.suppress(OSError):
+            if os.path.exists(cleanup_path):
+                os.remove(cleanup_path)

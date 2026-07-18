@@ -6,6 +6,8 @@ import Presets from "./pages/Presets"
 import Gallery from "./pages/Gallery"
 import SettingsPage from "./pages/SettingsPage"
 import Batch from "./pages/Batch"
+import Terminal from "./pages/Terminal"
+import Playground from "./pages/Playground"
 
 function App() {
   return (
@@ -17,6 +19,8 @@ function App() {
         <Route path="gallery" element={<Gallery />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="batch" element={<Batch />} />
+        <Route path="terminal" element={<Terminal />} />
+        <Route path="playground" element={<Playground />} />
       </Route>
     </Routes>
   )

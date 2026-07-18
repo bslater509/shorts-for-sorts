@@ -27,6 +27,20 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [availableModels, setAvailableModels] = useState({})
   const [isFetchingModels, setIsFetchingModels] = useState({})
+  const [notificationStatus, setNotificationStatus] = useState(
+    "Notification" in window ? Notification.permission : "unsupported"
+  );
+
+  const requestNotificationPermission = async () => {
+    if (!("Notification" in window)) return;
+    const permission = await Notification.requestPermission();
+    setNotificationStatus(permission);
+    if (permission === 'granted') {
+      alert("Notifications enabled successfully!");
+    } else {
+      alert("Notification permission denied or dismissed.");
+    }
+  };
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -431,6 +445,25 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">Max Parallel LLM API Requests</label>
               <input type="number" min="1" max="64" name="llm_max_workers" value={settings.llm_max_workers || ''} onChange={handleChange} placeholder="Default: 5" className="input-base" />
               <p className="text-xs text-muted-foreground">Controls how many LLM scripts generate concurrently.</p>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-border mt-4">
+            <h4 className="text-sm font-medium mb-2">Web Notifications</h4>
+            <div className="flex items-center gap-4">
+              <p className="text-xs text-muted-foreground flex-1">
+                Enable background notifications for job completions. (On iOS, add this page to your Home Screen first).
+                <br />
+                Status: <strong>{notificationStatus}</strong>
+              </p>
+              {notificationStatus !== 'granted' && notificationStatus !== 'unsupported' && (
+                <button 
+                  onClick={requestNotificationPermission}
+                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors whitespace-nowrap shadow-sm"
+                >
+                  Enable Notifications
+                </button>
+              )}
             </div>
           </div>
         </div>

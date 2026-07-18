@@ -9,7 +9,7 @@ VOICES = [
     ("Emma (UK Female)", "bf_emma"),
     ("Isabella (UK Female)", "bf_isabella"),
     ("George (UK Male)", "bm_george"),
-    ("Lewis (UK Male)", "bm_lewis")
+    ("Lewis (UK Male)", "bm_lewis"),
 ]
 
 # Active Session State
@@ -21,9 +21,9 @@ state = {
     "bg_video_bottom_path": None,
     "selected_voice": "af_bella",
     "bg_music_path": None,
-    "music_volume": None,       # Falls back to settings default if None
-    "voice_volume": None,       # Falls back to settings default if None
-    "voice_speed": None,        # Falls back to settings default if None
+    "music_volume": None,  # Falls back to settings default if None
+    "voice_volume": None,  # Falls back to settings default if None
+    "voice_speed": None,  # Falls back to settings default if None
     "sub_font": None,
     "sub_size": None,
     "sub_color": None,
@@ -44,7 +44,7 @@ state = {
     "sub_bg_alpha": None,
     "single_word_mode": None,
     "emoji_position": None,
-    "emoji_font": None,
+    "emoji_style": None,
     "enable_emoji_animation": None,
     "emoji_scale_factor": None,
     "emoji_hold_duration": None,
@@ -52,6 +52,9 @@ state = {
     "sub_animation_style": None,
     "loaded_preset_name": None,
     "batch_num_shorts": None,
+    "generated_title": None,
+    "generated_hashtags": None,
+    "words_per_screen": None,
 }
 
 # Global Settings (loaded from config/settings.json)

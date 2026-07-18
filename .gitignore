@@ -29,6 +29,12 @@ config/gui_state.json
 # Dependencies
 node_modules/
 
+# Old frontend (replaced by gui/frontend/)
+gui/frontend_old/
+
+# Built static assets (rebuild via npm run build)
+gui/static/
+
 # Project-specific caches and generated assets
 cache/
 temp/
@@ -48,6 +54,3 @@ voices/
 *.tmp
 music/
 fonts/
-test_*.py
-!tests/test_*.py
-patch*.py

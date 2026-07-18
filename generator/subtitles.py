@@ -1,7 +1,6 @@
 import json
-import random
 import logging
-from typing import Optional
+import random
 
 logger = logging.getLogger("shorts_creator.generator")
 if not logger.handlers and not logging.getLogger("shorts_creator").handlers:
@@ -11,6 +10,7 @@ if not logger.handlers and not logging.getLogger("shorts_creator").handlers:
 def format_time(seconds: float) -> str:
     """Re-exported from generator.utils for convenience."""
     from generator.utils import format_time as _fmt
+
     return _fmt(seconds)
 
 
@@ -18,7 +18,7 @@ def hex_to_ass_color(hex_str: str) -> str:
     """
     Converts standard HEX color string (#RRGGBB or RRGGBB) to ASS color format (&HBBGGRR).
     """
-    hex_str = hex_str.strip().lstrip('#')
+    hex_str = hex_str.strip().lstrip("#")
     if len(hex_str) == 6:
         r = hex_str[0:2]
         g = hex_str[2:4]
@@ -39,7 +39,7 @@ def hex_and_alpha_to_ass(hex_str: str, alpha_str: str = "00") -> str:
     Converts a HEX color (e.g. #000000) and alpha transparency (e.g. 00-FF)
     to ASS color format with alpha (&HAABBGGRR).
     """
-    hex_str = hex_str.strip().lstrip('#')
+    hex_str = hex_str.strip().lstrip("#")
     if len(hex_str) == 6:
         r = hex_str[0:2]
         g = hex_str[2:4]
@@ -102,7 +102,9 @@ def find_emoji_for_word(word: str, emoji_map: dict) -> tuple:
         else:
             emoji_char = entry
             anim = "none"
-        logger.debug("Emoji match: word=%r -> key=%r -> emoji=%s anim=%s", word, best_key, emoji_char, anim)
+        logger.debug(
+            "Emoji match: word=%r -> key=%r -> emoji=%s anim=%s", word, best_key, emoji_char, anim
+        )
         return (emoji_char, anim)
     return ("", "none")
 
@@ -143,7 +145,12 @@ def _make_emoji_overlay(
 
     overlay_anim = anim if enable_anim else "none"
 
-    for i in range(count):
+    base_speed_mult = float(style_opts.get("emoji_throw_speed_multiplier", 1.0))
+    throw_arc_height = float(style_opts.get("emoji_throw_arc_height", 25.0))
+    throw_fall_distance = float(style_opts.get("emoji_throw_fall_distance", 153.6))
+    spin_speed = float(style_opts.get("emoji_spin_speed", 45.0))
+
+    for _i in range(count):
         # Spread copies vertically across a meaningful portion of the screen
         # so each emoji enters from a visibly different off-screen height.
         # The spread scales with max_count: min ±200px, up to ±600px for max_count=20.
@@ -154,22 +161,30 @@ def _make_emoji_overlay(
 
         # Vary throw speed so multiple emojis for the same word
         # spread out naturally instead of flying as a cluster.
-        throw_speed_mult = round(random.uniform(0.6, 1.0), 2)
+        throw_speed_mult = round(random.uniform(0.6, 1.0) * base_speed_mult, 2)
 
-        emoji_overlays.append({
-            "emoji": emoji_char,
-            "x": pos_x + x_offset,
-            "y": max(size, min(target_h - size, base_y + y_offset)),
-            "size": size,
-            "start": word_start,
-            "end": word_end + hold_duration,
-            "anim": overlay_anim,
-            "throw_speed_mult": throw_speed_mult,
-        })
+        emoji_overlays.append(
+            {
+                "emoji": emoji_char,
+                "x": pos_x + x_offset,
+                "y": max(size, min(target_h - size, base_y + y_offset)),
+                "size": size,
+                "start": word_start,
+                "end": word_end + hold_duration,
+                "anim": overlay_anim,
+                "throw_speed_mult": throw_speed_mult,
+                "throw_arc_height": throw_arc_height,
+                "throw_fall_distance": throw_fall_distance,
+                "spin_speed": spin_speed,
+            }
+        )
 
 
 def generate_ass_subtitles(
-    words: list, output_path: str, style_opts: Optional[dict] = None, emoji_map: Optional[dict] = None
+    words: list,
+    output_path: str,
+    style_opts: dict | None = None,
+    emoji_map: dict | None = None,
 ):
     """
     Groups words into short phrases and writes a styled ASS subtitle file
@@ -204,7 +219,7 @@ def generate_ass_subtitles(
     back_alpha = style_opts.get("back_alpha", "00")
     words_per_screen = str(style_opts.get("words_per_screen", "3"))
     emoji_position = style_opts.get("emoji_position", "above") if enable_emojis else "none"
-    emoji_font = style_opts.get("emoji_font", "Symbola")
+    emoji_style = style_opts.get("emoji_style", "Symbola")
 
     emoji_overlays = []
 
@@ -253,7 +268,7 @@ def generate_ass_subtitles(
 
             same_sentence = False
             if "sentence_idx" in word_info and "sentence_idx" in current_phrase[0]:
-                same_sentence = (word_info["sentence_idx"] == current_phrase[0]["sentence_idx"])
+                same_sentence = word_info["sentence_idx"] == current_phrase[0]["sentence_idx"]
 
             if words_per_screen == "1":
                 should_group = False
@@ -286,7 +301,7 @@ def generate_ass_subtitles(
         f"Style: Default,{font_name},{font_size},{primary_style_color},{secondary_style_color},{ass_outline},{ass_back},{bold_val},0,0,0,100,100,0,0,{border_style},{outline_width},{shadow_width},{alignment},60,60,{margin_v},1",
         "",
         "[Events]",
-        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
 
     if animation_style in ("karaoke_sweep", "typewriter_swipe"):
@@ -301,16 +316,16 @@ def generate_ass_subtitles(
             phrase_emojis = []
             phrase_anims = []
             first_emoji = ""
-            first_anim = "none"
             for word_info in phrase:
-                w_emoji, w_anim = find_emoji_for_word(
-                    word_info["word"], emoji_map
-                ) if emoji_position != "none" and emoji_map else ("", "none")
+                w_emoji, w_anim = (
+                    find_emoji_for_word(word_info["word"], emoji_map)
+                    if emoji_position != "none" and emoji_map
+                    else ("", "none")
+                )
                 phrase_emojis.append(w_emoji)
                 phrase_anims.append(w_anim)
                 if w_emoji and not first_emoji:
                     first_emoji = w_emoji
-                    first_anim = w_anim
 
             text_parts = []
             last_end = phrase[0]["start"]
@@ -335,15 +350,27 @@ def generate_ass_subtitles(
                     if enable_color_emoji:
                         pass  # Will use color emoji overlay
                     else:
-                        wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                        wrapped_emoji = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
                         w_text = f"{wrapped_emoji} {w_text}"
 
                 # Build color emoji overlay entry if applicable
-                if enable_color_emoji and emoji_map and emoji_position != "none" and phrase_emojis[idx]:
+                if (
+                    enable_color_emoji
+                    and emoji_map
+                    and emoji_position != "none"
+                    and phrase_emojis[idx]
+                ):
                     _make_emoji_overlay(
-                        emoji_overlays, phrase_emojis[idx], phrase_anims[idx],
-                        start, end, font_size, style_opts,
-                        alignment, margin_v, emoji_position,
+                        emoji_overlays,
+                        phrase_emojis[idx],
+                        phrase_anims[idx],
+                        start,
+                        end,
+                        font_size,
+                        style_opts,
+                        alignment,
+                        margin_v,
+                        emoji_position,
                     )
 
                 if idx < len(phrase) - 1:
@@ -356,14 +383,16 @@ def generate_ass_subtitles(
 
             if emoji_position == "above" and first_emoji:
                 if not enable_color_emoji:
-                    emoji_top = f"{{\\fn{emoji_font}}}{first_emoji}{{\\fn}}"
+                    emoji_top = f"{{\\fn{emoji_style}}}{first_emoji}{{\\fn}}"
                     dialogue_text = f"{emoji_top}\\N{phrase_text}"
                 else:
                     dialogue_text = phrase_text
             else:
                 dialogue_text = phrase_text
 
-            lines.append(f"Dialogue: 0,{phrase_start_str},{phrase_end_str},Default,,0,0,0,,{dialogue_text}")
+            lines.append(
+                f"Dialogue: 0,{phrase_start_str},{phrase_end_str},Default,,0,0,0,,{dialogue_text}"
+            )
     else:
         for phrase in phrases:
             phrase_words = [p["word"] for p in phrase]
@@ -372,9 +401,11 @@ def generate_ass_subtitles(
             phrase_emojis = []
             phrase_anims = []
             for word_info in phrase:
-                w_emoji, w_anim = find_emoji_for_word(
-                    word_info["word"], emoji_map
-                ) if emoji_position != "none" and emoji_map else ("", "none")
+                w_emoji, w_anim = (
+                    find_emoji_for_word(word_info["word"], emoji_map)
+                    if emoji_position != "none" and emoji_map
+                    else ("", "none")
+                )
                 phrase_emojis.append(w_emoji)
                 phrase_anims.append(w_anim)
 
@@ -422,9 +453,7 @@ def generate_ass_subtitles(
                                 f"\\t(140,200,\\fscx105\\fscy105\\frz0)"
                             )
                         elif animation_style == "fade_in_slide":
-                            active_tags = (
-                                f"\\alpha&HFF&\\fscy60\\t(0,120,\\alpha&H00&\\fscy100)"
-                            )
+                            active_tags = "\\alpha&HFF&\\fscy60\\t(0,120,\\alpha&H00&\\fscy100)"
                         else:  # tiktok_pop
                             active_tags = "\\alpha&H00&"
                             if word_pop:
@@ -436,16 +465,27 @@ def generate_ass_subtitles(
                             if enable_color_emoji:
                                 pass  # Will use color emoji overlay
                             else:
-                                wrapped_emoji = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                                wrapped_emoji = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
                                 w_text = f"{wrapped_emoji} {w_text}"
 
                         # Build color emoji overlay entry if applicable
-                        if enable_color_emoji and emoji_map and emoji_position != "none" and phrase_emojis[idx]:
+                        if (
+                            enable_color_emoji
+                            and emoji_map
+                            and emoji_position != "none"
+                            and phrase_emojis[idx]
+                        ):
                             _make_emoji_overlay(
-                                emoji_overlays, phrase_emojis[idx], phrase_anims[idx],
-                                active_word_info["start"], active_word_info["end"],
-                                font_size, style_opts,
-                                alignment, margin_v, emoji_position,
+                                emoji_overlays,
+                                phrase_emojis[idx],
+                                phrase_anims[idx],
+                                active_word_info["start"],
+                                active_word_info["end"],
+                                font_size,
+                                style_opts,
+                                alignment,
+                                margin_v,
+                                emoji_position,
                             )
 
                         text_parts.append(f"{{{active_tags}}}{w_text}{{\\r}}")
@@ -460,7 +500,7 @@ def generate_ass_subtitles(
 
                 if emoji_position == "above" and phrase_emojis[idx]:
                     if not enable_color_emoji:
-                        emoji_top = f"{{\\fn{emoji_font}}}{phrase_emojis[idx]}{{\\fn}}"
+                        emoji_top = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
                         dialogue_text = f"{emoji_top}\\N{phrase_text}"
                     else:
                         dialogue_text = phrase_text
@@ -476,10 +516,12 @@ def generate_ass_subtitles(
             with open(manifest_path, "w", encoding="utf-8") as mf:
                 json.dump(emoji_overlays, mf)
             if emoji_overlays:
-                unique_emojis = set(e["emoji"] for e in emoji_overlays)
+                unique_emojis = {e["emoji"] for e in emoji_overlays}
                 logger.info(
                     "Emoji overlay manifest written: %d overlays (%d unique emojis) -> %s",
-                    len(emoji_overlays), len(unique_emojis), manifest_path
+                    len(emoji_overlays),
+                    len(unique_emojis),
+                    manifest_path,
                 )
             else:
                 logger.debug("No emoji overlay entries generated (no keyword matches in script)")

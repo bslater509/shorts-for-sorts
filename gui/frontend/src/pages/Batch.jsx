@@ -27,6 +27,15 @@ export default function Batch() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [enableEmojis, setEnableEmojis] = useState(true)
   const [enableEmojiAnimation, setEnableEmojiAnimation] = useState(true)
+  const [emojiStyles, setEmojiStyles] = useState(['apple', 'twemoji'])
+
+  const AVAILABLE_EMOJI_STYLES = [
+    { id: 'apple', label: 'Apple' },
+    { id: 'twemoji', label: 'Twemoji' },
+    { id: 'google', label: 'Google' },
+    { id: 'facebook', label: 'Facebook' },
+    { id: 'openmoji', label: 'OpenMoji' }
+  ]
 
   // Fetch prompts on mount
   useEffect(() => {
@@ -95,7 +104,7 @@ export default function Batch() {
     try {
       await api.startBatch(numShorts, selectedPrompts, enableEmojis,
           enableEmojiAnimation, emojiScaleFactor, emojiHoldDuration,
-          emojiThrowMaxCount)
+          emojiThrowMaxCount, emojiStyles)
       fetchStatus()
     } catch (err) {
       alert(`Failed to start batch: ${err.message}`)
@@ -323,6 +332,32 @@ export default function Batch() {
                     <option key={n} value={n}>{n}</option>
                   ))}
                 </select>
+              </div>
+              <div className="w-px h-5 bg-border" />
+              <div className="flex items-center gap-1.5">
+                <label className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">Styles</label>
+                <div className="flex bg-background border border-border rounded-md overflow-hidden">
+                  {AVAILABLE_EMOJI_STYLES.map(style => {
+                    const active = emojiStyles.includes(style.id)
+                    return (
+                      <button
+                        key={style.id}
+                        onClick={() => {
+                          if (active && emojiStyles.length > 1) {
+                            setEmojiStyles(emojiStyles.filter(s => s !== style.id))
+                          } else if (!active) {
+                            setEmojiStyles([...emojiStyles, style.id])
+                          }
+                        }}
+                        className={`text-[10px] px-1.5 py-1 font-medium transition-colors border-r border-border last:border-0 ${
+                          active ? 'bg-blue-500/20 text-blue-500' : 'text-muted-foreground hover:bg-secondary'
+                        }`}
+                      >
+                        {style.label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -688,7 +723,7 @@ const JobDetailModal = ({ job, onClose, progress }) => {
             <SettingRow label="Hold Duration" value={job.emoji_hold_duration ? `${job.emoji_hold_duration}s` : '—'} />
             <SettingRow label="Max / Word" value={job.emoji_throw_max_count || '—'} />
             <SettingRow label="Position" value={job.emoji_position || '—'} />
-            <SettingRow label="Font" value={job.emoji_font || '—'} />
+            <SettingRow label="Style" value={job.emoji_style || '—'} />
           </Section>
 
           {/* Audio Settings */}

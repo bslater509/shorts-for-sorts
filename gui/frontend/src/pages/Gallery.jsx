@@ -1,7 +1,19 @@
 import { useState, useEffect } from 'react'
-import { Film, RefreshCw, Trash2, Download, PlayCircle, Share2, Hash, Upload, X } from 'lucide-react'
+import { Film, RefreshCw, Trash2, Download, PlayCircle, Share2, Hash, X } from 'lucide-react'
 import * as api from '@/lib/api'
 import LazyVideo from '@/components/LazyVideo'
+
+const TikTokIcon = ({ size = 14 }) => (
+  <svg 
+    width={size} 
+    height={size} 
+    viewBox="0 0 448 512" 
+    fill="currentColor"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <path d="M448,209.91a210.06,210.06,0,0,1-122.77-39.25V349.38A162.55,162.55,0,1,1,185,188.31V278.2a74.62,74.62,0,1,0,52.23,71.18V0l88,0a121.18,121.18,0,0,0,1.86,22.17h0A122.18,122.18,0,0,0,381,102.39a121.43,121.43,0,0,0,67,20.14Z"/>
+  </svg>
+)
 
 export default function Gallery() {
   const [videos, setVideos] = useState([])
@@ -54,23 +66,16 @@ export default function Gallery() {
     try {
       const videoTitle = video.title || video.filename.replace('.mp4', '')
       const textToCopy = `${videoTitle}\n${video.hashtags || ''}`;
-      try {
-        await navigator.clipboard.writeText(textToCopy);
-      } catch (err) {
-        console.error("Failed to copy title and hashtags:", err);
-      }
 
       const response = await fetch(video.url)
       const blob = await response.blob()
       const file = new File([blob], video.filename, { type: blob.type || 'video/mp4' })
+      const shareData = {
+        files: [file]
+      };
 
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file]
-        })
-      } else {
-        alert("Native file sharing is not supported on your browser. Downloading the file instead.")
-        const blobUrl = URL.createObjectURL(blob)
+      const fallbackDownload = (fileBlob) => {
+        const blobUrl = URL.createObjectURL(fileBlob)
         const link = document.createElement('a')
         link.href = blobUrl
         link.download = video.filename
@@ -78,6 +83,28 @@ export default function Gallery() {
         link.click()
         document.body.removeChild(link)
         setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
+      }
+
+      if (navigator.canShare && navigator.canShare(shareData)) {
+        try {
+          await navigator.share(shareData)
+        } catch (shareErr) {
+          if (shareErr.name === 'NotAllowedError') {
+            console.warn("Share API blocked due to lost user activation, falling back to download.");
+            fallbackDownload(blob);
+          } else {
+            throw shareErr;
+          }
+        }
+      } else {
+        alert("Native file sharing is not supported on your browser. Downloading the file instead.")
+        fallbackDownload(blob);
+      }
+
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+      } catch (err) {
+        console.error("Failed to copy title and hashtags:", err);
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
@@ -220,7 +247,7 @@ export default function Gallery() {
                       className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-md text-xs font-semibold transition-colors"
                       title="Upload to TikTok"
                     >
-                      <Upload size={14} />
+                      <TikTokIcon size={14} />
                     </button>
                     <a 
                       href={v.url} 
@@ -256,7 +283,7 @@ export default function Gallery() {
           <div className="bg-card border border-border w-full max-w-md rounded-xl shadow-2xl overflow-hidden flex flex-col">
             <div className="flex items-center justify-between p-4 border-b border-border bg-secondary/30">
               <h3 className="font-semibold flex items-center gap-2">
-                <Upload size={18} className="text-pink-500" />
+                <TikTokIcon size={18} className="text-pink-500" />
                 Upload to TikTok
               </h3>
               <button onClick={() => setIsUploadModalOpen(false)} className="text-muted-foreground hover:text-foreground">

@@ -15,6 +15,24 @@ async function apiFetch(url, options = {}) {
   return data;
 }
 
+export async function fetchSystemStats() {
+  return await apiFetch('/api/system_stats');
+}
+
+export async function previewAnimation(settings, testWord = "Awesome", emojiChar = "🚀") {
+  const res = await fetch('/api/preview_animation', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings, test_word: testWord, emoji_char: emojiChar })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Preview failed: ${res.status}`);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
 export async function fetchState() {
   return await apiFetch('/api/state');
 }
@@ -183,6 +201,14 @@ export async function downloadYoutubeVideo(url, downscale) {
   });
 }
 
+export async function searchYoutube(query, limit = 10) {
+  return await apiFetch('/api/youtube/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, limit })
+  });
+}
+
 export async function extractKeyword() {
   return await apiFetch('/api/pexels/extract-keyword', { method: 'POST' });
 }
@@ -228,7 +254,7 @@ export async function fetchPrompts() {
 
 export async function startBatch(numShorts, prompts = [], enableEmojis = true,
     enableEmojiAnimation = true, emojiScaleFactor = 1.5, emojiHoldDuration = 0.5,
-    emojiThrowMaxCount = 3) {
+    emojiThrowMaxCount = 3, emojiStyles = null) {
   return await apiFetch('/api/batch/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -240,6 +266,7 @@ export async function startBatch(numShorts, prompts = [], enableEmojis = true,
       emoji_scale_factor: emojiScaleFactor,
       emoji_hold_duration: emojiHoldDuration,
       emoji_throw_max_count: emojiThrowMaxCount,
+      emoji_styles: emojiStyles,
     })
   });
 }

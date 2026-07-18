@@ -1,7 +1,7 @@
+import logging
 import os
 import sys
 import urllib.request
-import logging
 
 logger = logging.getLogger("shorts_creator.generator")
 
@@ -26,7 +26,7 @@ def download_file(url: str, dest: str, description: str):
         raise RuntimeError(
             f"Failed to download {description} from {url}. "
             f"Please check your internet connection. Error: {e}"
-        )
+        ) from e
 
 
 def format_time(seconds: float) -> str:
@@ -49,6 +49,7 @@ def format_time(seconds: float) -> str:
 def _release_memory_to_os():
     import ctypes
     import gc
+
     gc.collect()
     try:
         libc = ctypes.CDLL("libc.so.6")

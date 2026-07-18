@@ -1,16 +1,15 @@
 import os
 import re
-import traceback
 import time
+import traceback
+from dataclasses import dataclass, fields
+
 import psutil
 from rich.table import Table
 
 from gui import state as shared_state
-from gui.config import console, logger
 from gui.compiler import compile_video_flow
-from dataclasses import dataclass, fields
-from typing import Optional
-
+from gui.config import console, logger
 
 
 def log_memory_usage(stage: str):
@@ -19,9 +18,10 @@ def log_memory_usage(stage: str):
     mem = psutil.virtual_memory()
     logger.info(
         f"[Batch Memory] {stage}: RSS={rss_mb:.0f}MB | "
-        f"Avail={mem.available/1024/1024:.0f}MB / "
-        f"{mem.total/1024/1024:.0f}MB ({mem.percent}%)"
+        f"Avail={mem.available / 1024 / 1024:.0f}MB / "
+        f"{mem.total / 1024 / 1024:.0f}MB ({mem.percent}%)"
     )
+
 
 @dataclass
 class BatchJobConfig:
@@ -34,8 +34,8 @@ class BatchJobConfig:
     settings: dict
 
     # Optional fields (with defaults)
-    bg_video_bottom_path: Optional[str] = None
-    bg_music_path: Optional[str] = None
+    bg_video_bottom_path: str | None = None
+    bg_music_path: str | None = None
     music_volume: float = 0.15
     voice_volume: float = 1.0
     sub_font: str = "Arial"
@@ -55,7 +55,7 @@ class BatchJobConfig:
     word_pop_scale: float = 1.0
     inactive_dim: bool = False
     inactive_alpha: str = "FF"
-    voice_speed: Optional[float] = None
+    voice_speed: float | None = None
     sub_uppercase: bool = True
     sub_border_style: int = 1
     sub_shadow_width: int = 0
@@ -63,15 +63,15 @@ class BatchJobConfig:
     sub_bg_alpha: str = "80"
     single_word_mode: bool = False
     emoji_position: str = "above"
-    emoji_font: str = "Symbola"
+    emoji_style: str = "Symbola"
     sub_animation_style: str = "tiktok_pop"
     script_temp: float = 0.7
     meta_temp: float = 0.7
     model: str = "gpt-4o-mini"
     system_prompt: str = ""
-    generated_title: Optional[str] = None
-    generated_hashtags: Optional[str] = None
-    script_text: Optional[str] = None
+    generated_title: str | None = None
+    generated_hashtags: str | None = None
+    script_text: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "BatchJobConfig":
@@ -79,11 +79,12 @@ class BatchJobConfig:
         kwargs = {k: data[k] for k in data if k in valid_fields}
         return cls(**kwargs)
 
+
 class ProgressConsole:
     def __init__(self, idx, p_dict):
         self.idx = idx
         self.p_dict = p_dict
-        
+
     def print(self, *args, **kwargs):
         msg = " ".join(str(a) for a in args)
         # Direct float/numeric progress callback (e.g., FFmpeg progress percentage)
@@ -116,9 +117,7 @@ class ProgressConsole:
                     self.p_dict[self.idx] = "FFmpeg Rendering"
             elif "[4/4]" in msg:
                 self.p_dict[self.idx] = "FFmpeg Rendering"
-            elif "Emoji Sprite" in msg:
-                self.p_dict[self.idx] = msg
-            elif "Emoji Render" in msg:
+            elif "Emoji Sprite" in msg or "Emoji Render" in msg:
                 self.p_dict[self.idx] = msg
             elif "Rendering emoji" in msg:
                 self.p_dict[self.idx] = "Emoji Sprites"
@@ -130,10 +129,13 @@ class ProgressConsole:
                 self.p_dict[self.idx] = f"{self.p_dict.get(self.idx, '')} ⚠ Emoji Fallback"
                 logger.warning("[Batch job %d] %s", self.idx, msg)
         except Exception:
-            pass
-            
+            logger.debug(
+                "ProgressConsole.print exception for idx=%d", self.idx, exc_info=True
+            )
+
     def clear(self):
         pass
+
 
 def get_progress_percentage(status):
     if status == "Queued":
@@ -169,11 +171,13 @@ def get_progress_percentage(status):
             pct = int(match.group(1))
             return 45 + int((pct / 100) * 10)
         return 48
-    elif status == "Subtitles":
-        return 55
-    elif (status.startswith("Emoji Sprites") or status.startswith("Emoji Render")
-            or status.startswith("Emoji Sprite") or status.startswith("Rendering emoji")
-            or status.startswith("Emoji Overlay")):
+    elif status == "Subtitles" or (
+        status.startswith("Emoji Sprites")
+        or status.startswith("Emoji Render")
+        or status.startswith("Emoji Sprite")
+        or status.startswith("Rendering emoji")
+        or status.startswith("Emoji Overlay")
+    ):
         return 55
     elif status.startswith("FFmpeg Rendering"):
         match = re.search(r"\((\d+\.?\d*)%\)", status)
@@ -187,11 +191,12 @@ def get_progress_percentage(status):
         return None
     return 0
 
+
 def make_progress_bar(percentage, status, width=15):
     filled = int(width * percentage / 100)
     filled = max(0, min(width, filled))
     empty = width - filled
-    
+
     if status == "Done":
         bar_color = "green"
         pct_color = "green"
@@ -204,9 +209,10 @@ def make_progress_bar(percentage, status, width=15):
         bar_color = "cyan"
         pct_color = "yellow"
         desc = f"[bold yellow]🔄 {status}...[/]"
-        
-    bar = f"[{bar_color}]" + "█" * filled + f"[/{bar_color}][grey37]" + "░" * empty + f"[/grey37]"
+
+    bar = f"[{bar_color}]" + "█" * filled + f"[/{bar_color}][grey37]" + "░" * empty + "[/grey37]"
     return f"{bar} [{pct_color}]{percentage:3d}%[/{pct_color}] {desc}"
+
 
 def format_elapsed(duration):
     m = int(duration) // 60
@@ -215,49 +221,55 @@ def format_elapsed(duration):
         return f"{m}m {s:02d}s"
     return f"{s}s"
 
+
 def display_progress_table(progress_dict, total_shorts, job_details):
     table = Table(
         title="[bold magenta]Concurrent Batch Generation Progress[/bold magenta]",
         show_header=True,
         header_style="bold cyan",
-        expand=True
+        expand=True,
     )
     table.add_column("Short #", justify="center", style="dim", width=8)
     table.add_column("Category & Topic", justify="left")
     table.add_column("Voice & Layout", justify="left")
     table.add_column("Status / Progress", justify="left")
     table.add_column("Elapsed", justify="center", style="dim", width=12)
-    
+
     for idx in range(1, total_shorts + 1):
         details = job_details.get(idx, {})
         topic = details.get("topic", "Unknown")
         voice_layout = f"{details.get('voice', 'Unknown')} | {details.get('layout', 'Unknown')}"
         status = progress_dict.get(idx, "Queued")
-        
+
         # Calculate elapsed time
         start_time = progress_dict.get(f"{idx}_start")
         end_time = progress_dict.get(f"{idx}_end")
-        
+
         elapsed_str = "--"
         if start_time:
             if end_time:
                 duration = end_time - start_time
-                elapsed_str = f"{format_elapsed(duration)} (Done)" if status == "Done" else format_elapsed(duration)
+                elapsed_str = (
+                    f"{format_elapsed(duration)} (Done)"
+                    if status == "Done"
+                    else format_elapsed(duration)
+                )
             else:
                 duration = time.time() - start_time
                 elapsed_str = format_elapsed(duration)
-        
+
         # Calculate percentage
         pct = get_progress_percentage(status)
-        
+
         if pct is None:
             status_str = f"[bold red]✗ {status}[/]"
         else:
             status_str = make_progress_bar(pct, status)
-            
+
         table.add_row(f"#{idx}", topic, voice_layout, status_str, elapsed_str)
-        
+
     return table
+
 
 def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executor):
     # Validate job config early to catch missing required keys
@@ -266,32 +278,33 @@ def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executo
     progress_dict[f"{idx}_start"] = time.time()
     try:
         progress_dict[idx] = "Waiting for LLM"
-        
+
         # 1. Run LLM in ThreadPool
         log_memory_usage(f"Job {idx}: before LLM")
         future_llm = llm_executor.submit(llm_job_worker, job_config, progress_dict)
         success, script_text, err_msg = future_llm.result()
-        
+
         if not success:
             progress_dict[idx] = f"Failed: {err_msg}"
             progress_dict[f"{idx}_end"] = time.time()
             return (idx, False, err_msg)
-            
+
         job_config["script_text"] = script_text
-        
+
         progress_dict[idx] = "Waiting for Compilation"
         log_memory_usage(f"Job {idx}: after LLM, before video")
-        
+
         # 2. Run Video Generation in ProcessPool
         future_video = video_executor.submit(video_job_worker, job_config, progress_dict)
         result = future_video.result()
         log_memory_usage(f"Job {idx}: video complete")
         return result
-        
+
     except Exception as e:
         progress_dict[idx] = f"Failed: {str(e)}"
         progress_dict[f"{idx}_end"] = time.time()
         return (idx, False, str(e))
+
 
 def retry_with_backoff(func, max_attempts=3, base_delay=1.0):
     """Retry a callable on transient errors with exponential backoff.
@@ -305,16 +318,22 @@ def retry_with_backoff(func, max_attempts=3, base_delay=1.0):
         except Exception as e:
             err_str = str(e).lower()
             # Never retry bad-request / auth errors
-            if "bad request" in err_str or "auth" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
+            if (
+                "bad request" in err_str
+                or "auth" in err_str
+                or "unauthorized" in err_str
+                or "401" in err_str
+                or "403" in err_str
+            ):
                 raise
-            is_retryable = (
-                isinstance(e, (ConnectionError, TimeoutError))
-                or any(w in err_str for w in ["rate", "timeout", "connection", "overloaded", "api_error"])
+            is_retryable = isinstance(e, (ConnectionError, TimeoutError)) or any(
+                w in err_str for w in ["rate", "timeout", "connection", "overloaded", "api_error"]
             )
             if not is_retryable or attempt == max_attempts - 1:
                 raise
-            delay = base_delay * (2 ** attempt)
+            delay = base_delay * (2**attempt)
             time.sleep(delay)
+
 
 def parse_title_hashtags(script_text: str) -> tuple:
     """Extract TITLE/HASHTAGS lines from LLM output, case-insensitive.
@@ -323,9 +342,9 @@ def parse_title_hashtags(script_text: str) -> tuple:
     title = ""
     hashtags = ""
     cleaned_lines = []
-    for line in script_text.split('\n'):
-        m_title = re.match(r'^title\s*:\s*(.*)', line, re.I)
-        m_h_tags = re.match(r'^hashtags?\s*:\s*(.*)', line, re.I)
+    for line in script_text.split("\n"):
+        m_title = re.match(r"^title\s*:\s*(.*)", line, re.I)
+        m_h_tags = re.match(r"^hashtags?\s*:\s*(.*)", line, re.I)
         if m_title:
             title = m_title.group(1).strip()
         elif m_h_tags:
@@ -341,7 +360,9 @@ def parse_title_hashtags(script_text: str) -> tuple:
     return cleaned, title, hashtags
 
 
-def generate_title_hashtags(script_text: str, client, model: str, temperature: float = 0.7) -> tuple:
+def generate_title_hashtags(
+    script_text: str, client, model: str, temperature: float = 0.7
+) -> tuple:
     """Generate title and hashtags from a finished script via a dedicated LLM call.
     Always uses a second call — never expects TITLE/HASHTAGS in the first response.
     Returns (title, hashtags).
@@ -356,9 +377,7 @@ def generate_title_hashtags(script_text: str, client, model: str, temperature: f
     )
     try:
         response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature
+            model=model, messages=[{"role": "user", "content": prompt}], temperature=temperature
         )
         reply = (response.choices[0].message.content or "").strip()
         _, title, hashtags = parse_title_hashtags(reply)
@@ -377,12 +396,17 @@ def generate_title_hashtags(script_text: str, client, model: str, temperature: f
 def llm_job_worker(job_config, progress_dict):
     idx = job_config["index"]
     progress_dict[idx] = "LLM Script"
-    logger.info("[Batch LLM #%d] Starting script generation (model=%s, temp=%.2f)",
-                 idx, job_config.get("model", "?"), job_config.get("script_temp", 0.7))
+    logger.info(
+        "[Batch LLM #%d] Starting script generation (model=%s, temp=%.2f)",
+        idx,
+        job_config.get("model", "?"),
+        job_config.get("script_temp", 0.7),
+    )
     try:
         from openai import OpenAI
+
         from gui.utils import discover_opencode_keys
-        
+
         profiles = job_config["settings"].get("llm_profiles", [])
         active_id = job_config["settings"].get("active_llm_profile_id")
         active_profile = {}
@@ -392,10 +416,10 @@ def llm_job_worker(job_config, progress_dict):
                 break
         if not active_profile and profiles:
             active_profile = profiles[0]
-            
+
         api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
         base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-        
+
         opencode_key, _ = discover_opencode_keys()
         if not api_key:
             api_key = opencode_key
@@ -403,41 +427,51 @@ def llm_job_worker(job_config, progress_dict):
                 base_url = "https://opencode.ai/zen/go/v1"
                 if job_config.get("model") in [None, "", "gpt-4o-mini"]:
                     job_config["model"] = "deepseek-v4-flash"
-                
+
         client = OpenAI(api_key=api_key, base_url=base_url)
-        
+
         # Streaming LLM call with retry + buffered progress
         script_text = ""
         _last_ts = time.time()
         _last_wc = 0
-        
+
         for attempt in range(3):
             try:
                 response = client.chat.completions.create(
                     model=job_config["model"],
                     messages=[
                         {"role": "system", "content": job_config["system_prompt"]},
-                        {"role": "user", "content": job_config["prompt"]}
+                        {"role": "user", "content": job_config["prompt"]},
                     ],
                     temperature=job_config["script_temp"],
-                    stream=True
+                    stream=True,
                 )
                 break
             except Exception as e:
                 err_str = str(e).lower()
-                if "bad request" in err_str or "auth" in err_str or "unauthorized" in err_str or "401" in err_str or "403" in err_str:
+                if (
+                    "bad request" in err_str
+                    or "auth" in err_str
+                    or "unauthorized" in err_str
+                    or "401" in err_str
+                    or "403" in err_str
+                ):
                     raise
-                is_retryable = (
-                    isinstance(e, (ConnectionError, TimeoutError))
-                    or any(w in err_str for w in ["rate", "timeout", "connection", "overloaded", "api_error"])
+                is_retryable = isinstance(e, (ConnectionError, TimeoutError)) or any(
+                    w in err_str
+                    for w in ["rate", "timeout", "connection", "overloaded", "api_error"]
                 )
                 if not is_retryable or attempt == 2:
                     raise
-                progress_dict[idx] = f"LLM Script (retry {attempt+1}/3)"
-                time.sleep(1.0 * (2 ** attempt))
-        
+                progress_dict[idx] = f"LLM Script (retry {attempt + 1}/3)"
+                time.sleep(1.0 * (2**attempt))
+
         for chunk in response:
-            if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content is not None:
+            if (
+                chunk.choices
+                and chunk.choices[0].delta
+                and chunk.choices[0].delta.content is not None
+            ):
                 script_text += chunk.choices[0].delta.content
                 word_count = len(script_text.split())
                 now = time.time()
@@ -445,7 +479,7 @@ def llm_job_worker(job_config, progress_dict):
                     progress_dict[idx] = f"LLM Script ({word_count} words)"
                     _last_ts = now
                     _last_wc = word_count
-                
+
         script_text = script_text.strip()
         # Defensively strip any TITLE/HASHTAGS lines that might be in the response
         script_text, _, _ = parse_title_hashtags(script_text)
@@ -453,12 +487,14 @@ def llm_job_worker(job_config, progress_dict):
         # Always use a dedicated second LLM call for title and hashtags
         try:
             title, hashtags = generate_title_hashtags(
-                script_text, client, job_config["model"],
-                job_config.get("meta_temp", job_config.get("script_temp", 0.7))
+                script_text,
+                client,
+                job_config["model"],
+                job_config.get("meta_temp", job_config.get("script_temp", 0.7)),
             )
 
-            safe_title = re.sub(r'[\s\-]+', '_', title.lower())
-            safe_title = re.sub(r'[^\w_]', '', safe_title).strip('_')
+            safe_title = re.sub(r"[\s\-]+", "_", title.lower())
+            safe_title = re.sub(r"[^\w_]", "", safe_title).strip("_")
             if not safe_title:
                 safe_title = "batch_video"
 
@@ -470,78 +506,102 @@ def llm_job_worker(job_config, progress_dict):
             job_config["output_filename"] = new_filename
             job_config["generated_title"] = title or "Batch Video"
             job_config["generated_hashtags"] = hashtags or "#shorts #video"
-        except Exception as e:
+        except Exception:
             # Fallback if title/hashtag generation fails
             job_config["generated_title"] = "Batch Video"
             job_config["generated_hashtags"] = "#shorts #video"
-            
-        logger.info("[Batch LLM #%d] Script done: %d words, title=%s", idx, len(script_text.split()), job_config.get("generated_title", "(none)"))
+
+        logger.info(
+            "[Batch LLM #%d] Script done: %d words, title=%s",
+            idx,
+            len(script_text.split()),
+            job_config.get("generated_title", "(none)"),
+        )
         return True, script_text, None
 
     except Exception as e:
         logger.warning("[Batch LLM #%d] Failed: %s", idx, str(e))
         return False, None, str(e)
 
+
 def video_job_worker(job_config, progress_dict):
-        
+
     idx = job_config["index"]
     output_filename = job_config["output_filename"]
     logger.info("[Batch Video #%d] Starting compilation -> %s", idx, output_filename)
-    
+
+    # Resolve relative asset paths before loading into state
+    from gui.utils import resolve_preset_path
+
+    resolved_bg_video = resolve_preset_path(job_config["bg_video_path"])
+    resolved_bg_video_bottom = resolve_preset_path(job_config["bg_video_bottom_path"])
+    resolved_bg_music = resolve_preset_path(job_config["bg_music_path"])
+
     # Update process-local state and settings dictionaries
     shared_state.state.clear()
-    shared_state.state.update({
-        "script_text": job_config["script_text"],
-        "selected_voice": job_config["voice_id"],
-        "bg_video_path": job_config["bg_video_path"],
-        "bg_video_bottom_path": job_config["bg_video_bottom_path"],
-        "bg_music_path": job_config["bg_music_path"],
-        "music_volume": job_config["music_volume"],
-        "voice_volume": job_config["voice_volume"],
-        "sub_font": job_config["sub_font"],
-        "sub_size": job_config["sub_size"],
-        "sub_color": job_config["sub_color"],
-        "sub_highlight": job_config["sub_highlight"],
-        "sub_outline": job_config["sub_outline"],
-        "sub_outline_width": job_config["sub_outline_width"],
-        "sub_bold": job_config["sub_bold"],
-        "enable_emojis": job_config["enable_emojis"],
-        "enable_color_emoji": job_config.get("enable_color_emoji", True),
-        "enable_emoji_animation": job_config.get("enable_emoji_animation", True),
-        "emoji_scale_factor": job_config.get("emoji_scale_factor", 1.5),
-        "emoji_hold_duration": job_config.get("emoji_hold_duration", 0.5),
-        "emoji_throw_max_count": job_config.get("emoji_throw_max_count", 3),
-        "word_pop": job_config["word_pop"],
-        "word_pop_scale": job_config["word_pop_scale"],
-        "inactive_dim": job_config["inactive_dim"],
-        "inactive_alpha": job_config["inactive_alpha"],
-        "voice_speed": job_config.get("voice_speed", 1.0),
-        "loaded_preset_name": "Randomized Batch Job",
-        "generated_title": job_config.get("generated_title", "Batch Video"),
-        "generated_hashtags": job_config.get("generated_hashtags", "#shorts #video"),
-    })
-    
+    shared_state.state.update(
+        {
+            "script_text": job_config["script_text"],
+            "selected_voice": job_config["voice_id"],
+            "bg_video_path": resolved_bg_video,
+            "bg_video_bottom_path": resolved_bg_video_bottom,
+            "bg_music_path": resolved_bg_music,
+            "music_volume": job_config["music_volume"],
+            "voice_volume": job_config["voice_volume"],
+            "sub_font": job_config["sub_font"],
+            "sub_size": job_config["sub_size"],
+            "sub_color": job_config["sub_color"],
+            "sub_highlight": job_config["sub_highlight"],
+            "sub_outline": job_config["sub_outline"],
+            "sub_outline_width": job_config["sub_outline_width"],
+            "sub_bold": job_config["sub_bold"],
+            "enable_emojis": job_config["enable_emojis"],
+            "enable_color_emoji": job_config.get("enable_color_emoji", True),
+            "enable_emoji_animation": job_config.get("enable_emoji_animation", True),
+            "emoji_scale_factor": job_config.get("emoji_scale_factor", 1.5),
+            "emoji_hold_duration": job_config.get("emoji_hold_duration", 0.5),
+            "emoji_throw_max_count": job_config.get("emoji_throw_max_count", 3),
+            "word_pop": job_config["word_pop"],
+            "word_pop_scale": job_config["word_pop_scale"],
+            "inactive_dim": job_config["inactive_dim"],
+            "inactive_alpha": job_config["inactive_alpha"],
+            "voice_speed": job_config.get("voice_speed", 1.0),
+            "loaded_preset_name": "Randomized Batch Job",
+            "generated_title": job_config.get("generated_title", "Batch Video"),
+            "generated_hashtags": job_config.get("generated_hashtags", "#shorts #video"),
+        }
+    )
+
     shared_state.settings.clear()
     shared_state.settings.update(job_config["settings"])
-    
+
     # Monkeypatch the config console for progress redirection in this worker process
     progress_console = ProgressConsole(idx, progress_dict)
     console.print = progress_console.print
     console.clear = progress_console.clear
-    
+
     log_memory_usage(f"Job {idx}: starting compilation")
-    
+
     try:
-        try: progress_dict[idx] = "Compiling"
-        except Exception:
-            logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
-        
+        try:
+            progress_dict[idx] = "Compiling"
+        except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
+            logger.warning(
+                f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                exc_info=True,
+            )
+
         success = retry_with_backoff(
-            lambda: compile_video_flow(skip_confirm=True, custom_output_filename=output_filename, progress_callback=progress_console.print)
+            lambda: compile_video_flow(
+                skip_confirm=True,
+                custom_output_filename=output_filename,
+                progress_callback=progress_console.print,
+            )
         )
         if success:
             try:
                 from gui.config import OUTPUT_DIR
+
                 base_name = os.path.splitext(output_filename)[0]
                 txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
                 with open(txt_path, "w", encoding="utf-8") as f:
@@ -549,27 +609,39 @@ def video_job_worker(job_config, progress_dict):
                     f.write(f"{job_config.get('generated_hashtags', '#shorts')}\n\n")
                     f.write(f"Script:\n{job_config.get('script_text', '')}\n")
             except Exception:
-                logger.warning(f"Batch job {idx}: failed to write metadata .txt (manager may have shut down)", exc_info=True)
-        
+                logger.warning(
+                    f"Batch job {idx}: failed to write metadata .txt (manager may have shut down)",
+                    exc_info=True,
+                )
+
         if success:
             try:
                 progress_dict[idx] = "Done"
                 progress_dict[f"{idx}_end"] = time.time()
-            except Exception:
-                logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
+            except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
+                logger.warning(
+                    f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                    exc_info=True,
+                )
             return (idx, True, output_filename)
         else:
             try:
                 progress_dict[idx] = "Failed"
                 progress_dict[f"{idx}_end"] = time.time()
-            except Exception:
-                logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
+            except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
+                logger.warning(
+                    f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                    exc_info=True,
+                )
             return (idx, False, "Compilation failed (check logs/app.log)")
     except Exception as e:
         logger.error(f"Batch job {idx} exception: {e}\n{traceback.format_exc()}")
         try:
             progress_dict[idx] = f"Failed: {str(e)}"
             progress_dict[f"{idx}_end"] = time.time()
-        except Exception:
-            logger.warning(f"Batch job {idx}: failed to update progress (manager may have shut down)", exc_info=True)
+        except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
+            logger.warning(
+                f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                exc_info=True,
+            )
         return (idx, False, str(e))

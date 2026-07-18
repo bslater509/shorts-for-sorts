@@ -1,6 +1,6 @@
+import logging
 import os
 import threading
-import logging
 
 logger = logging.getLogger("shorts_creator.generator")
 if not logger.handlers and not logging.getLogger("shorts_creator").handlers:
@@ -45,7 +45,7 @@ def init_tts_session():
                 "Failed to import 'kokoro_onnx'. Please run 'pip install kokoro-onnx' to install it."
             ) from e
 
-        logger.info(f"Loading Kokoro TTS model (CPU ONNX)...")
+        logger.info("Loading Kokoro TTS model (CPU ONNX)...")
         try:
             _TTS_INSTANCE = Kokoro(MODEL_PATH, VOICES_PATH)
             logger.info("Kokoro model loaded successfully.")
@@ -73,6 +73,7 @@ def generate_voice(text: str, voice: str, output_path: str, default_speed: float
     """
     global _TTS_INSTANCE
     import re
+
     import numpy as np
     import soundfile as sf
 
@@ -82,9 +83,9 @@ def generate_voice(text: str, voice: str, output_path: str, default_speed: float
             init_tts_session()
 
     # Convert pause tags to ellipses for natural pauses.
-    text_with_pauses = re.sub(r'\[(pause|silence)=.*?\]', '... ', text)
+    text_with_pauses = re.sub(r"\[(pause|silence)=.*?\]", "... ", text)
     # Strip any other remaining tags like [slow], [voice=...]
-    clean_text = re.sub(r'\[.*?\]', '', text_with_pauses).strip()
+    clean_text = re.sub(r"\[.*?\]", "", text_with_pauses).strip()
 
     if not clean_text:
         # fallback to a tiny bit of silence if nothing was generated
@@ -94,8 +95,9 @@ def generate_voice(text: str, voice: str, output_path: str, default_speed: float
         return
 
     try:
-        import ffmpeg
         import tempfile
+
+        import ffmpeg
 
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
             tmp_path = tmp_audio.name
@@ -113,9 +115,9 @@ def generate_voice(text: str, voice: str, output_path: str, default_speed: float
             stream = ffmpeg.input(tmp_path)
 
             # Radio/Podcast EQ: High-pass at 80Hz, boost bass at 200Hz, boost treble at 3000Hz
-            stream = ffmpeg.filter(stream, 'highpass', f=80)
-            stream = ffmpeg.filter(stream, 'lowshelf', g=3, f=200)
-            stream = ffmpeg.filter(stream, 'highshelf', g=4, f=3000)
+            stream = ffmpeg.filter(stream, "highpass", f=80)
+            stream = ffmpeg.filter(stream, "lowshelf", g=3, f=200)
+            stream = ffmpeg.filter(stream, "highshelf", g=4, f=3000)
 
             stream = ffmpeg.output(stream, output_path, loglevel="error")
             ffmpeg.run(stream, overwrite_output=True)

@@ -12,6 +12,13 @@ export const useAppStore = create((set, get) => ({
     appState: { ...state.appState, ...updates } 
   })),
 
+  updateSettings: (updates) => set((state) => {
+    const newSettings = { ...state.settings, ...updates };
+    // Optionally auto-save
+    api.saveSettings(newSettings).catch(e => console.error("Auto-save failed", e));
+    return { settings: newSettings };
+  }),
+
   // Thunks / Actions
   initializeData: async () => {
     try {

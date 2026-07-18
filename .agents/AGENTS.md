@@ -11,7 +11,7 @@
 - For production, the frontend is built into `gui/static` and served directly by the Python backend.
 
 ## Agent-Specific Guidelines
-- Agents must ALWAYS build and verify the frontend before committing changes to `gui/frontend`.
+- Agents must ALWAYS build and verify the frontend before committing changes to `gui/frontend`. If ANY changes are made to the frontend (`gui/frontend`), you MUST rebuild the production bundle by running `cd gui/frontend && npm run build`. The Python backend serves these compiled static files, so changes will not take effect without a rebuild.
 - Agents should not modify the generated output directories (`output/`, `videos/`, `gui/static/`).
 - Agents must leave explicit comments explaining the rationale behind UI/UX or Architectural changes.
 
@@ -122,7 +122,7 @@ Split-Screen Chill, Lofi Storyteller, Fast-Paced Promo, TikTok Kinetic Pop, Retr
 
 ### Verification
 After editing backend Python code, run: `python -m pytest tests/ -x -q`
-After editing frontend React code, run: `cd gui/frontend && npm run lint`
+After editing frontend React code, run: `cd gui/frontend && npm run lint` AND ALWAYS run `cd gui/frontend && npm run build` to update the compiled static files served by the backend.
 
 ### Known Gotchas
 - TTS model (Kokoro) must be unloaded before spawning batch workers (GPU memory)

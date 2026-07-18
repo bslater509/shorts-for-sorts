@@ -40,6 +40,7 @@ export default function Presets() {
     enable_emoji_animation: true,
     emoji_scale_factor: 1.5,
     emoji_hold_duration: 0.5,
+    emoji_style: 'apple',
     sub_animation_style: 'tiktok_pop'
   })
 
@@ -94,6 +95,7 @@ export default function Presets() {
       enable_emoji_animation: p.enable_emoji_animation !== false,
       emoji_scale_factor: p.emoji_scale_factor || 1.5,
       emoji_hold_duration: p.emoji_hold_duration ?? 0.5,
+      emoji_style: p.emoji_style || 'apple',
       sub_animation_style: p.sub_animation_style || 'tiktok_pop'
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -121,6 +123,7 @@ export default function Presets() {
         enable_emoji_animation: form.enable_emoji_animation,
         emoji_scale_factor: form.emoji_scale_factor,
         emoji_hold_duration: form.emoji_hold_duration,
+        emoji_style: form.emoji_style,
         voice_volume: 1.2,
         music_volume: 0.15,
         word_pop_scale: 1.15,
@@ -258,6 +261,16 @@ export default function Presets() {
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium">Emoji Hold (seconds)</label>
                     <input type="number" name="emoji_hold_duration" value={form.emoji_hold_duration} onChange={handleChange} step="0.1" min="0" max="2.0" className="input-base" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <label className="text-sm font-medium">Emoji Style</label>
+                    <select name="emoji_style" value={form.emoji_style} onChange={handleChange} className="input-base">
+                      <option value="apple">Apple</option>
+                      <option value="twemoji">Twemoji (Twitter)</option>
+                      <option value="google">Google</option>
+                      <option value="facebook">Facebook</option>
+                      <option value="openmoji">OpenMoji</option>
+                    </select>
                   </div>
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-medium">Word Scale Pop-up</label>

@@ -31,7 +31,7 @@
   "sub_bg_alpha": "80",
   "single_word_mode": false,
   "emoji_position": "above",
-  "emoji_font": "Symbola",
+  "emoji_style": "apple",
   "sub_animation_style": "tiktok_pop",
   "render_preset": "fast",
   "video_encoder": "libx264",
