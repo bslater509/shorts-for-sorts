@@ -54,3 +54,16 @@ voices/
 *.tmp
 music/
 fonts/
+
+# Temporary tests and data
+temp_test/
+
+# IDE and tool configs
+.opencode/
+opencode.json
+.ruff_cache/
+
+# Ad-hoc test scripts
+test_api.py
+test_cors.py
+test_youtube_dl.py
