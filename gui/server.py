@@ -1046,7 +1046,8 @@ def _extract_job_features(script_text, job_config):
 def _predict_phase_duration(features, per_job_stats):
     """Predict LLM and video duration for a job based on historical per-job stats.
     
-    Uses similarity-weighted average from jobs with similar word_count.
+    Uses similarity-weighted average from jobs with similar features
+    (word_count, chunk_count) using a normalized Euclidean distance metric.
     Blends with global average when few matching jobs exist.
     
     Args:
@@ -1057,38 +1058,54 @@ def _predict_phase_duration(features, per_job_stats):
         (predicted_llm_duration, predicted_video_duration) in seconds, or (None, None)
     """
     word_count = features.get("word_count", 0)
+    chunk_count = features.get("chunk_count", 0)
     if not word_count or not per_job_stats:
         return None, None
     
-    # Filter to jobs with similar word_count (±30% or ±50 words, whichever is larger)
-    threshold = max(50, int(word_count * 0.30))
-    lo = word_count - threshold
-    hi = word_count + threshold
+    # Compute feature means and stds from historical data for normalization
+    wc_values = [s.get("word_count", 0) for s in per_job_stats if s.get("word_count")]
+    cc_values = [s.get("chunk_count", 0) for s in per_job_stats if s.get("chunk_count")]
     
-    candidates = []
+    if not wc_values:
+        return None, None
+    
+    wc_mean = sum(wc_values) / len(wc_values)
+    wc_var = sum((v - wc_mean) ** 2 for v in wc_values) / len(wc_values)
+    wc_std = wc_var ** 0.5 or 1.0
+    
+    cc_mean = sum(cc_values) / len(cc_values) if cc_values else 0
+    cc_var = sum((v - cc_mean) ** 2 for v in cc_values) / len(cc_values) if cc_values else 0
+    cc_std = cc_var ** 0.5 or 1.0
+    
+    # Normalize target features
+    target_wc_norm = (word_count - wc_mean) / wc_std
+    target_cc_norm = (chunk_count - cc_mean) / cc_std if cc_values else 0.0
+    
+    # Compute distance and weight for every historical job
+    scored = []
     for s in per_job_stats:
         wc = s.get("word_count", 0)
-        if lo <= wc <= hi:
-            # Same voice_id gets a bonus weight
-            same_voice = s.get("voice_id", "") == features.get("voice_id", "")
-            weight = 1.5 if same_voice else 1.0
-            candidates.append((s, weight))
+        cc = s.get("chunk_count", 0)
+        if not wc:
+            continue
+        
+        wc_norm = (wc - wc_mean) / wc_std
+        cc_norm = (cc - cc_mean) / cc_std if cc_values else 0.0
+        
+        # Euclidean distance in normalized feature space
+        dist = ((target_wc_norm - wc_norm) ** 2 + (target_cc_norm - cc_norm) ** 2) ** 0.5
+        
+        # Same voice_id gets a bonus of +1 to effective distance reduction
+        same_voice = s.get("voice_id", "") == features.get("voice_id", "")
+        
+        scored.append((s, dist, same_voice))
     
-    if len(candidates) < 2:
-        # Also try a wider search if too few matches
-        threshold = max(100, int(word_count * 0.50))
-        lo = word_count - threshold
-        hi = word_count + threshold
-        candidates = []
-        for s in per_job_stats:
-            wc = s.get("word_count", 0)
-            if lo <= wc <= hi:
-                same_voice = s.get("voice_id", "") == features.get("voice_id", "")
-                weight = 1.5 if same_voice else 1.0
-                candidates.append((s, weight))
-    
-    if not candidates:
+    if not scored:
         return None, None
+    
+    # Sort by distance (closest first), take top 10 most similar
+    scored.sort(key=lambda x: x[1])
+    candidates = scored[:10]
     
     # Compute similarity-weighted average phase durations
     total_weight = 0.0
@@ -1097,12 +1114,12 @@ def _predict_phase_duration(features, per_job_stats):
     pred_transcribe = 0.0
     pred_render = 0.0
     
-    for s, w in candidates:
-        # Word-count proximity factor: closer = higher weight
-        wc = s.get("word_count", 0)
-        distance = abs(wc - word_count) / max(1, threshold)
-        proximity = max(0.1, 1.0 - distance)
-        weight = w * proximity
+    for s, dist, same_voice in candidates:
+        # Convert distance to weight: closer = higher weight
+        # Using 1/(1+dist) — smooth decay, no math import needed
+        weight = 1.0 / (1.0 + dist)
+        if same_voice:
+            weight *= 1.5
         
         total_weight += weight
         if s.get("llm_duration"):
@@ -1384,9 +1401,39 @@ def batch_worker_thread(
                 else:
                     words_per_screen_choice = global_wps
 
+                # Random setting + tone modifiers for prompt diversity
+                random_setting = random.choice([
+                    "Set this story in a small coastal town.",
+                    "Set this story in a bustling metropolis.",
+                    "Set this story in a remote mountain village.",
+                    "Set this story in a decaying industrial city.",
+                    "Set this story in the desert southwest.",
+                    "Set this story in a small Midwestern farm town.",
+                    "Set this story on a humid tropical island.",
+                    "Set this story in a historic European city.",
+                    "Set this story in a quiet suburban neighborhood.",
+                    "Set this story in a frozen northern wilderness.",
+                ])
+                random_tone = random.choice([
+                    "Tell this with a melancholic, reflective tone.",
+                    "Tell this with a darkly humorous edge.",
+                    "Tell this with a tense, urgent feel.",
+                    "Tell this with a warm, hopeful tone.",
+                    "Tell this with a cynical, gritty tone.",
+                    "Tell this with a nostalgic, bittersweet feel.",
+                    "",
+                    "",
+                    "",
+                ])
+                prompt_modifier = " ".join(filter(None, [random_setting, random_tone])).strip()
+
                 job_configs[i] = {
                     "index": i,
-                    "prompt": f"[{template_title}] {prompt}",
+                    "prompt": (
+                        f"[{template_title}] {prompt} {prompt_modifier}"
+                        if prompt_modifier
+                        else f"[{template_title}] {prompt}"
+                    ),
                     "voice_id": voice_id,
                     "bg_video_path": top_video,
                     "bg_video_bottom_path": bottom_video,
