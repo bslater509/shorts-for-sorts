@@ -144,15 +144,6 @@ async def cleanup_temp_dir():
     except Exception as e:
         logger.warning(f"Failed to clean temp directory on startup: {e}")
 
-@app.on_event("startup")
-async def download_emoji_styles():
-    import threading
-    from gui.emoji_downloader import ensure_emoji_styles
-    # Run in a background thread so we don't block server startup
-    threading.Thread(target=ensure_emoji_styles, daemon=True).start()
-    logger.info("Started background task to download emoji styles.")
-
-
 @app.websocket("/api/notifications")
 async def websocket_notifications(websocket: WebSocket):
     await manager.connect(websocket)
@@ -1410,7 +1401,6 @@ def batch_worker_thread(
                     "sub_outline_width": sub_outline_width,
                     "sub_bold": sub_bold,
                     "enable_emojis": enable_emojis,
-                    "enable_color_emoji": shared_state.settings.get("enable_color_emoji", True),
                     "emoji_scale_factor": emoji_scale_factor
                     if emoji_scale_factor is not None
                     else shared_state.settings.get("emoji_scale_factor", 1.5),
@@ -2047,7 +2037,6 @@ def get_batch_job_detail(job_id: int):
         "emoji_style": config.get("emoji_style", ""),
         "sub_animation_style": config.get("sub_animation_style", ""),
         "enable_emoji_animation": config.get("enable_emoji_animation", False),
-        "enable_color_emoji": config.get("enable_color_emoji", False),
         "emoji_scale_factor": config.get("emoji_scale_factor", 0),
         "emoji_hold_duration": config.get("emoji_hold_duration", 0),
         "emoji_throw_max_count": config.get("emoji_throw_max_count", 0),

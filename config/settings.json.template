@@ -23,7 +23,6 @@
   "inactive_dim": true,
   "inactive_alpha": "66",
   "enable_emojis": true,
-  "enable_color_emoji": true,
   "sub_uppercase": true,
   "sub_border_style": 1,
   "sub_shadow_width": 0,

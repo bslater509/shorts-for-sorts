@@ -66,7 +66,6 @@ class TestSettingsModel(unittest.TestCase):
         self.assertTrue(settings.inactive_dim)
         self.assertEqual(settings.inactive_alpha, "88")
         self.assertTrue(settings.enable_emojis)
-        self.assertIsNone(settings.enable_color_emoji)
         self.assertTrue(settings.sub_uppercase)
         self.assertEqual(settings.sub_border_style, 1)
         self.assertEqual(settings.sub_shadow_width, 0)
@@ -118,7 +117,6 @@ class TestPresetModel(unittest.TestCase):
             inactive_dim=False,
             inactive_alpha="FF",
             enable_emojis=False,
-            enable_color_emoji=False,
             sub_animation_style="typewriter",
             single_word_mode=True,
             emoji_position="below",
@@ -145,7 +143,6 @@ class TestPresetModel(unittest.TestCase):
         self.assertFalse(preset.inactive_dim)
         self.assertEqual(preset.inactive_alpha, "FF")
         self.assertFalse(preset.enable_emojis)
-        self.assertFalse(preset.enable_color_emoji)
         self.assertEqual(preset.sub_animation_style, "typewriter")
         self.assertTrue(preset.single_word_mode)
         self.assertEqual(preset.emoji_position, "below")

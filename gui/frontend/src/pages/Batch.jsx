@@ -705,7 +705,6 @@ const JobDetailModal = ({ job, onClose, progress }) => {
           {/* Emoji Settings */}
           <Section title="Emoji" icon={<Smile size={16} className="text-yellow-400" />}>
             <SettingRow label="Enabled" value={job.enable_emojis ? 'Yes' : 'No'} />
-            <SettingRow label="Color Emoji" value={job.enable_color_emoji ? 'Yes' : 'No'} />
             <SettingRow label="Animation" value={job.enable_emoji_animation ? 'On' : 'Off'} />
             <SettingRow label="Scale" value={job.emoji_scale_factor || '—'} />
             <SettingRow label="Hold Duration" value={job.emoji_hold_duration ? `${job.emoji_hold_duration}s` : '—'} />

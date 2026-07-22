@@ -6,7 +6,6 @@ import random
 import re
 import subprocess
 import time
-import uuid
 
 import ffmpeg
 
@@ -100,8 +99,6 @@ def compile_video(
     render_resolution: str = "720p",
     video_encoder: str = "libx264",
     progress_callback=None,
-    emoji_overlay_path: str | None = None,
-    emoji_style: str = "apple",
 ):
     """
     Renders the final vertical video using FFmpeg.
@@ -226,87 +223,6 @@ def compile_video(
     fonts_dir = os.path.join(BASE_DIR, "fonts")
     os.makedirs(fonts_dir, exist_ok=True)
     v_stream = v_stream.filter("subtitles", filename=os.path.abspath(subs_path), fontsdir=fonts_dir)
-
-    # Apply color emoji overlays if manifest provided
-    _temp_cleanup = []
-    if emoji_overlay_path and not os.path.exists(emoji_overlay_path):
-        logger.warning(
-            "Emoji overlay manifest not found at %s — skipping color emoji", emoji_overlay_path
-        )
-        emoji_overlay_path = None
-    if emoji_overlay_path:
-        try:
-            with open(emoji_overlay_path) as ef:
-                emoji_overlays = json.load(ef)
-        except (json.JSONDecodeError, OSError) as e:
-            logger.error("Failed to read emoji overlay manifest %s: %s", emoji_overlay_path, e)
-            emoji_overlays = []
-        if emoji_overlays:
-            logger.info(
-                "Processing %d emoji overlays from manifest: %s",
-                len(emoji_overlays),
-                os.path.basename(emoji_overlay_path),
-            )
-            if progress_callback:
-                progress_callback("Rendering emoji sprites...")
-
-            # Render unique emojis in a single Playwright browser session
-            import asyncio as _asyncio
-
-            from gui.emoji_renderer import evict_stale_emoji_cache, render_emoji_pngs_batch
-
-            evict_stale_emoji_cache()
-            unique_emojis = {e["emoji"] for e in emoji_overlays}
-            logger.info(
-                "Rendering %d unique emojis to PNG via batch Playwright", len(unique_emojis)
-            )
-            emoji_png_cache = _asyncio.run(
-                render_emoji_pngs_batch(unique_emojis, 128, style=emoji_style, progress_callback=progress_callback)
-            )
-
-            cache_hits = sum(1 for v in emoji_png_cache.values() if v)
-            cache_misses = len(unique_emojis) - cache_hits
-            if cache_misses > 0:
-                logger.warning(
-                    "Emoji PNG rendering: %d/%d cached, %d failed",
-                    cache_hits,
-                    len(unique_emojis),
-                    cache_misses,
-                )
-            else:
-                logger.info("Emoji PNG rendering: all %d emojis cached successfully", cache_hits)
-
-            # Render a single composited sprite video instead of per-instance overlays
-            from gui.emoji_sprite import render_emoji_sprite
-
-            sprite_path = os.path.join(BASE_DIR, "temp", f"emoji_sprite_{uuid.uuid4().hex[:8]}.mkv")
-            os.makedirs(os.path.join(BASE_DIR, "temp"), exist_ok=True)
-            _temp_cleanup.append(sprite_path)
-            sprite_result = render_emoji_sprite(
-                emoji_overlays,
-                emoji_png_cache,
-                target_w,
-                target_h,
-                30,
-                audio_duration,
-                sprite_path,
-                progress_callback=progress_callback,
-            )
-            if sprite_result:
-                sprite_input = ffmpeg.input(sprite_result)
-                v_stream = v_stream.overlay(sprite_input, x="0", y="0")
-                logger.info(
-                    "Color emoji sprite applied to video stream: %s",
-                    os.path.basename(sprite_result),
-                )
-                if progress_callback:
-                    progress_callback("Emoji overlay applied")
-            else:
-                logger.warning(
-                    "Color emoji overlay failed — falling back to text emoji in subtitles"
-                )
-                if progress_callback:
-                    progress_callback("⚠ Emoji overlay failed — using text fallback")
 
     # Add smooth transitions: Video Fade-in / Fade-out (0.5s duration)
     v_stream = v_stream.filter("fade", type="in", start_time=0, duration=0.5)
@@ -472,8 +388,3 @@ def compile_video(
         logger.error(err_msg)
         raise RuntimeError(err_msg)
 
-    # Clean up temp sprite files after successful or failed compilation
-    for cleanup_path in _temp_cleanup:
-        with contextlib.suppress(OSError):
-            if os.path.exists(cleanup_path):
-                os.remove(cleanup_path)

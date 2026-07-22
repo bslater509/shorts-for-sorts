@@ -1,6 +1,4 @@
-import json
 import logging
-import random
 
 logger = logging.getLogger("shorts_creator.generator")
 if not logger.handlers and not logging.getLogger("shorts_creator").handlers:
@@ -109,77 +107,6 @@ def find_emoji_for_word(word: str, emoji_map: dict) -> tuple:
     return ("", "none")
 
 
-def _make_emoji_overlay(
-    emoji_overlays: list,
-    emoji_char: str,
-    anim: str,
-    word_start: float,
-    word_end: float,
-    font_size: int,
-    style_opts: dict,
-    alignment: int,
-    margin_v: int,
-    emoji_position: str,
-):
-    enable_anim = style_opts.get("enable_emoji_animation", True)
-    scale_factor = float(style_opts.get("emoji_scale_factor", 1.5))
-    hold_duration = float(style_opts.get("emoji_hold_duration", 0.5))
-    max_count = int(style_opts.get("emoji_throw_max_count", 1))
-    size = max(1, int(font_size * scale_factor))
-
-    target_h = int(style_opts.get("target_h", 1920))
-
-    if emoji_position == "above":
-        base_y = margin_v + 50
-    else:
-        base_y = max(size // 2, (target_h // 2) - margin_v)
-
-    if alignment in (1, 4, 7):
-        pos_x = 100 + size // 2
-    elif alignment in (3, 6, 9):
-        pos_x = 980 - size // 2
-    else:
-        pos_x = 540
-
-    count = random.randint(1, max(1, max_count))
-
-    overlay_anim = anim if enable_anim else "none"
-
-    base_speed_mult = float(style_opts.get("emoji_throw_speed_multiplier", 1.0))
-    throw_arc_height = float(style_opts.get("emoji_throw_arc_height", 25.0))
-    throw_fall_distance = float(style_opts.get("emoji_throw_fall_distance", 153.6))
-    spin_speed = float(style_opts.get("emoji_spin_speed", 45.0))
-
-    for _i in range(count):
-        # Spread copies vertically across a meaningful portion of the screen
-        # so each emoji enters from a visibly different off-screen height.
-        # The spread scales with max_count: min ±200px, up to ±600px for max_count=20.
-        y_spread = min(600, max(200, max_count * 30))
-        y_offset = random.randint(-y_spread, y_spread)
-        # Also vary x slightly so hash-based left/right direction diversifies
-        x_offset = random.randint(-80, 80)
-
-        # Vary throw speed so multiple emojis for the same word
-        # spread out naturally instead of flying as a cluster.
-        throw_speed_mult = round(random.uniform(0.6, 1.0) * base_speed_mult, 2)
-
-        emoji_overlays.append(
-            {
-                "emoji": emoji_char,
-                "x": pos_x + x_offset,
-                "y": max(size, min(target_h - size, base_y + y_offset)),
-                "size": size,
-                "start": word_start,
-                "end": word_end + hold_duration,
-                "anim": overlay_anim,
-                "throw_speed_mult": throw_speed_mult,
-                "throw_arc_height": throw_arc_height,
-                "throw_fall_distance": throw_fall_distance,
-                "spin_speed": spin_speed,
-            }
-        )
-
-
 def generate_ass_subtitles(
     words: list,
     output_path: str,
@@ -209,8 +136,6 @@ def generate_ass_subtitles(
     inactive_dim = style_opts.get("inactive_dim", True)
     inactive_alpha = style_opts.get("inactive_alpha", "88")
     enable_emojis = style_opts.get("enable_emojis", True)
-    enable_color_emoji = style_opts.get("enable_color_emoji", True)
-
     # New styling options
     uppercase = style_opts.get("uppercase", True)
     border_style = style_opts.get("border_style", 1)  # 1: Outline+Shadow, 3: Opaque Box
@@ -220,8 +145,6 @@ def generate_ass_subtitles(
     words_per_screen = str(style_opts.get("words_per_screen", "3"))
     emoji_position = style_opts.get("emoji_position", "above") if enable_emojis else "none"
     emoji_style = style_opts.get("emoji_style", "Symbola")
-
-    emoji_overlays = []
 
     animation_style = style_opts.get("sub_animation_style", "tiktok_pop")
 
@@ -349,31 +272,8 @@ def generate_ass_subtitles(
 
                 w_text = w
                 if emoji_position == "same_line" and phrase_emojis[idx]:
-                    if enable_color_emoji:
-                        pass  # Will use color emoji overlay
-                    else:
-                        wrapped_emoji = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
-                        w_text = f"{wrapped_emoji} {w_text}"
-
-                # Build color emoji overlay entry if applicable
-                if (
-                    enable_color_emoji
-                    and emoji_map
-                    and emoji_position != "none"
-                    and phrase_emojis[idx]
-                ):
-                    _make_emoji_overlay(
-                        emoji_overlays,
-                        phrase_emojis[idx],
-                        phrase_anims[idx],
-                        start,
-                        end,
-                        font_size,
-                        style_opts,
-                        alignment,
-                        margin_v,
-                        emoji_position,
-                    )
+                    wrapped_emoji = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
+                    w_text = f"{wrapped_emoji} {w_text}"
 
                 if idx < len(phrase) - 1:
                     text_parts.append(f"{{\\kf{word_cs}}}{w_text} ")
@@ -384,11 +284,8 @@ def generate_ass_subtitles(
             phrase_text = "".join(text_parts)
 
             if emoji_position == "above" and first_emoji:
-                if not enable_color_emoji:
-                    emoji_top = f"{{\\fn{emoji_style}}}{first_emoji}{{\\fn}}"
-                    dialogue_text = f"{emoji_top}\\N{phrase_text}"
-                else:
-                    dialogue_text = phrase_text
+                emoji_top = f"{{\\fn{emoji_style}}}{first_emoji}{{\\fn}}"
+                dialogue_text = f"{emoji_top}\\N{phrase_text}"
             else:
                 dialogue_text = phrase_text
 
@@ -464,31 +361,8 @@ def generate_ass_subtitles(
 
                         w_text = w
                         if emoji_position == "same_line" and phrase_emojis[idx]:
-                            if enable_color_emoji:
-                                pass  # Will use color emoji overlay
-                            else:
-                                wrapped_emoji = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
-                                w_text = f"{wrapped_emoji} {w_text}"
-
-                        # Build color emoji overlay entry if applicable
-                        if (
-                            enable_color_emoji
-                            and emoji_map
-                            and emoji_position != "none"
-                            and phrase_emojis[idx]
-                        ):
-                            _make_emoji_overlay(
-                                emoji_overlays,
-                                phrase_emojis[idx],
-                                phrase_anims[idx],
-                                active_word_info["start"],
-                                active_word_info["end"],
-                                font_size,
-                                style_opts,
-                                alignment,
-                                margin_v,
-                                emoji_position,
-                            )
+                            wrapped_emoji = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
+                            w_text = f"{wrapped_emoji} {w_text}"
 
                         text_parts.append(f"{{{active_tags}}}{w_text}{{\\r}}")
                     else:
@@ -501,34 +375,12 @@ def generate_ass_subtitles(
                 phrase_text = " ".join(text_parts)
 
                 if emoji_position == "above" and phrase_emojis[idx]:
-                    if not enable_color_emoji:
-                        emoji_top = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
-                        dialogue_text = f"{emoji_top}\\N{phrase_text}"
-                    else:
-                        dialogue_text = phrase_text
+                    emoji_top = f"{{\\fn{emoji_style}}}{phrase_emojis[idx]}{{\\fn}}"
+                    dialogue_text = f"{emoji_top}\\N{phrase_text}"
                 else:
                     dialogue_text = phrase_text
 
                 lines.append(f"Dialogue: 0,{start_str},{end_str},Default,,0,0,0,,{dialogue_text}")
-
-    # Write emoji overlay manifest if using color emojis
-    if enable_color_emoji and emoji_map and emoji_position != "none":
-        manifest_path = output_path + ".emoji.json"
-        try:
-            with open(manifest_path, "w", encoding="utf-8") as mf:
-                json.dump(emoji_overlays, mf)
-            if emoji_overlays:
-                unique_emojis = {e["emoji"] for e in emoji_overlays}
-                logger.info(
-                    "Emoji overlay manifest written: %d overlays (%d unique emojis) -> %s",
-                    len(emoji_overlays),
-                    len(unique_emojis),
-                    manifest_path,
-                )
-            else:
-                logger.debug("No emoji overlay entries generated (no keyword matches in script)")
-        except Exception as e:
-            logger.error("Failed to write emoji overlay manifest to '%s': %s", manifest_path, e)
 
     try:
         with open(output_path, "w", encoding="utf-8") as f:

@@ -505,101 +505,11 @@ class TestGenerateAssSubtitlesSingleWordMode(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# generate_ass_subtitles — emoji insertion
-# ---------------------------------------------------------------------------
-
-class TestGenerateAssSubtitlesEmoji(unittest.TestCase):
-    """Test emoji-related behaviour in subtitle generation."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.TemporaryDirectory()
-        self.words = build_words([
-            ("laugh", 0.0, 1.0),
-            ("out", 1.5, 2.5),
-            ("loud", 3.0, 4.0),
-        ])
-        self.emoji_map = {
-            "laugh": {"emoji": "😂", "anim": "bounce"},
-            "out": {"emoji": "🚪", "anim": "none"},
-            "loud": {"emoji": "🔊", "anim": "none"},
-        }
-
-    def tearDown(self):
-        self.tmpdir.cleanup()
-
-    def test_emoji_overlay_manifest_created(self):
-        """When color emojis are enabled, a .emoji.json manifest should be written."""
-        path = os.path.join(self.tmpdir.name, "emoji_test.ass")
-        generate_ass_subtitles(
-            self.words, path,
-            style_opts={"enable_color_emoji": True, "enable_emojis": True},
-            emoji_map=self.emoji_map,
-        )
-        manifest_path = path + ".emoji.json"
-        self.assertTrue(os.path.exists(manifest_path))
-
-    def test_emoji_overlay_manifest_content(self):
-        """The emoji manifest should contain valid JSON with overlay entries."""
-        path = os.path.join(self.tmpdir.name, "emoji_test2.ass")
-        generate_ass_subtitles(
-            self.words, path,
-            style_opts={"enable_color_emoji": True, "enable_emojis": True},
-            emoji_map=self.emoji_map,
-        )
-        manifest_path = path + ".emoji.json"
-        with open(manifest_path, encoding="utf-8") as f:
-            overlays = json.load(f)
-        self.assertIsInstance(overlays, list)
-        self.assertGreater(len(overlays), 0)
-        for entry in overlays:
-            self.assertIn("emoji", entry)
-            self.assertIn("start", entry)
-            self.assertIn("end", entry)
-            self.assertIn("x", entry)
-            self.assertIn("y", entry)
-
-    def test_emoji_includes_correct_chars(self):
-        """Overlay entries should contain the matched emoji characters."""
-        path = os.path.join(self.tmpdir.name, "emoji_test3.ass")
-        generate_ass_subtitles(
-            self.words, path,
-            style_opts={"enable_color_emoji": True, "enable_emojis": True},
-            emoji_map=self.emoji_map,
-        )
-        manifest_path = path + ".emoji.json"
-        with open(manifest_path, encoding="utf-8") as f:
-            overlays = json.load(f)
-        emojis_found = {e["emoji"] for e in overlays}
-        self.assertIn("😂", emojis_found)
-
-    def test_no_emoji_manifest_when_disabled(self):
-        """When emojis are disabled, no manifest file should be written."""
-        path = os.path.join(self.tmpdir.name, "no_emoji.ass")
-        generate_ass_subtitles(
-            self.words, path,
-            style_opts={"enable_color_emoji": False, "enable_emojis": False},
-            emoji_map=self.emoji_map,
-        )
-        manifest_path = path + ".emoji.json"
-        self.assertFalse(os.path.exists(manifest_path))
-
-    def test_no_emoji_manifest_without_map(self):
-        """When no emoji_map is provided, no manifest file should be written."""
-        path = os.path.join(self.tmpdir.name, "no_map.ass")
-        generate_ass_subtitles(
-            self.words, path,
-            style_opts={"enable_color_emoji": True, "enable_emojis": True},
-        )
-        manifest_path = path + ".emoji.json"
-        self.assertFalse(os.path.exists(manifest_path))
-
-
-# ---------------------------------------------------------------------------
-# generate_ass_subtitles — inline emoji (non-color) with same_line position
+# generate_ass_subtitles — inline emoji with same_line position
 # ---------------------------------------------------------------------------
 
 class TestGenerateAssSubtitlesInlineEmoji(unittest.TestCase):
-    """Test inline (non-color) emoji insertion with emoji_position='same_line'."""
+    """Test inline emoji insertion with emoji_position='same_line'."""
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -613,12 +523,11 @@ class TestGenerateAssSubtitlesInlineEmoji(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_inline_emoji_in_dialogue(self):
-        """With enable_color_emoji=False and same_line, emoji should appear inline via \\fn tags."""
+        """With same_line position, emoji should appear inline via \\fn tags."""
         path = os.path.join(self.tmpdir.name, "inline_emoji.ass")
         generate_ass_subtitles(
             self.words, path,
             style_opts={
-                "enable_color_emoji": False,
                 "enable_emojis": True,
                 "emoji_position": "same_line",
             },
@@ -636,7 +545,6 @@ class TestGenerateAssSubtitlesInlineEmoji(unittest.TestCase):
         generate_ass_subtitles(
             self.words, path,
             style_opts={
-                "enable_color_emoji": False,
                 "enable_emojis": True,
                 "emoji_position": "same_line",
                 "emoji_style": "NotoEmoji",
@@ -891,11 +799,11 @@ class TestGenerateAssSubtitlesKaraoke(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# generate_ass_subtitles — emoji_position = "above" (default with emojis)
+# generate_ass_subtitles — emoji_position = "above"
 # ---------------------------------------------------------------------------
 
 class TestGenerateAssSubtitlesEmojiPositionAbove(unittest.TestCase):
-    """Test emoji_position='above' with non-color emoji (inline \\N line break)."""
+    """Test emoji_position='above' with inline \\N line break."""
 
     def setUp(self):
         self.tmpdir = tempfile.TemporaryDirectory()
@@ -909,12 +817,11 @@ class TestGenerateAssSubtitlesEmojiPositionAbove(unittest.TestCase):
         self.tmpdir.cleanup()
 
     def test_emoji_above_uses_newline(self):
-        """With emoji_position='above' and non-color mode, emoji appears on a separate line."""
+        """With emoji_position='above', emoji appears on a separate line."""
         path = os.path.join(self.tmpdir.name, "above_emoji.ass")
         generate_ass_subtitles(
             self.words, path,
             style_opts={
-                "enable_color_emoji": False,
                 "enable_emojis": True,
                 "emoji_position": "above",
             },

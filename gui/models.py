@@ -35,7 +35,6 @@ class SettingsModel(BaseModel):
     inactive_dim: bool | None = True
     inactive_alpha: str | None = "88"
     enable_emojis: bool | None = True
-    enable_color_emoji: bool | None = None
     sub_uppercase: bool | None = True
     sub_border_style: int | None = 1
     sub_shadow_width: int | None = 0
@@ -81,7 +80,6 @@ class PresetModel(BaseModel):
     inactive_dim: bool
     inactive_alpha: str
     enable_emojis: bool
-    enable_color_emoji: bool = True
     sub_animation_style: str
     single_word_mode: bool | None = False
     emoji_position: str | None = "above"
@@ -114,7 +112,6 @@ class StateModel(BaseModel):
     words_per_screen: str | None = None
     inactive_alpha: str | None = None
     enable_emojis: bool | None = None
-    enable_color_emoji: bool | None = None
     sub_uppercase: bool | None = None
     sub_border_style: int | None = None
     sub_shadow_width: int | None = None

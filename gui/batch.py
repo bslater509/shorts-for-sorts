@@ -1,7 +1,6 @@
 import concurrent.futures
 import contextlib
 import gc
-import json
 import os
 import random
 import re
@@ -63,7 +62,6 @@ class BatchJobConfig:
     sub_outline_width: int = 5
     sub_bold: bool = False
     enable_emojis: bool = False
-    enable_color_emoji: bool = True
     enable_emoji_animation: bool = True
     emoji_scale_factor: float = 1.5
     emoji_hold_duration: float = 0.5
@@ -147,26 +145,8 @@ class ProgressConsole:
                 if phase_key not in self.p_dict:
                     self.p_dict[phase_key] = time.time()
                 self.p_dict[self.idx] = "FFmpeg Rendering"
-            elif "Emoji Sprite" in msg or "Emoji Render" in msg:
-                phase_key = f"{self.idx}_phase_render_start"
-                if phase_key not in self.p_dict:
-                    self.p_dict[phase_key] = time.time()
-                self.p_dict[self.idx] = msg
-            elif "Rendering emoji" in msg:
-                phase_key = f"{self.idx}_phase_render_start"
-                if phase_key not in self.p_dict:
-                    self.p_dict[phase_key] = time.time()
-                self.p_dict[self.idx] = "Emoji Sprites"
-            elif "Emoji overlay applied" in msg:
-                phase_key = f"{self.idx}_phase_render_start"
-                if phase_key not in self.p_dict:
-                    self.p_dict[phase_key] = time.time()
-                self.p_dict[self.idx] = "Emoji Overlay ✓"
             elif "ℹ️ Found cached" in msg:
                 self.p_dict[self.idx] = "Reusing Cache (Voice)"
-            elif "emoji overlay failed" in msg.lower():
-                self.p_dict[self.idx] = f"{self.p_dict.get(self.idx, '')} ⚠ Emoji Fallback"
-                logger.warning("[Batch job %d] %s", self.idx, msg)
         except Exception:
             logger.debug(
                 "ProgressConsole.print exception for idx=%d", self.idx, exc_info=True
@@ -210,13 +190,7 @@ def get_progress_percentage(status):
             pct = int(match.group(1))
             return 45 + int((pct / 100) * 10)
         return 48
-    elif status == "Subtitles" or (
-        status.startswith("Emoji Sprites")
-        or status.startswith("Emoji Render")
-        or status.startswith("Emoji Sprite")
-        or status.startswith("Rendering emoji")
-        or status.startswith("Emoji Overlay")
-    ):
+    elif status == "Subtitles":
         return 55
     elif status.startswith("FFmpeg Rendering"):
         match = re.search(r"\((\d+\.?\d*)%\)", status)
@@ -643,9 +617,6 @@ def compile_video_flow(
             "enable_emojis": current_state.get("enable_emojis")
             if current_state.get("enable_emojis") is not None
             else settings.get("enable_emojis", True),
-            "enable_color_emoji": current_state.get("enable_color_emoji")
-            if current_state.get("enable_color_emoji") is not None
-            else settings.get("enable_color_emoji", True),
             "emoji_position": current_state.get("emoji_position") if current_state.get("emoji_position") is not None else settings.get("emoji_position", "above"),
             "emoji_style": current_state.get("emoji_style") if current_state.get("emoji_style") is not None else settings.get("emoji_style", "apple"),
             "enable_emoji_animation": current_state.get("enable_emoji_animation")
@@ -908,39 +879,11 @@ def compile_video_flow(
         console.print("[yellow][3/4] Generating ASS subtitle file with custom styling...[/]")
         from generator import generate_ass_subtitles
 
-        if sub_opts.get("enable_color_emoji"):
-            _chromium_ok = shutil.which("playwright") is not None
-            if not _chromium_ok:
-                sub_opts["enable_color_emoji"] = False
-                logger.warning(
-                    "Playwright not found — color emoji overlay disabled. "
-                    "Install with: pip install playwright && playwright install chromium"
-                )
         generate_ass_subtitles(words, subs_path, style_opts=sub_opts, emoji_map=load_emoji_map())
         console.print("[green]ASS subtitles generated.[/]")
 
         del words
         log_memory_usage("Video: after subtitle generation")
-
-        emoji_overlay_path = None
-        if sub_opts.get("enable_color_emoji"):
-            manifest_path = subs_path + ".emoji.json"
-            if os.path.exists(manifest_path):
-                try:
-                    with open(manifest_path) as mf:
-                        overlay_count = len(json.load(mf))
-                    logger.info(
-                        "Emoji overlay manifest found: %d overlays in %s",
-                        overlay_count,
-                        manifest_path,
-                    )
-                    emoji_overlay_path = manifest_path
-                except (json.JSONDecodeError, OSError) as e:
-                    logger.warning(
-                        "Emoji manifest exists but unreadable at %s: %s", manifest_path, e
-                    )
-            else:
-                logger.debug("No emoji overlay manifest — no word-to-emoji matches in script")
 
         console.print(
             "[yellow][4/4] Rendering vertical video using FFmpeg (cropping 9:16, mixing audio, burning subtitles)...[/]"
@@ -949,13 +892,12 @@ def compile_video_flow(
         render_res = settings.get("render_resolution", "1080p")
         video_encoder = settings.get("video_encoder", "libx264")
         logger.info(
-            "[Compiler] Phase 4 — FFmpeg render: encoder=%s preset=%s res=%s top=%s bottom=%s emoji=%s",
+            "[Compiler] Phase 4 — FFmpeg render: encoder=%s preset=%s res=%s top=%s bottom=%s",
             video_encoder,
             render_preset,
             render_res,
             os.path.basename(resolved_top_path),
             os.path.basename(resolved_bottom_path) if resolved_bottom_path else "(none)",
-            os.path.basename(emoji_overlay_path) if emoji_overlay_path else "(none)",
         )
         from generator import compile_video
 
@@ -973,8 +915,6 @@ def compile_video_flow(
             render_resolution=render_res,
             video_encoder=video_encoder,
             progress_callback=progress_callback,
-            emoji_overlay_path=emoji_overlay_path,
-            emoji_style=sub_opts.get("emoji_style", "apple"),
         )
 
         shutil.move(temp_output_path, output_path)
@@ -1037,8 +977,7 @@ def compile_video_flow(
 
         unload_tts_model()
         unload_whisper_model()
-        manifest_to_clean = subs_path + ".emoji.json"
-        for p in [audio_path, subs_path, manifest_to_clean]:
+        for p in [audio_path, subs_path]:
             if os.path.exists(p):
                 with contextlib.suppress(Exception):
                     os.remove(p)
@@ -1197,7 +1136,7 @@ def video_job_worker(job_config, progress_dict):
             "sub_outline_width": job_config["sub_outline_width"],
             "sub_bold": job_config["sub_bold"],
             "enable_emojis": job_config["enable_emojis"],
-            "enable_color_emoji": job_config.get("enable_color_emoji", True),
+
             "enable_emoji_animation": job_config.get("enable_emoji_animation", True),
             "emoji_scale_factor": job_config.get("emoji_scale_factor", 1.5),
             "emoji_hold_duration": job_config.get("emoji_hold_duration", 0.5),
