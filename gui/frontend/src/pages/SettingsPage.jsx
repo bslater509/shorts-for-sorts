@@ -22,6 +22,7 @@ export default function SettingsPage() {
   
   const [isSaving, setIsSaving] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [availableModels, setAvailableModels] = useState({})
   const [isFetchingModels, setIsFetchingModels] = useState({})
   const [notificationStatus, setNotificationStatus] = useState(
@@ -44,8 +45,10 @@ export default function SettingsPage() {
       try {
         const data = await api.fetchSettings()
         setSettings(prev => ({ ...prev, ...data }))
+        setLoadError(null)
       } catch (err) {
         console.error("Failed to load settings:", err)
+        setLoadError(err.message || 'Could not fetch settings from server')
       } finally {
         setIsLoading(false)
       }
@@ -55,9 +58,11 @@ export default function SettingsPage() {
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
+    let val = type === 'checkbox' ? checked : value
+    if (name === 'local_whisper') val = value === 'true'
     setSettings(prev => ({
       ...prev,
-      [name]: type === 'checkbox' ? checked : value
+      [name]: val
     }))
   }
 
@@ -110,6 +115,9 @@ export default function SettingsPage() {
         ...settings,
         max_workers: parseInt(settings.max_workers) || 1,
         llm_max_workers: parseInt(settings.llm_max_workers) || 5,
+        default_batch_size: parseInt(settings.default_batch_size) || 1,
+        max_words: parseInt(settings.max_words) || 400,
+        llm_temp_script: parseFloat(settings.llm_temp_script ?? 0.7),
         llm_temp_metadata: parseFloat(settings.llm_temp_metadata ?? 0.7),
         llm_temp_keywords: parseFloat(settings.llm_temp_keywords ?? 0.7)
       }
@@ -150,6 +158,14 @@ export default function SettingsPage() {
           Save Settings
         </button>
       </header>
+
+      {loadError && (
+        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-sm text-red-400">
+          <strong>Failed to load settings:</strong> {loadError}
+          <br />
+          <span className="opacity-70">LLM profiles and other settings could not be fetched. Ensure the server is running and refresh.</span>
+        </div>
+      )}
 
       <div className="flex-1 md:overflow-y-auto pr-2 space-y-6 pb-6">
         {/* LLM Config */}
@@ -294,8 +310,8 @@ export default function SettingsPage() {
               <label className="text-sm font-medium">Transcription Engine</label>
               <select 
                 name="local_whisper" 
-              value={settings.local_whisper} 
-              onChange={(e) => handleChange({ target: { name: 'local_whisper', value: e.target.value === 'true', type: 'boolean' } })} 
+              value={String(settings.local_whisper)} 
+              onChange={handleChange}
               className="input-base max-w-xs"
             >
               <option value="true">Local CPU/GPU (faster-whisper)</option>

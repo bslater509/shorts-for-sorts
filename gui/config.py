@@ -837,8 +837,7 @@ def load_settings():
     if migrated:
         save_settings(settings)
 
-    else:
-        # Create settings file with the default populated keys if it does not exist
+    elif not os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "w") as f:
                 json.dump(settings, f, indent=2)
@@ -861,6 +860,26 @@ def load_settings():
 
 
 def save_settings(settings_dict):
+    # Prevent accidentally wiping llm_profiles — if the incoming dict has no
+    # profiles but the in-memory settings (or disk) do, preserve the existing ones.
+    incoming = settings_dict.get("llm_profiles")
+    if not incoming:
+        existing = settings.get("llm_profiles", [])
+        if not existing:
+            try:
+                with open(SETTINGS_FILE) as f:
+                    disk = json.load(f)
+                    existing = disk.get("llm_profiles", [])
+            except Exception:
+                pass
+        if existing:
+            settings_dict["llm_profiles"] = existing
+            settings_dict["active_llm_profile_id"] = (
+                settings_dict.get("active_llm_profile_id")
+                or settings.get("active_llm_profile_id")
+                or (existing[0].get("id") if existing else "")
+            )
+
     try:
         with open(SETTINGS_FILE, "w") as f:
             json.dump(settings_dict, f, indent=2)

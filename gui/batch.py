@@ -22,7 +22,7 @@ from rich.table import Table
 from gui import state as shared_state
 from gui.config import CACHE_DIR, OUTPUT_DIR, TEMP_DIR, VIDEOS_DIR, console, load_emoji_map, logger
 from gui.state import settings, state
-from gui.utils import discover_opencode_keys, get_active_llm_profile, resolve_preset_path
+from gui.utils import get_active_llm_profile, resolve_preset_path
 
 # Shared whisper model for batch compilation workers
 _WHISPER_MODEL = None
@@ -113,12 +113,19 @@ class ProgressConsole:
             pass
         try:
             if "Generating voice for sentence" in msg or "Generating voice for chunk" in msg:
+                # Record phase entry timestamp (first time only)
+                phase_key = f"{self.idx}_phase_voice_start"
+                if phase_key not in self.p_dict:
+                    self.p_dict[phase_key] = time.time()
                 match = re.search(r"(?:sentence|chunk) (\d+/\d+)", msg)
                 if match:
                     self.p_dict[self.idx] = f"Voice Generation ({match.group(1)})"
                 else:
                     self.p_dict[self.idx] = "Voice Generation"
             elif "Transcribing audio..." in msg or "Transcribing full audio file" in msg:
+                phase_key = f"{self.idx}_phase_transcribe_start"
+                if phase_key not in self.p_dict:
+                    self.p_dict[phase_key] = time.time()
                 match = re.search(r"(\d+)%", msg)
                 if match:
                     self.p_dict[self.idx] = f"Transcription ({match.group(1)}%)"
@@ -127,18 +134,33 @@ class ProgressConsole:
             elif "[3/4]" in msg:
                 self.p_dict[self.idx] = "Subtitles"
             elif "FFmpeg Rendering" in msg:
+                phase_key = f"{self.idx}_phase_render_start"
+                if phase_key not in self.p_dict:
+                    self.p_dict[phase_key] = time.time()
                 match = re.search(r"(\d+\.?\d*)%", msg)
                 if match:
                     self.p_dict[self.idx] = f"FFmpeg Rendering ({match.group(1)}%)"
                 else:
                     self.p_dict[self.idx] = "FFmpeg Rendering"
             elif "[4/4]" in msg:
+                phase_key = f"{self.idx}_phase_render_start"
+                if phase_key not in self.p_dict:
+                    self.p_dict[phase_key] = time.time()
                 self.p_dict[self.idx] = "FFmpeg Rendering"
             elif "Emoji Sprite" in msg or "Emoji Render" in msg:
+                phase_key = f"{self.idx}_phase_render_start"
+                if phase_key not in self.p_dict:
+                    self.p_dict[phase_key] = time.time()
                 self.p_dict[self.idx] = msg
             elif "Rendering emoji" in msg:
+                phase_key = f"{self.idx}_phase_render_start"
+                if phase_key not in self.p_dict:
+                    self.p_dict[phase_key] = time.time()
                 self.p_dict[self.idx] = "Emoji Sprites"
             elif "Emoji overlay applied" in msg:
+                phase_key = f"{self.idx}_phase_render_start"
+                if phase_key not in self.p_dict:
+                    self.p_dict[phase_key] = time.time()
                 self.p_dict[self.idx] = "Emoji Overlay ✓"
             elif "ℹ️ Found cached" in msg:
                 self.p_dict[self.idx] = "Reusing Cache (Voice)"
@@ -232,8 +254,9 @@ def make_progress_bar(percentage, status, width=15):
 
 
 def format_elapsed(duration):
-    m = int(duration) // 60
-    s = int(duration) % 60
+    total_seconds = int(duration) if duration >= 0 else 0
+    m = total_seconds // 60
+    s = total_seconds % 60
     if m > 0:
         return f"{m}m {s:02d}s"
     return f"{s}s"
@@ -571,12 +594,6 @@ def compile_video_flow(
     use_local_whisper = settings.get("local_whisper", True)
     local_model_name = settings.get("local_whisper_model", "tiny")
 
-    opencode_key, opencode_openai_token = discover_opencode_keys()
-    if not api_key:
-        api_key = opencode_key
-        if api_key and not base_url:
-            base_url = "https://opencode.ai/zen/go/v1"
-
     if not use_local_whisper and not api_key:
         console.print(
             "[red]Error: API Key is required to transcribe audio when local Whisper is disabled. Configure it in Settings.[/]"
@@ -725,12 +742,6 @@ def compile_video_flow(
                     w_client = OpenAI(api_key=whisper_api_key, base_url=whisper_base_url)
                 elif whisper_base_url:
                     w_client = OpenAI(api_key=api_key, base_url=whisper_base_url)
-                elif base_url and "opencode.ai" in base_url:
-                    w_key = opencode_openai_token or os.environ.get("OPENAI_API_KEY")
-                    if w_key:
-                        w_client = OpenAI(api_key=w_key, base_url="https://api.openai.com/v1")
-                    else:
-                        w_client = OpenAI(api_key=api_key, base_url="https://api.openai.com/v1")
                 elif api_key:
                     w_client = OpenAI(api_key=api_key, base_url=base_url)
             except Exception as e:
@@ -1045,8 +1056,6 @@ def llm_job_worker(job_config, progress_dict):
     try:
         from openai import OpenAI
 
-        from gui.utils import discover_opencode_keys
-
         profiles = job_config["settings"].get("llm_profiles", [])
         active_id = job_config["settings"].get("active_llm_profile_id")
         active_profile = {}
@@ -1059,14 +1068,6 @@ def llm_job_worker(job_config, progress_dict):
 
         api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
         base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-
-        opencode_key, _ = discover_opencode_keys()
-        if not api_key:
-            api_key = opencode_key
-            if api_key and not base_url:
-                base_url = "https://opencode.ai/zen/go/v1"
-                if job_config.get("model") in [None, "", "gpt-4o-mini"]:
-                    job_config["model"] = "deepseek-v4-flash"
 
         client = OpenAI(api_key=api_key, base_url=base_url)
 

@@ -158,30 +158,18 @@ export default function Batch() {
   let failedCount = 0
   let queuedCount = 0
   
-  let totalEtaSeconds = 0
-  let activeJobsWithEta = 0
-  
   jobs.forEach(job => {
     if (job.status === 'Done') doneCount++
     else if (job.failed || job.status?.startsWith('Failed')) failedCount++
     else if (job.status === 'Queued') queuedCount++
-    else {
-      runningCount++
-      if (job.eta_seconds > 0) {
-        totalEtaSeconds += job.eta_seconds
-        activeJobsWithEta++
-      }
-    }
+    else runningCount++
   })
 
   let globalEtaStr = "--"
-  if (inProgress && runningCount > 0) {
-    const avgActiveEta = activeJobsWithEta > 0 ? totalEtaSeconds / activeJobsWithEta : 60
-    const queuedEta = queuedCount * 60
-    const totalSeconds = avgActiveEta + queuedEta
-    
-    const m = Math.floor(totalSeconds / 60)
-    const s = Math.floor(totalSeconds % 60)
+  const ges = batchData?.global_eta_seconds
+  if (inProgress && runningCount > 0 && ges != null && ges > 0) {
+    const m = Math.floor(ges / 60)
+    const s = Math.floor(ges % 60)
     globalEtaStr = m > 0 ? `${m}m ${s}s` : `${s}s`
   }
 

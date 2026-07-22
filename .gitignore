@@ -17,6 +17,7 @@ cert.pem
 key.pem
 config/settings.json
 config/gui_state.json
+config/batch_stats.json
 
 # Virtual environments & IDEs
 .vscode/

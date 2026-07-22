@@ -64,7 +64,6 @@ from gui.models import (
 )
 from gui.utils import (
     check_system_dependencies,
-    discover_opencode_keys,
     download_default_assets_if_empty,
     get_active_llm_profile,
     resolve_preset_path,
@@ -74,6 +73,7 @@ THUMBNAIL_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
 GUI_STATE_FILE = os.path.join(BASE_DIR, "config", "gui_state.json")
+BATCH_STATS_FILE = os.path.join(BASE_DIR, "config", "batch_stats.json")
 
 # Locks for thread-safe access to shared mutable state
 _batch_lock = threading.Lock()  # Guards batch_state["in_progress"] TOCTOU
@@ -273,12 +273,6 @@ def fetch_llm_models(data: FetchModelsRequest):
         if data.base_url
         else os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
     )
-
-    opencode_key, _ = discover_opencode_keys()
-    if not api_key:
-        api_key = opencode_key
-        if api_key and (not base_url or base_url == "https://api.openai.com/v1"):
-            base_url = "https://opencode.ai/zen/go/v1"
 
     if not api_key:
         raise HTTPException(status_code=400, detail="API Key is required to fetch models.")
@@ -860,6 +854,10 @@ batch_state = {
     "shared_progress": None,
     "batch_results": [],
     "failed_job_configs": [],
+    "max_workers": 1,
+    "llm_max_workers": 5,
+    "_smoothed_eta": {},
+    "_phase_weights": None,
 }
 _batch_state_lock = threading.RLock()
 
@@ -875,17 +873,345 @@ def _resolve_worker_count(key, default, min_val=1):
     return default
 
 
+# Video pipeline phases (sequential, after LLM) — used for time-weighted progress
+VIDEO_PHASES = [
+    ("Voice", 20, 45),
+    ("Transcribe", 45, 55),
+    ("Render", 55, 100),
+]
+DEFAULT_VIDEO_WEIGHTS = {"Voice": 0.35, "Transcribe": 0.10, "Render": 0.55}
+
+# Overall phase ratios (including LLM) stored in batch_stats.json
+DEFAULT_PHASE_WEIGHTS = {"LLM": 0.05, "Voice": 0.30, "Transcribe": 0.10, "Render": 0.55}
+
+# Phase tracking keys — set by batch_worker_thread (llm_end) or ProgressConsole (rest)
+_PHASE_TRACKING_KEYS = [
+    "_phase_llm_end",
+    "_phase_voice_start",
+    "_phase_transcribe_start",
+    "_phase_render_start",
+]
+
+
+def compute_video_progress(pct, weights=None):
+    """Convert raw progress percentage (0-100) to time-weighted fraction of the video pipeline (0-1).
+    
+    Only covers Voice/Transcribe/Render — excludes LLM (which runs in parallel
+    across all jobs with different timing characteristics).
+    Uses learned weights from completed batch runs when available.
+    """
+    if not pct or pct <= 20:
+        return 0.0
+    w = weights if weights else DEFAULT_VIDEO_WEIGHTS
+    completed = 0.0
+    for name, p_start, p_end in VIDEO_PHASES:
+        span = p_end - p_start
+        if pct >= p_end:
+            completed += w.get(name, 0.30)
+        elif pct > p_start:
+            phase_pct = (pct - p_start) / span
+            completed += w.get(name, 0.30) * phase_pct
+    return min(completed, 1.0)
+
+
+def _compute_eta(
+    start_time, end_time, pct, status, job_phase_times, avg_completion_time, smoothed_etas, job_id,
+    phase_weights=None, avg_llm_duration=None, avg_video_duration=None,
+    job_features=None, per_job_stats=None,
+):
+    """Compute ETA with phase weighting, avg completion blending, and smoothing.
+    
+    When job_features (from _extract_job_features) and per_job_stats (historical
+    records in batch_stats.json) are available, uses similarity-weighted prediction
+    to produce job-specific duration estimates instead of global averages.
+    
+    Returns (eta_str, eta_seconds, elapsed_str, eta_llm, eta_video).
+    eta_llm/eta_video: pipeline-aware breakdown (remaining seconds, 0 if phase done)
+    for use in global pipeline ETA calculation.
+    """
+    import time
+    from gui.batch import format_elapsed
+
+    if not start_time:
+        return "--", 0.0, "--", 0.0, 0.0
+
+    now = time.time()
+    duration = (end_time if end_time else now) - start_time
+    elapsed_str = format_elapsed(duration)
+
+    if status == "Done":
+        return "0s", 0.0, elapsed_str + " (Done)", 0.0, 0.0
+
+    if not (pct and pct > 0):
+        return "--", 0.0, elapsed_str, 0.0, 0.0
+
+    # Determine effective duration estimates — use job-specific prediction when available
+    effective_llm_dur = avg_llm_duration
+    effective_video_dur = avg_video_duration
+    if job_features and job_features.get("word_count") and per_job_stats:
+        pred_llm, pred_video = _predict_phase_duration(job_features, per_job_stats)
+        if pred_llm is not None:
+            effective_llm_dur = pred_llm
+        if pred_video is not None:
+            effective_video_dur = pred_video
+
+    # Pipeline-aware breakdown
+    llm_done = job_phase_times and job_phase_times.get("_phase_llm_end") is not None
+
+    if llm_done:
+        # LLM phase complete — remaining time is all video
+        llm_end = job_phase_times["_phase_llm_end"]
+        video_elapsed = (end_time if end_time else now) - llm_end
+        video_progress = compute_video_progress(pct, weights=phase_weights)
+        if effective_video_dur is not None and video_progress < 0.3:
+            # Early in video phase — use learned average for stability
+            eta_video = effective_video_dur * max(0, 1.0 - video_progress)
+        elif video_progress > 0:
+            eta_video = video_elapsed / video_progress * (1.0 - video_progress)
+        else:
+            eta_video = effective_video_dur if effective_video_dur else 60
+        eta_llm = 0.0
+    else:
+        # Still in LLM phase — estimate LLM remaining, use learned avg for video
+        effective_progress = compute_video_progress(pct, weights=phase_weights)
+        if effective_progress > 0:
+            # Job already in video pipeline but no llm_end recorded (edge case)
+            eta_video = duration / effective_progress * (1.0 - effective_progress)
+        else:
+            eta_video = effective_video_dur if effective_video_dur else 60
+        # LLM remaining from overall progress
+        llm_fraction = min(1.0, (pct or 0) / 20.0) if pct else 0
+        if llm_fraction > 0:
+            eta_llm = duration / llm_fraction * (1.0 - llm_fraction)
+        else:
+            eta_llm = effective_llm_dur if effective_llm_dur else 30
+
+    # Total job-remaining for per-job display
+    eta_seconds = eta_llm + eta_video
+
+    # Apply exponential smoothing to prevent wild jumps (on total)
+    if smoothed_etas is not None and job_id is not None:
+        prev = smoothed_etas.get(job_id, eta_seconds)
+        smoothed = 0.3 * eta_seconds + 0.7 * prev
+        smoothed_etas[job_id] = smoothed
+        eta_seconds = smoothed
+        # Scale breakdown proportionally
+        total_raw = eta_llm + eta_video
+        if total_raw > 0:
+            ratio = eta_seconds / total_raw
+            eta_llm *= ratio
+            eta_video *= ratio
+
+    return format_elapsed(eta_seconds), eta_seconds, elapsed_str, eta_llm, eta_video
+
+
 def _sync_progress(batch_state, num_shorts):
     """Copy shared_progress (Manager dict) to progress_dict (regular dict) for API access."""
     with _batch_state_lock:
         for i in range(1, num_shorts + 1):
             batch_state["progress_dict"][i] = batch_state["shared_progress"].get(i, "Queued")
-            start_key = f"{i}_start"
-            end_key = f"{i}_end"
-            if start_key in batch_state["shared_progress"]:
-                batch_state["progress_dict"][start_key] = batch_state["shared_progress"][start_key]
-            if end_key in batch_state["shared_progress"]:
-                batch_state["progress_dict"][end_key] = batch_state["shared_progress"][end_key]
+            for suffix in ["_start", "_end"] + _PHASE_TRACKING_KEYS:
+                sk = f"{i}{suffix}"
+                if sk in batch_state["shared_progress"]:
+                    batch_state["progress_dict"][sk] = batch_state["shared_progress"][sk]
+
+
+def _extract_job_features(script_text, job_config):
+    """Extract job characteristics from script text and config for ETA prediction.
+    
+    Returns a dict with feature keys, or empty dict if script_text is unavailable.
+    """
+    if not script_text:
+        return {}
+    
+    words = script_text.split()
+    word_count = len(words)
+    
+    # Count sentences by sentence-ending punctuation
+    sentence_count = max(1, len(re.findall(r'[.!?]+', script_text)))
+    
+    # Count chunks (blank-line-separated blocks) — each chunk becomes a TTS call
+    chunks = [c.strip() for c in re.split(r'\n\s*\n', script_text) if c.strip()]
+    chunk_count = len(chunks)
+    
+    # Count emoji characters in the script
+    try:
+        import unicodedata
+        emoji_count = sum(1 for c in script_text if unicodedata.category(c) == 'So')
+    except Exception:
+        emoji_count = 0
+    
+    features = {
+        "word_count": word_count,
+        "sentence_count": sentence_count,
+        "chunk_count": chunk_count,
+        "emoji_count": emoji_count,
+        "enable_emojis": bool(job_config.get("enable_emojis", False)),
+        "voice_id": str(job_config.get("voice_id", "")),
+    }
+    return features
+
+
+def _predict_phase_duration(features, per_job_stats):
+    """Predict LLM and video duration for a job based on historical per-job stats.
+    
+    Uses similarity-weighted average from jobs with similar word_count.
+    Blends with global average when few matching jobs exist.
+    
+    Args:
+        features: dict from _extract_job_features() — must include word_count
+        per_job_stats: list of historical per-job stat dicts (or None)
+    
+    Returns:
+        (predicted_llm_duration, predicted_video_duration) in seconds, or (None, None)
+    """
+    word_count = features.get("word_count", 0)
+    if not word_count or not per_job_stats:
+        return None, None
+    
+    # Filter to jobs with similar word_count (±30% or ±50 words, whichever is larger)
+    threshold = max(50, int(word_count * 0.30))
+    lo = word_count - threshold
+    hi = word_count + threshold
+    
+    candidates = []
+    for s in per_job_stats:
+        wc = s.get("word_count", 0)
+        if lo <= wc <= hi:
+            # Same voice_id gets a bonus weight
+            same_voice = s.get("voice_id", "") == features.get("voice_id", "")
+            weight = 1.5 if same_voice else 1.0
+            candidates.append((s, weight))
+    
+    if len(candidates) < 2:
+        # Also try a wider search if too few matches
+        threshold = max(100, int(word_count * 0.50))
+        lo = word_count - threshold
+        hi = word_count + threshold
+        candidates = []
+        for s in per_job_stats:
+            wc = s.get("word_count", 0)
+            if lo <= wc <= hi:
+                same_voice = s.get("voice_id", "") == features.get("voice_id", "")
+                weight = 1.5 if same_voice else 1.0
+                candidates.append((s, weight))
+    
+    if not candidates:
+        return None, None
+    
+    # Compute similarity-weighted average phase durations
+    total_weight = 0.0
+    pred_llm = 0.0
+    pred_voice = 0.0
+    pred_transcribe = 0.0
+    pred_render = 0.0
+    
+    for s, w in candidates:
+        # Word-count proximity factor: closer = higher weight
+        wc = s.get("word_count", 0)
+        distance = abs(wc - word_count) / max(1, threshold)
+        proximity = max(0.1, 1.0 - distance)
+        weight = w * proximity
+        
+        total_weight += weight
+        if s.get("llm_duration"):
+            pred_llm += weight * s["llm_duration"]
+        if s.get("voice_duration"):
+            pred_voice += weight * s["voice_duration"]
+        if s.get("transcribe_duration"):
+            pred_transcribe += weight * s["transcribe_duration"]
+        if s.get("render_duration"):
+            pred_render += weight * s["render_duration"]
+    
+    if total_weight <= 0:
+        return None, None
+    
+    pred_llm /= total_weight
+    pred_voice /= total_weight
+    pred_transcribe /= total_weight
+    pred_render /= total_weight
+    
+    # Blend with global averages when few candidates
+    n = len(candidates)
+    if n < 3:
+        # Compute global averages from all per_job_stats for blending
+        all_llm = [s.get("llm_duration") for s in per_job_stats if s.get("llm_duration")]
+        all_video = [
+            (s.get("voice_duration", 0) + s.get("transcribe_duration", 0) + s.get("render_duration", 0))
+            for s in per_job_stats if s.get("voice_duration")
+        ]
+        global_avg_llm = sum(all_llm) / len(all_llm) if all_llm else None
+        global_avg_video = sum(all_video) / len(all_video) if all_video else None
+        
+        blend = n / 3.0  # 0->1 as n goes 0->3
+        if global_avg_llm:
+            pred_llm = blend * pred_llm + (1 - blend) * global_avg_llm
+        if global_avg_video:
+            pred_video = blend * (pred_voice + pred_transcribe + pred_render) + (1 - blend) * global_avg_video
+        else:
+            pred_video = pred_voice + pred_transcribe + pred_render
+    else:
+        pred_video = pred_voice + pred_transcribe + pred_render
+    
+    return pred_llm, pred_video
+
+
+def _load_phase_weights():
+    """Load learned phase weights, absolute duration averages, and per-job stats from disk.
+    
+    Returns dict with keys:
+      phase_ratios: dict {phase_name: weight} (blended with defaults)
+      avg_llm_duration: float seconds or None
+      avg_video_duration: float seconds or None
+      per_job_stats: list of per-job feature+duration dicts or []
+    """
+    result = {
+        "phase_ratios": dict(DEFAULT_PHASE_WEIGHTS),
+        "avg_llm_duration": None,
+        "avg_video_duration": None,
+        "per_job_stats": [],
+    }
+    try:
+        if os.path.exists(BATCH_STATS_FILE):
+            with open(BATCH_STATS_FILE, "r") as f:
+                data = json.load(f)
+            stored = data.get("phase_ratios", {})
+            sample_count = data.get("sample_count", 0)
+            if sample_count >= 3:
+                blend = min(0.8, sample_count / (sample_count + 5))
+                for phase in result["phase_ratios"]:
+                    if phase in stored:
+                        result["phase_ratios"][phase] = blend * stored[phase] + (1 - blend) * result["phase_ratios"][phase]
+            result["avg_llm_duration"] = data.get("avg_llm_duration")
+            result["avg_video_duration"] = data.get("avg_video_duration")
+            result["per_job_stats"] = data.get("per_job_stats", [])
+    except Exception as e:
+        logger.warning(f"Failed to load batch stats: {e}")
+    return result
+
+
+_PER_JOB_STATS_MAX = 500  # keep at most this many historical job records
+
+
+def _save_phase_weights(phase_ratios, sample_count, avg_llm_duration=None, avg_video_duration=None, per_job_stats=None):
+    """Persist learned phase weight ratios, absolute duration averages, and per-job stats to disk."""
+    try:
+        os.makedirs(os.path.dirname(BATCH_STATS_FILE), exist_ok=True)
+        payload = {
+            "phase_ratios": phase_ratios,
+            "sample_count": sample_count,
+            "avg_llm_duration": avg_llm_duration,
+            "avg_video_duration": avg_video_duration,
+        }
+        if per_job_stats is not None:
+            # Cap to prevent unbounded growth — keep most recent entries
+            if len(per_job_stats) > _PER_JOB_STATS_MAX:
+                per_job_stats = per_job_stats[-_PER_JOB_STATS_MAX:]
+            payload["per_job_stats"] = per_job_stats
+        with open(BATCH_STATS_FILE, "w") as f:
+            json.dump(payload, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to save batch stats: {e}")
 
 
 def batch_worker_thread(
@@ -903,6 +1229,12 @@ def batch_worker_thread(
     batch_state["should_cancel"] = False
     batch_state["failed_job_configs"] = []
     batch_state["batch_results"] = []
+    loaded = _load_phase_weights()
+    batch_state["_phase_weights"] = loaded["phase_ratios"]
+    batch_state["_avg_llm_duration"] = loaded["avg_llm_duration"]
+    batch_state["_avg_video_duration"] = loaded["avg_video_duration"]
+    batch_state["_job_features"] = {}  # per-job feature dicts for ETA prediction
+    batch_state["_per_job_stats"] = loaded.get("per_job_stats", [])
     failure_mode = shared_state.settings.get("batch_failure_mode", "stop_all")
 
     try:
@@ -922,15 +1254,8 @@ def batch_worker_thread(
         active_profile = get_active_llm_profile()
         api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
         base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-        opencode_key, _ = discover_opencode_keys()
-        if not api_key:
-            api_key = opencode_key
-            if api_key and not base_url:
-                base_url = "https://opencode.ai/zen/go/v1"
 
         model = active_profile.get("model", "gpt-4o-mini")
-        if not active_profile.get("model") and base_url and "opencode.ai" in base_url:
-            model = "deepseek-v4-flash"
 
         from gui.config import DEFAULT_SCRIPT_SYSTEM_PROMPT
 
@@ -1141,6 +1466,9 @@ def batch_worker_thread(
 
         max_workers = _resolve_worker_count("max_workers", 1)
         llm_max_workers = _resolve_worker_count("llm_max_workers", 5)
+        batch_state["max_workers"] = max_workers
+        batch_state["llm_max_workers"] = llm_max_workers
+        batch_state["_smoothed_eta"] = {}
         logger.info(
             "[Batch Thread] Starting %d shorts with %d video workers, %d LLM workers, failure_mode=%s",
             num_shorts,
@@ -1162,6 +1490,7 @@ def batch_worker_thread(
         # Two-phase pipeline: phase 1 = all LLM, phase 2 = video as LLM completes
         llm_futures = []
         for i in range(1, num_shorts + 1):
+            batch_state["shared_progress"][f"{i}_start"] = time.time()
             batch_state["shared_progress"][i] = "Waiting for LLM"
             f = batch_state["llm_executor"].submit(
                 llm_job_worker, job_configs[i], batch_state["shared_progress"]
@@ -1203,7 +1532,12 @@ def batch_worker_thread(
                                 i,
                                 len(script_text.split()),
                             )
+                            # Extract job features for per-job ETA prediction
+                            features = _extract_job_features(script_text, job_configs[i])
+                            if features:
+                                batch_state["_job_features"][i] = features
                             batch_state["shared_progress"][i] = "Waiting for Compilation"
+                            batch_state["shared_progress"][f"{i}_phase_llm_end"] = time.time()
                             vf = batch_state["executor"].submit(
                                 video_job_worker, job_configs[i], batch_state["shared_progress"]
                             )
@@ -1313,6 +1647,122 @@ def batch_worker_thread(
         else:
             notify_clients("batch", "success", f"Batch partially completed ({done} done, {failed} failed)", "info")
 
+        # Collect phase timing ratios and absolute durations from completed jobs
+        phase_durations = {"LLM": [], "Voice": [], "Transcribe": [], "Render": []}
+        llm_durations = []
+        video_durations = []
+        pd = batch_state["progress_dict"]
+        for i in range(1, num_shorts + 1):
+            st = pd.get(f"{i}_start")
+            et = pd.get(f"{i}_end")
+            vs = pd.get(f"{i}_phase_voice_start")
+            ts = pd.get(f"{i}_phase_transcribe_start")
+            rs = pd.get(f"{i}_phase_render_start")
+            llm_end = pd.get(f"{i}_phase_llm_end")
+            if st and et and pd.get(i) == "Done" and vs and ts and rs:
+                total = et - st
+                if total > 0:
+                    phase_durations["LLM"].append((vs - st) / total)
+                    phase_durations["Voice"].append((ts - vs) / total)
+                    phase_durations["Transcribe"].append((rs - ts) / total)
+                    phase_durations["Render"].append((et - rs) / total)
+                # Absolute durations (seconds) for pipeline ETA
+                if llm_end:
+                    llm_durations.append(llm_end - st)
+                video_durations.append(et - vs)
+
+        # Compute average ratios from this batch
+        batch_ratios = {}
+        job_count = 0
+        for phase in DEFAULT_PHASE_WEIGHTS:
+            durs = phase_durations[phase]
+            if durs:
+                job_count = len(durs)
+                batch_ratios[phase] = sum(durs) / len(durs)
+
+        avg_llm_duration = sum(llm_durations) / len(llm_durations) if llm_durations else None
+        avg_video_duration = sum(video_durations) / len(video_durations) if video_durations else None
+
+        # Always load existing data for blending (needed by downstream per-job stats too)
+        stored_data = _load_phase_weights()
+        stored = stored_data.get("phase_ratios", {})
+        sample_count = 0
+        merged = stored if stored else dict(DEFAULT_PHASE_WEIGHTS)
+        merged_avg_llm = None
+        merged_avg_video = None
+
+        if batch_ratios and job_count >= 1:
+            sample_count = job_count
+            prev_avg_llm = stored_data.get("avg_llm_duration")
+            prev_avg_video = stored_data.get("avg_video_duration")
+            try:
+                if os.path.exists(BATCH_STATS_FILE):
+                    with open(BATCH_STATS_FILE) as f:
+                        raw = json.load(f)
+                    sample_count = raw.get("sample_count", 0) + job_count
+                    if "avg_llm_duration" in raw:
+                        prev_avg_llm = raw["avg_llm_duration"]
+                    if "avg_video_duration" in raw:
+                        prev_avg_video = raw["avg_video_duration"]
+            except Exception:
+                sample_count = job_count
+
+            # Blend: weight this batch by job_count, cap influence of any single run
+            blend = min(0.5, job_count / (job_count + 3))
+            merged = dict(stored) if stored else dict(DEFAULT_PHASE_WEIGHTS)
+            for phase in merged:
+                if phase in batch_ratios:
+                    merged[phase] = (1 - blend) * stored.get(phase, DEFAULT_PHASE_WEIGHTS[phase]) + blend * batch_ratios[phase]
+
+            merged_avg_llm = None
+            if avg_llm_duration is not None:
+                if prev_avg_llm is not None:
+                    merged_avg_llm = (1 - blend) * prev_avg_llm + blend * avg_llm_duration
+                else:
+                    merged_avg_llm = avg_llm_duration
+
+            merged_avg_video = None
+            if avg_video_duration is not None:
+                if prev_avg_video is not None:
+                    merged_avg_video = (1 - blend) * prev_avg_video + blend * avg_video_duration
+                else:
+                    merged_avg_video = avg_video_duration
+
+            _save_phase_weights(merged, sample_count, merged_avg_llm, merged_avg_video)
+
+        # Build per-job feature+duration records for historical prediction
+        # (runs even if no jobs completed — just appends to existing list)
+        job_features = batch_state.get("_job_features", {})
+        new_job_stats = []
+        pd = batch_state["progress_dict"]
+        for i in range(1, num_shorts + 1):
+            features = job_features.get(i, {})
+            if not features or not features.get("word_count"):
+                continue  # no features available (e.g. failed before LLM)
+            st = pd.get(f"{i}_start")
+            vs = pd.get(f"{i}_phase_voice_start")
+            ts = pd.get(f"{i}_phase_transcribe_start")
+            rs = pd.get(f"{i}_phase_render_start")
+            et = pd.get(f"{i}_end")
+            llm_end = pd.get(f"{i}_phase_llm_end")
+            if st and et and vs and ts and rs:
+                record = dict(features)
+                if llm_end:
+                    record["llm_duration"] = llm_end - st
+                record["voice_duration"] = ts - vs
+                record["transcribe_duration"] = rs - ts
+                record["render_duration"] = et - rs
+                record["video_duration"] = et - vs
+                new_job_stats.append(record)
+        if new_job_stats:
+            per_job_stats = list(batch_state.get("_per_job_stats", []))
+            per_job_stats.extend(new_job_stats)
+            _save_phase_weights(
+                merged, sample_count,
+                avg_llm_duration=merged_avg_llm, avg_video_duration=merged_avg_video,
+                per_job_stats=per_job_stats,
+            )
+
     except Exception as e:
         logger.error(f"[Batch Thread] Crash: {e}")
         notify_clients("batch", "error", f"Batch generation crashed: {e}", "error")
@@ -1407,10 +1857,10 @@ def start_batch(data: BatchStartRequest):
 
 @app.get("/api/batch/status")
 def get_batch_status():
-    from gui.batch import format_elapsed, get_progress_percentage
+    from gui.batch import get_progress_percentage
 
     with _batch_state_lock:
-        # Compute average completion time from finished jobs
+        # Compute stats from completed jobs
         completed_durations = []
         for i in range(1, batch_state["num_shorts"] + 1):
             st = batch_state["progress_dict"].get(f"{i}_start")
@@ -1422,6 +1872,9 @@ def get_batch_status():
             sum(completed_durations) / len(completed_durations) if completed_durations else None
         )
 
+        smoothed_etas = batch_state.get("_smoothed_eta", {})
+        phase_weights = batch_state.get("_phase_weights")
+
         jobs = []
         for i in range(1, batch_state["num_shorts"] + 1):
             status = batch_state["progress_dict"].get(i, "Queued")
@@ -1429,23 +1882,23 @@ def get_batch_status():
 
             start_time = batch_state["progress_dict"].get(f"{i}_start")
             end_time = batch_state["progress_dict"].get(f"{i}_end")
-            elapsed_str = "--"
-            eta_str = "--"
-            eta_seconds = 0.0
-            if start_time:
-                duration = (end_time if end_time else time.time()) - start_time
-                elapsed_str = format_elapsed(duration)
-                if status == "Done":
-                    elapsed_str += " (Done)"
-                    eta_str = "0s"
-                elif pct and pct > 0:
-                    if avg_completion_time is not None and avg_completion_time > duration:
-                        eta_seconds = avg_completion_time - duration
-                    elif pct < 100:
-                        eta_seconds = duration / pct * (100 - pct)
-                    else:
-                        eta_seconds = 0
-                    eta_str = format_elapsed(eta_seconds)
+
+            # Gather phase entry timestamps for this job
+            job_phase_times = {}
+            for suffix in _PHASE_TRACKING_KEYS:
+                val = batch_state["progress_dict"].get(f"{i}{suffix}")
+                if val:
+                    job_phase_times[suffix] = val
+
+            eta_str, eta_seconds, elapsed_str, eta_llm, eta_video = _compute_eta(
+                start_time, end_time, pct, status,
+                job_phase_times, avg_completion_time, smoothed_etas, i,
+                phase_weights=phase_weights,
+                avg_llm_duration=batch_state.get("_avg_llm_duration"),
+                avg_video_duration=batch_state.get("_avg_video_duration"),
+                job_features=batch_state.get("_job_features", {}).get(i),
+                per_job_stats=batch_state.get("_per_job_stats"),
+            )
 
             detail = batch_state["job_details"].get(i, {})
             jobs.append(
@@ -1461,16 +1914,41 @@ def get_batch_status():
                     "elapsed": elapsed_str,
                     "eta": eta_str,
                     "eta_seconds": eta_seconds,
+                    "eta_llm": round(eta_llm, 1) if eta_llm > 0 else 0,
+                    "eta_video": round(eta_video, 1) if eta_video > 0 else 0,
                 }
             )
 
         in_progress = batch_state["in_progress"]
         num_shorts = batch_state["num_shorts"]
+        max_workers = batch_state.get("max_workers", 1)
+        llm_max_workers = batch_state.get("llm_max_workers", 5)
+
+        # Pipeline-aware global ETA
+        # LLM runs in parallel (llm_max_workers), video runs sequentially (max_workers).
+        # Total remaining ≈ sum(LLM remaining) / llm_max_workers + sum(video remaining) / max_workers
+        avg_llm_dur = batch_state.get("_avg_llm_duration", 30) or 30
+        avg_video_dur = batch_state.get("_avg_video_duration", 60) or 60
+        total_llm = 0.0
+        total_video = 0.0
+        for j in jobs:
+            s = j["status"]
+            if s == "Done" or s.startswith("Failed"):
+                continue
+            if s != "Queued" and j.get("eta_llm") is not None:
+                total_llm += j["eta_llm"]
+                total_video += j["eta_video"]
+            else:
+                total_llm += avg_llm_dur
+                total_video += avg_video_dur
+        global_eta_seconds = (total_llm / max(1, llm_max_workers)) + (total_video / max(1, max_workers))
 
     return {
         "in_progress": in_progress,
         "num_shorts": num_shorts,
         "jobs": jobs,
+        "max_workers": max_workers,
+        "global_eta_seconds": round(global_eta_seconds, 1),
         "cpu_percent": psutil.cpu_percent(interval=None),
         "memory_percent": psutil.virtual_memory().percent,
         "progress_segments": [
@@ -1484,7 +1962,7 @@ def get_batch_status():
 
 @app.get("/api/batch/job/{job_id}")
 def get_batch_job_detail(job_id: int):
-    from gui.batch import format_elapsed, get_progress_percentage
+    from gui.batch import get_progress_percentage
 
     with _batch_state_lock:
         # Check if the job exists
@@ -1497,9 +1975,7 @@ def get_batch_job_detail(job_id: int):
 
         start_time = batch_state["progress_dict"].get(f"{job_id}_start")
         end_time = batch_state["progress_dict"].get(f"{job_id}_end")
-        elapsed_str = "--"
-        eta_str = "--"
-        eta_seconds = 0.0
+
         # Compute average completion time from finished jobs
         completed_durations = []
         for i in range(1, batch_state["num_shorts"] + 1):
@@ -1512,22 +1988,24 @@ def get_batch_job_detail(job_id: int):
             sum(completed_durations) / len(completed_durations) if completed_durations else None
         )
 
-        if start_time:
-            import time
+        # Gather phase entry timestamps for this job
+        job_phase_times = {}
+        for suffix in _PHASE_TRACKING_KEYS:
+            val = batch_state["progress_dict"].get(f"{job_id}{suffix}")
+            if val:
+                job_phase_times[suffix] = val
 
-            duration = (end_time if end_time else time.time()) - start_time
-            elapsed_str = format_elapsed(duration)
-            if status == "Done":
-                elapsed_str += " (Done)"
-                eta_str = "0s"
-            elif pct and pct > 0:
-                if avg_completion_time is not None and avg_completion_time > duration:
-                    eta_seconds = avg_completion_time - duration
-                elif pct < 100:
-                    eta_seconds = duration / pct * (100 - pct)
-                else:
-                    eta_seconds = 0
-                eta_str = format_elapsed(eta_seconds)
+        smoothed_etas = batch_state.get("_smoothed_eta", {})
+        phase_weights = batch_state.get("_phase_weights")
+        eta_str, eta_seconds, elapsed_str, eta_llm, eta_video = _compute_eta(
+            start_time, end_time, pct, status,
+            job_phase_times, avg_completion_time, smoothed_etas, job_id,
+            phase_weights=phase_weights,
+            avg_llm_duration=batch_state.get("_avg_llm_duration"),
+            avg_video_duration=batch_state.get("_avg_video_duration"),
+            job_features=batch_state.get("_job_features", {}).get(job_id),
+            per_job_stats=batch_state.get("_per_job_stats"),
+        )
 
         # Get detail and config
         detail = batch_state["job_details"].get(job_id, {})
