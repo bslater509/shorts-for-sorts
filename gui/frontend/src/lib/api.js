@@ -215,3 +215,7 @@ export async function uploadTikTokVideo(filename, description, visibility) {
 export async function loginTikTok() {
   return await apiFetch('/api/tiktok/login', { method: 'POST' });
 }
+
+export async function getBatchStats() {
+  return await apiFetch('/api/batch/stats');
+}

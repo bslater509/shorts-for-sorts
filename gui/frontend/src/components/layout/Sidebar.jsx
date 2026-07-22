@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom"
-import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X, RefreshCw, Loader2 } from "lucide-react"
+import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X, RefreshCw, Loader2, BarChart3 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { useAppStore } from "@/store/useAppStore"
@@ -15,6 +15,7 @@ export default function Sidebar() {
     { name: "Media Manager", path: "/media", icon: ImageIcon },
     { name: "Presets", path: "/presets", icon: Sliders },
     { name: "Video Gallery", path: "/gallery", icon: Film },
+    { name: "Analytics", path: "/analytics", icon: BarChart3 },
     { name: "Settings", path: "/settings", icon: Settings },
   ]
 

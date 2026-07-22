@@ -4,6 +4,7 @@ import MediaManager from "./pages/MediaManager"
 import Presets from "./pages/Presets"
 import Gallery from "./pages/Gallery"
 import SettingsPage from "./pages/SettingsPage"
+import Analytics from "./pages/Analytics"
 import Batch from "./pages/Batch"
 
 function App() {
@@ -15,6 +16,7 @@ function App() {
         <Route path="presets" element={<Presets />} />
         <Route path="gallery" element={<Gallery />} />
         <Route path="settings" element={<SettingsPage />} />
+        <Route path="analytics" element={<Analytics />} />
         <Route path="batch" element={<Batch />} />
       </Route>
     </Routes>

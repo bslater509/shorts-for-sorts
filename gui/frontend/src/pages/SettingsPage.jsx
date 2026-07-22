@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Settings as SettingsIcon, Save, Key, Cpu, Mic, Video, Loader2, Activity, Plus, Trash, CheckCircle, RefreshCw } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Key, Cpu, Mic, Video, Loader2, Activity, Plus, Trash, CheckCircle, RefreshCw, FileText, Volume2 } from 'lucide-react'
 import * as api from '@/lib/api'
 
 export default function SettingsPage() {
@@ -18,6 +18,16 @@ export default function SettingsPage() {
     llm_max_workers: 5,
     sentry_dsn: '',
     tiktok_sessionid: '',
+    system_prompt: '',
+    max_words: 400,
+    default_batch_size: 1,
+    words_per_screen: '3',
+    llm_temp_script: 0.7,
+    llm_temp_metadata: 0.7,
+    llm_temp_keywords: 0.7,
+    voice_speed: 1.0,
+    voice_volume: 1.0,
+    music_volume: 0.15,
   })
   
   const [isSaving, setIsSaving] = useState(false)
@@ -117,9 +127,13 @@ export default function SettingsPage() {
         llm_max_workers: parseInt(settings.llm_max_workers) || 5,
         default_batch_size: parseInt(settings.default_batch_size) || 1,
         max_words: parseInt(settings.max_words) || 400,
+        words_per_screen: settings.words_per_screen || '3',
         llm_temp_script: parseFloat(settings.llm_temp_script ?? 0.7),
         llm_temp_metadata: parseFloat(settings.llm_temp_metadata ?? 0.7),
-        llm_temp_keywords: parseFloat(settings.llm_temp_keywords ?? 0.7)
+        llm_temp_keywords: parseFloat(settings.llm_temp_keywords ?? 0.7),
+        voice_speed: parseFloat(settings.voice_speed ?? 1.0),
+        voice_volume: parseFloat(settings.voice_volume ?? 1.0),
+        music_volume: parseFloat(settings.music_volume ?? 0.15),
       }
       await api.saveSettings(payload)
       alert('Settings saved successfully!')
@@ -146,7 +160,7 @@ export default function SettingsPage() {
             <SettingsIcon className="text-blue-500" />
             System Configuration
           </h1>
-          <p className="text-muted-foreground mt-1">Configure models, API keys, Whisper transcription, and FFmpeg render settings.</p>
+          <p className="text-muted-foreground mt-1">Configure models, API keys, Whisper transcription, FFmpeg render settings, and AI generation defaults.</p>
         </div>
         
         <button 
@@ -253,6 +267,67 @@ export default function SettingsPage() {
             )}
           </div>
           
+        </div>
+
+        {/* AI Generation */}
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
+          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+            <FileText className="text-violet-500" size={20} />
+            AI Script Generation
+          </h3>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-medium">System Prompt</label>
+            <textarea
+              name="system_prompt"
+              value={settings.system_prompt || ''}
+              onChange={handleChange}
+              rows={24}
+              className="input-base text-sm py-1.5 font-mono resize-y min-h-[300px]"
+              placeholder="Default: You are an elite TikTok and YouTube Shorts scriptwriter..."
+            />
+            <p className="text-xs text-muted-foreground">
+              The system prompt sent to the LLM for every script generation. Leave empty to use the built-in default.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Script Temperature</label>
+              <input type="number" min="0" max="2" step="0.05" name="llm_temp_script" value={settings.llm_temp_script ?? 0.7} onChange={handleChange} className="input-base" />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Metadata Temperature</label>
+              <input type="number" min="0" max="2" step="0.05" name="llm_temp_metadata" value={settings.llm_temp_metadata ?? 0.7} onChange={handleChange} className="input-base" />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Keywords Temperature</label>
+              <input type="number" min="0" max="2" step="0.05" name="llm_temp_keywords" value={settings.llm_temp_keywords ?? 0.7} onChange={handleChange} className="input-base" />
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Max Script Words</label>
+              <input type="number" min="50" max="2000" step="50" name="max_words" value={settings.max_words || ''} onChange={handleChange} className="input-base" />
+              <p className="text-xs text-muted-foreground">Target word count for generated scripts.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Default Batch Size</label>
+              <input type="number" min="1" max="100" name="default_batch_size" value={settings.default_batch_size || ''} onChange={handleChange} className="input-base" />
+              <p className="text-xs text-muted-foreground">Default number of shorts in a batch.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Words Per Screen</label>
+              <select name="words_per_screen" value={settings.words_per_screen || '3'} onChange={handleChange} className="input-base">
+                <option value="1">1 word</option>
+                <option value="3">3 words</option>
+                <option value="sentence">Full sentence</option>
+                <option value="random">Random</option>
+              </select>
+              <p className="text-xs text-muted-foreground">How many words appear per subtitle screen.</p>
+            </div>
+          </div>
         </div>
 
         {/* Third Party */}
@@ -385,6 +460,31 @@ export default function SettingsPage() {
                 <option value="h264_amf">h264_amf (AMD GPU)</option>
                 <option value="h264_qsv">h264_qsv (Intel QuickSync)</option>
               </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Audio Defaults */}
+        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
+          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
+            <Volume2 className="text-pink-500" size={20} />
+            Audio Defaults
+          </h3>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Voice Speed</label>
+              <input type="number" min="0.5" max="2" step="0.05" name="voice_speed" value={settings.voice_speed ?? 1.0} onChange={handleChange} className="input-base" />
+              <p className="text-xs text-muted-foreground">TTS playback speed (1.0 = normal).</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Voice Volume</label>
+              <input type="number" min="0" max="5" step="0.1" name="voice_volume" value={settings.voice_volume ?? 1.0} onChange={handleChange} className="input-base" />
+              <p className="text-xs text-muted-foreground">Voice audio gain multiplier.</p>
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-medium">Music Volume</label>
+              <input type="number" min="0" max="1" step="0.01" name="music_volume" value={settings.music_volume ?? 0.15} onChange={handleChange} className="input-base" />
+              <p className="text-xs text-muted-foreground">Background music volume (0-1).</p>
             </div>
           </div>
         </div>

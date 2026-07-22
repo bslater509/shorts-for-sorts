@@ -1245,7 +1245,6 @@ def batch_worker_thread(
         log_memory_usage("After model unloading")
 
         templates = load_prompt_templates()
-        presets = load_presets()
 
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -1323,11 +1322,6 @@ def batch_worker_thread(
 
                 voice_name, voice_id = random.choice(shared_state.VOICES)
 
-                preset_name = "default"
-                preset = {}
-                if presets:
-                    preset_name, preset = random.choice(list(presets.items()))
-
                 is_split = random.choice([True, False])
                 top_video = "random"
                 bottom_video = "random" if is_split else None
@@ -1339,12 +1333,10 @@ def batch_worker_thread(
                     if f.lower().endswith((".mp3", ".wav", ".m4a", ".ogg", ".flac"))
                 ]
 
-                bg_music_preset = preset.get("bg_music_path", "music/default_music.mp3")
-
                 if music_files:
                     chosen_music = os.path.join(MUSIC_DIR, random.choice(music_files))
                 else:
-                    chosen_music = _resolve_music(bg_music_preset)
+                    chosen_music = _resolve_music("music/default_music.mp3")
 
                 sub_font = random.choice(
                     ["Arial", "Impact", "Georgia", "Courier New", "Times New Roman"]
@@ -1408,8 +1400,8 @@ def batch_worker_thread(
                     "bg_video_path": top_video,
                     "bg_video_bottom_path": bottom_video,
                     "bg_music_path": chosen_music,
-                    "music_volume": preset.get("music_volume", 0.15),
-                    "voice_volume": preset.get("voice_volume", 1.0),
+                    "music_volume": shared_state.settings.get("music_volume", 0.15),
+                    "voice_volume": shared_state.settings.get("voice_volume", 1.0),
                     "sub_font": sub_font,
                     "sub_size": sub_size,
                     "sub_color": sub_color,
@@ -1435,16 +1427,16 @@ def batch_worker_thread(
                     "word_pop_scale": word_pop_scale,
                     "inactive_dim": inactive_dim,
                     "inactive_alpha": inactive_alpha,
-                    "sub_uppercase": preset.get("sub_uppercase", True),
-                    "voice_speed": preset.get("voice_speed"),
-                    "sub_border_style": preset.get("sub_border_style", 1),
-                    "sub_shadow_width": preset.get("sub_shadow_width", 0),
-                    "sub_bg_color": preset.get("sub_bg_color", "#000000"),
-                    "sub_bg_alpha": preset.get("sub_bg_alpha", "80"),
-                    "single_word_mode": preset.get("single_word_mode", False),
+                    "sub_uppercase": shared_state.settings.get("sub_uppercase", True),
+                    "voice_speed": shared_state.settings.get("voice_speed", 1.0),
+                    "sub_border_style": shared_state.settings.get("sub_border_style", 1),
+                    "sub_shadow_width": shared_state.settings.get("sub_shadow_width", 0),
+                    "sub_bg_color": shared_state.settings.get("sub_bg_color", "#000000"),
+                    "sub_bg_alpha": shared_state.settings.get("sub_bg_alpha", "80"),
+                    "single_word_mode": shared_state.settings.get("single_word_mode", False),
                     "words_per_screen": words_per_screen_choice,
-                    "emoji_position": preset.get("emoji_position", "above"),
-                    "emoji_style": random.choice(emoji_styles) if emoji_styles else preset.get("emoji_style", "apple"),
+                    "emoji_position": shared_state.settings.get("emoji_position", "above"),
+                    "emoji_style": random.choice(emoji_styles) if emoji_styles else shared_state.settings.get("emoji_style", "apple"),
                     "sub_animation_style": sub_animation_style,
                     "script_temp": script_temp,
                     "meta_temp": meta_temp,
@@ -2165,6 +2157,23 @@ def restart_server(request: Request, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(restart)
     return {"status": "restarting"}
+
+
+@app.get("/api/batch/stats")
+def get_batch_stats():
+    try:
+        if os.path.exists(BATCH_STATS_FILE):
+            with open(BATCH_STATS_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {
+        "phase_ratios": dict(DEFAULT_PHASE_WEIGHTS),
+        "sample_count": 0,
+        "avg_llm_duration": None,
+        "avg_video_duration": None,
+        "per_job_stats": [],
+    }
 
 
 @app.get("/api/health")
