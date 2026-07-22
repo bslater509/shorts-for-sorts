@@ -106,7 +106,7 @@ if multiprocessing.current_process().name == "MainProcess":
 BUILTIN_PRESETS = {
     "Split-Screen Chill (Yellow Highlight)": {
         "name": "Split-Screen Chill (Yellow Highlight)",
-        "selected_voice": "Craig Gutsy",
+        "selected_voice": "am_michael",
         "bg_video_path": "random",
         "bg_video_bottom_path": "random",
         "bg_music_path": "music/default_music.mp3",
@@ -132,7 +132,7 @@ BUILTIN_PRESETS = {
     },
     "Lofi Storyteller (Cyan Highlight)": {
         "name": "Lofi Storyteller (Cyan Highlight)",
-        "selected_voice": "Ana Florence",
+        "selected_voice": "af_sarah",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -158,7 +158,7 @@ BUILTIN_PRESETS = {
     },
     "Fast-Paced Promo (Magenta Highlight)": {
         "name": "Fast-Paced Promo (Magenta Highlight)",
-        "selected_voice": "Zacharie Julian",
+        "selected_voice": "am_adam",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -184,7 +184,7 @@ BUILTIN_PRESETS = {
     },
     "TikTok Kinetic Pop (Green Highlight)": {
         "name": "TikTok Kinetic Pop (Green Highlight)",
-        "selected_voice": "Claribel Dervla",
+        "selected_voice": "af_bella",
         "bg_video_path": "random",
         "bg_video_bottom_path": "random",
         "bg_music_path": "music/default_music.mp3",
@@ -210,7 +210,7 @@ BUILTIN_PRESETS = {
     },
     "Retro Synthwave (Purple Highlight)": {
         "name": "Retro Synthwave (Purple Highlight)",
-        "selected_voice": "Gracie Wise",
+        "selected_voice": "bf_emma",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -236,7 +236,7 @@ BUILTIN_PRESETS = {
     },
     "Cinematic Documentary (Gold Highlight)": {
         "name": "Cinematic Documentary (Gold Highlight)",
-        "selected_voice": "Badr Odhiambo",
+        "selected_voice": "bm_george",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",
@@ -262,7 +262,7 @@ BUILTIN_PRESETS = {
     },
     "Cyberpunk Red (Red Highlight)": {
         "name": "Cyberpunk Red (Red Highlight)",
-        "selected_voice": "Damien Black",
+        "selected_voice": "am_michael",
         "bg_video_path": "random",
         "bg_video_bottom_path": "random",
         "bg_music_path": "music/default_music.mp3",
@@ -288,7 +288,7 @@ BUILTIN_PRESETS = {
     },
     "Classic Serif Storyteller (Amber Highlight)": {
         "name": "Classic Serif Storyteller (Amber Highlight)",
-        "selected_voice": "Tammie Ema",
+        "selected_voice": "bf_emma",
         "bg_video_path": "random",
         "bg_video_bottom_path": None,
         "bg_music_path": "music/default_music.mp3",

@@ -1,1 +1,1 @@
-"""Web GUI server and batch processing for Shorts for Sorts."""
+"""Batch video generation server for Shorts for Sorts."""

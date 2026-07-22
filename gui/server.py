@@ -10,13 +10,6 @@ import asyncio
 import datetime
 import json
 import multiprocessing
-import queue
-import fcntl
-import pty
-import select
-import signal
-import struct
-import termios
 import random
 import re
 import shutil
@@ -44,7 +37,6 @@ from fastapi.staticfiles import StaticFiles
 import gui.state as shared_state
 from gui.batch import generate_title_hashtags, parse_title_hashtags
 from gui.config import (
-    CONFIG_DIR,
     MUSIC_DIR,
     OUTPUT_DIR,
     TEMP_DIR,
@@ -61,12 +53,9 @@ from gui.media import generate_video_thumbnail, stream_media
 from gui.models import (
     BatchStartRequest,
     FetchModelsRequest,
-    LogMessageRequest,
     PexelsDownloadRequest,
     PexelsSearchRequest,
     PresetModel,
-    PreviewAnimationRequest,
-    ScriptGenerateRequest,
     SettingsModel,
     StateModel,
     TiktokUploadRequest,
@@ -77,7 +66,6 @@ from gui.utils import (
     check_system_dependencies,
     discover_opencode_keys,
     download_default_assets_if_empty,
-    extract_keywords_from_script,
     get_active_llm_profile,
     resolve_preset_path,
 )
@@ -85,10 +73,9 @@ from gui.utils import (
 THUMBNAIL_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
 os.makedirs(THUMBNAIL_DIR, exist_ok=True)
 
+GUI_STATE_FILE = os.path.join(BASE_DIR, "config", "gui_state.json")
+
 # Locks for thread-safe access to shared mutable state
-_compile_log_lock = threading.Lock()  # Guards compilation_logs list
-_compile_thread_lock = threading.Lock()  # Guards compilation_thread spawn
-_state_file_lock = threading.Lock()  # Guards GUI_STATE_FILE writes
 _batch_lock = threading.Lock()  # Guards batch_state["in_progress"] TOCTOU
 
 app = FastAPI(title="Shorts for Sorts Web GUI")
@@ -200,152 +187,8 @@ async def websocket_system_stats(websocket: WebSocket):
             logger.debug(f"[WebSocket system_stats] Unexpected error: {e}")
 
 
-@app.websocket("/api/terminal")
-async def websocket_terminal(websocket: WebSocket):
-    await websocket.accept()
-
-    # Create a pseudo-terminal
-    shell_cmd = os.environ.get("SHELL", "/bin/bash")
-    tmux_path = shutil.which("tmux")
-    
-    env = os.environ.copy()
-    env["TERM"] = "xterm-256color"
-    env["COLORTERM"] = "truecolor"
-    # Clear force_color from env to let programs decide
-    env.pop("NO_COLOR", None)
-
-    pid, fd = pty.fork()
-    if pid == 0:
-        # Child: launch the shell in the project root
-        os.chdir(BASE_DIR)
-        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
-            signal.signal(sig, signal.SIG_DFL)
-            
-        if tmux_path:
-            # -A: attach to session if it exists, or create if it doesn't
-            os.execve(tmux_path, ["tmux", "new", "-A", "-s", "web_gui"], env)
-        else:
-            os.execve(shell_cmd, [shell_cmd, "-i"], env)
-
-    loop = asyncio.get_running_loop()
-    should_stop = threading.Event()
-
-    def blocking_read():
-        try:
-            return os.read(fd, 4096)
-        except OSError:
-            return b""
-
-    async def read_from_pty():
-        while not should_stop.is_set():
-            data = await loop.run_in_executor(None, blocking_read)
-            if not data:
-                break
-            try:
-                await websocket.send_json({"type": "output", "data": data.decode("utf-8", errors="replace")})
-            except Exception:
-                break
-        should_stop.set()
-
-    async def read_from_ws():
-        try:
-            while not should_stop.is_set():
-                msg = await websocket.receive_json()
-                msg_type = msg.get("type")
-                if msg_type == "input":
-                    os.write(fd, msg["data"].encode())
-                elif msg_type == "resize":
-                    cols = max(1, int(msg.get("cols", 80)))
-                    rows = max(1, int(msg.get("rows", 24)))
-                    winsize = struct.pack("HHHH", rows, cols, 0, 0)
-                    fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
-                    # Also signal SIGWINCH so programs like tmux pick it up
-                    try:
-                        os.kill(pid, signal.SIGWINCH)
-                    except OSError:
-                        pass
-                elif msg_type == "close":
-                    break
-                elif msg_type == "get_active_command":
-                    try:
-                        cmd = ["tmux", "display-message", "-t", "web_gui", "-p", "-F", "#{pane_current_command}"]
-                        proc = await asyncio.create_subprocess_exec(
-                            *cmd,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.DEVNULL
-                        )
-                        stdout, _ = await proc.communicate()
-                        if proc.returncode == 0:
-                            active_cmd = stdout.decode("utf-8").strip()
-                            await websocket.send_json({"type": "active_command", "data": active_cmd})
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-        finally:
-            should_stop.set()
-
-    pty_task = asyncio.create_task(read_from_pty())
-    ws_task = asyncio.create_task(read_from_ws())
-
-    try:
-        await asyncio.wait([pty_task, ws_task], return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        should_stop.set()
-        for task in [pty_task, ws_task]:
-            if not task.done():
-                task.cancel()
-        try:
-            os.kill(pid, signal.SIGKILL)
-            os.waitpid(pid, 0)
-        except OSError:
-            pass
-        try:
-            os.close(fd)
-        except OSError:
-            pass
-
-
-# Persistence path for GUI Session State
-GUI_STATE_FILE = os.path.join(CONFIG_DIR, "gui_state.json")
-
-# Server-side compilation tracking
-compilation_in_progress = False
-compilation_success = False
-compilation_logs = []
-compilation_thread = None
-compilation_queue = queue.Queue()
-_compile_status_lock = threading.RLock()
-
-# Custom Stdout redirector to capture compilation logs
-original_stdout = sys.stdout
-original_stderr = sys.stderr
-
-
-class WebStdoutRedirector:
-    def __init__(self, original_stream):
-        self.original_stream = original_stream
-
-    def write(self, text):
-        self.original_stream.write(text)
-        with _compile_log_lock:
-            if compilation_in_progress:
-                compilation_logs.append(text)
-
-    def flush(self):
-        self.original_stream.flush()
-
-    def __getattr__(self, name):
-        return getattr(self.original_stream, name)
-
-
-sys.stdout = WebStdoutRedirector(original_stdout)
-sys.stderr = WebStdoutRedirector(original_stderr)
-
-
 def init_app_state():
     """Initializes the backend settings, dependencies, and default state."""
-    # Ensure default folders and settings are loaded
     clear_cache()
     try:
         check_system_dependencies()
@@ -354,23 +197,6 @@ def init_app_state():
 
     load_settings()
     download_default_assets_if_empty()
-
-    # Auto-load GUI state if it exists
-    if os.path.exists(GUI_STATE_FILE):
-        try:
-            with open(GUI_STATE_FILE, encoding="utf-8") as f:
-                saved_state = json.load(f)
-                # Filter saved keys to match key structure in shared_state.state
-                for k, v in saved_state.items():
-                    if k in shared_state.state:
-                        shared_state.state[k] = v
-            # Resolve relative paths after loading saved state
-            for path_key in ("bg_video_path", "bg_video_bottom_path", "bg_music_path"):
-                val = shared_state.state.get(path_key)
-                if val and val != "random":
-                    shared_state.state[path_key] = resolve_preset_path(val)
-        except Exception as e:
-            logger.error(f"Failed to load gui_state.json: {e}")
 
 
 init_app_state()
@@ -418,17 +244,6 @@ def get_root():
     if os.path.exists(dist_index):
         return FileResponse(dist_index)
     return FileResponse(os.path.join(BASE_DIR, "gui/static/index.html"))
-
-
-@app.post("/api/log")
-def log_from_client(log: LogMessageRequest):
-    if log.level == "error":
-        logger.error(f"[Frontend] {log.message}")
-    elif log.level == "warn":
-        logger.warning(f"[Frontend] {log.message}")
-    else:
-        logger.info(f"[Frontend] {log.message}")
-    return {"status": "success"}
 
 
 @app.get("/api/settings")
@@ -521,9 +336,9 @@ def save_api_state(data: StateModel):
     for k, v in data.model_dump().items():
         shared_state.state[k] = v
 
-    # Persist gui state to disk (lock to prevent concurrent write corruption)
+    # Persist gui state to disk
     try:
-        with _state_file_lock, open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
+        with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
             json.dump(shared_state.state, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to save gui_state.json: {e}")
@@ -843,8 +658,8 @@ def download_pexels_video(data: PexelsDownloadRequest, background_tasks: Backgro
             state_key = "bg_video_path" if pos == "top" else "bg_video_bottom_path"
             shared_state.state[state_key] = dest
 
-            # Persist gui state to disk (lock to prevent concurrent write corruption)
-            with _state_file_lock, open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
+            # Persist gui state to disk
+            with open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump(shared_state.state, f, indent=2)
 
             logger.info(
@@ -966,176 +781,6 @@ def search_youtube_api(data: YoutubeSearchRequest):
         raise HTTPException(status_code=500, detail=f"Failed to search YouTube: {str(e)}")
 
 
-@app.post("/api/pexels/extract-keyword")
-def extract_keyword_api():
-    script = shared_state.state["script_text"].strip()
-    if not script:
-        raise HTTPException(
-            status_code=400, detail="Script is empty. Please generate or edit a script first."
-        )
-
-    keyword = extract_keywords_from_script(script)
-    if not keyword:
-        keyword = "abstract loop"
-    return {"keyword": keyword}
-
-
-def _resolve_llm_and_client(data):
-    """Resolve LLM config and return (api_key, base_url, model, client, system_prompt)."""
-    active_profile = get_active_llm_profile()
-    api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
-    base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-
-    opencode_key, _ = discover_opencode_keys()
-    if not api_key:
-        api_key = opencode_key
-        if api_key and not base_url:
-            base_url = "https://opencode.ai/zen/go/v1"
-
-    if not api_key:
-        raise HTTPException(
-            status_code=400, detail="OpenAI/OpenCode API key is missing. Set it in Settings."
-        )
-
-    default_model = active_profile.get("model", "gpt-4o-mini")
-    model = (
-        data.model_override.strip()
-        if (data.model_override and data.model_override.strip())
-        else default_model
-    )
-
-    if not model:
-        if base_url and "opencode.ai" in base_url:
-            model = "deepseek-v4-flash"
-        else:
-            model = "gpt-4o-mini"
-
-    if data.selected_voice:
-        shared_state.state["selected_voice"] = data.selected_voice
-        shared_state.state["loaded_preset_name"] = None
-
-    from openai import OpenAI
-    client = OpenAI(api_key=api_key, base_url=base_url)
-
-    max_words = shared_state.settings.get("max_words", 400)
-    from gui.config import DEFAULT_SCRIPT_SYSTEM_PROMPT
-
-    default_system_prompt = DEFAULT_SCRIPT_SYSTEM_PROMPT
-    raw_system_prompt = shared_state.settings.get("system_prompt", default_system_prompt)
-    try:
-        system_prompt = raw_system_prompt.format(
-            max_words=max_words, max_words_seconds=int(max_words / 2.3)
-        )
-    except (KeyError, ValueError):
-        system_prompt = raw_system_prompt
-
-    return api_key, base_url, model, client, system_prompt
-
-
-@app.post("/api/script/generate")
-def generate_viral_script(data: ScriptGenerateRequest):
-    _api_key, _base_url, model, client, system_prompt = _resolve_llm_and_client(data)
-
-    logger.info(f"[AI Script] Generating script with model '{model}' for prompt: '{data.prompt}'")
-
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": data.prompt},
-            ],
-            temperature=shared_state.settings.get("llm_temp_script", 0.7),
-        )
-        script_text = (response.choices[0].message.content or "").strip()
-        # Defensively strip any TITLE/HASHTAGS lines (guideline #9 is no longer in prompt)
-        script_text, _, _ = parse_title_hashtags(script_text)
-
-        # Always use a dedicated second LLM call for title and hashtags
-        try:
-            title, hashtags = generate_title_hashtags(
-                script_text, client, model, shared_state.settings.get("llm_temp_title", 0.7)
-            )
-        except Exception as e:
-            logger.warning(f"Title/hashtag generation failed: {e}")
-            words = script_text.split()
-            title = " ".join(words[:8]) if words else ""
-            hashtags = ""
-
-        shared_state.state["script_text"] = script_text
-        shared_state.state["generated_title"] = title
-        shared_state.state["generated_hashtags"] = hashtags
-
-        # Save state to disk (lock to prevent concurrent write corruption)
-        with _state_file_lock, open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(shared_state.state, f, indent=2)
-
-        return {"status": "success", "script": script_text, "title": title, "hashtags": hashtags}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Script generation failed: {str(e)}")
-
-
-@app.post("/api/script/generate/stream")
-def generate_script_stream(data: ScriptGenerateRequest):
-    _api_key, _base_url, model, client, system_prompt = _resolve_llm_and_client(data)
-
-    logger.info(
-        f"[AI Script/Stream] Generating script with model '{model}' for prompt: '{data.prompt}'"
-    )
-
-    def event_stream():
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": data.prompt},
-                ],
-                temperature=shared_state.settings.get("llm_temp_script", 0.7),
-                stream=True,
-            )
-            script_text = ""
-            word_count = 0
-            for chunk in response:
-                if (
-                    chunk.choices
-                    and chunk.choices[0].delta
-                    and chunk.choices[0].delta.content is not None
-                ):
-                    content = chunk.choices[0].delta.content
-                    script_text += content
-                    word_count = len(script_text.split())
-                    yield f"data: {json.dumps({'chunk': content, 'word_count': word_count})}\n\n"
-
-            script_text = script_text.strip()
-            # Defensively strip any TITLE/HASHTAGS lines (guideline #9 is no longer in prompt)
-            script_text, _, _ = parse_title_hashtags(script_text)
-
-            # Always use a dedicated second LLM call for title and hashtags
-            try:
-                title, hashtags = generate_title_hashtags(
-                    script_text, client, model, shared_state.settings.get("llm_temp_title", 0.7)
-                )
-            except Exception as e:
-                logger.warning(f"Title/hashtag generation failed: {e}")
-                words = script_text.split()
-                title = " ".join(words[:8]) if words else ""
-                hashtags = ""
-
-            shared_state.state["script_text"] = script_text
-            shared_state.state["generated_title"] = title
-            shared_state.state["generated_hashtags"] = hashtags
-            with _state_file_lock, open(GUI_STATE_FILE, "w", encoding="utf-8") as f:
-                json.dump(shared_state.state, f, indent=2)
-
-            yield f"data: {json.dumps({'done': True, 'word_count': word_count, 'title': title, 'hashtags': hashtags})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-            raise
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
 @app.post("/api/tiktok/upload")
 def upload_tiktok_video(data: TiktokUploadRequest, background_tasks: BackgroundTasks):
     sessionid = shared_state.settings.get("tiktok_sessionid", "").strip()
@@ -1180,6 +825,10 @@ def login_tiktok_browser():
                     shared_state.settings["tiktok_sessionid"] = sid
                     save_settings(shared_state.settings)
                     logger.info("[TikTok] Login successful, saved sessionid.")
+                    logger.warning(
+                        "[TikTok] Session ID stored in plaintext in config/settings.json. "
+                        "Keep this file secure and do not commit it."
+                    )
                 else:
                     logger.warning("[TikTok] Login finished but no sessionid was found.")
             except Exception as e:
@@ -1192,125 +841,6 @@ def login_tiktok_browser():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to open login browser: {e}")
-
-
-# Video compilation runner thread task
-def compile_worker():
-    global compilation_in_progress, compilation_success
-
-    while True:
-        job = compilation_queue.get(block=True)
-        if job is None:
-            break
-
-        custom_filename = job.get("custom_filename")
-        state_snapshot = job.get("state_snapshot")
-
-        with _compile_status_lock:
-            compilation_in_progress = True
-            compilation_success = False
-
-        # Clear logs from the previous job and add a separator
-        with _compile_log_lock:
-            compilation_logs.clear()
-            compilation_logs.append("=" * 50 + "\n")
-
-        logger.info(
-            f"[Compile Thread] Starting video compilation process (Queue size: {compilation_queue.qsize()})..."
-        )
-        notify_clients("compilation", "started", "Video compilation started.", "info", {"filename": custom_filename})
-        try:
-            from gui.compiler import compile_video_flow
-
-            # run compilation flow with skip_confirm=True
-            success = compile_video_flow(
-                skip_confirm=True,
-                custom_output_filename=custom_filename,
-                state_override=state_snapshot,
-            )
-            with _compile_status_lock:
-                compilation_success = success
-            if success:
-                logger.info("[Compile Thread] Compilation finished successfully!")
-                notify_clients("compilation", "success", f"Video compilation finished successfully!", "success", {"filename": custom_filename})
-            else:
-                logger.error(
-                    "[Compile Thread] Compilation failed (returned False). Check logs above."
-                )
-                notify_clients("compilation", "error", "Compilation failed. Check logs.", "error", {"filename": custom_filename})
-        except Exception as e:
-            logger.error(f"[Compile Thread] Crash during compilation: {e}")
-            notify_clients("compilation", "error", f"Crash during compilation: {e}", "error", {"filename": custom_filename})
-
-            logger.exception("Exception occurred")
-            with _compile_status_lock:
-                compilation_success = False
-        finally:
-            with _compile_status_lock:
-                compilation_in_progress = False
-            compilation_queue.task_done()
-
-
-@app.post("/api/compile")
-def start_compilation(custom_filename: str | None = Form(None)):
-    global compilation_thread
-
-    # Validate script and background video
-    if not shared_state.state["script_text"].strip():
-        raise HTTPException(
-            status_code=400, detail="Script is empty. Please generate or write a script first."
-        )
-    if not shared_state.state["bg_video_path"]:
-        raise HTTPException(status_code=400, detail="Top background video is not selected.")
-
-    import copy
-
-    state_snapshot = copy.deepcopy(shared_state.state)
-
-    # Put job inside the lock to prevent orphaned jobs if thread dies
-    with _compile_thread_lock:
-        compilation_queue.put(
-            {
-                "custom_filename": custom_filename.strip() if custom_filename else None,
-                "state_snapshot": state_snapshot,
-            }
-        )
-
-        if compilation_thread is None or not compilation_thread.is_alive():
-            compilation_thread = threading.Thread(target=compile_worker, daemon=True)
-            compilation_thread.start()
-
-    return {
-        "status": "started",
-        "message": f"Video compilation queued. (Queue size: {compilation_queue.qsize()})",
-    }
-
-
-@app.get("/api/compile/status")
-def get_compilation_status():
-    with _compile_log_lock:
-        log_snapshot = "".join(compilation_logs)
-    with _compile_status_lock:
-        in_progress = compilation_in_progress or not compilation_queue.empty()
-        success = compilation_success
-    return {
-        "in_progress": in_progress,
-        "success": success,
-        "logs": log_snapshot,
-        "queue_size": compilation_queue.qsize(),
-    }
-
-
-@app.post("/api/compile/cancel")
-def cancel_compilation():
-    # Since python threads cannot be killed easily, we notify the user.
-    # In a real app we'd have a cancel flag, but compile_video does ffmpeg processes.
-    # We can try to kill running ffmpeg subprocesses if we want, but letting it finish or notifying is safer.
-    # We will log cancellation attempt.
-    logger.info(
-        "[Compile Thread] Compilation cancellation requested (note: background processes will terminate on completion/next cycle)."
-    )
-    return {"status": "success", "message": "Cancellation request received."}
 
 
 # =========================================================
@@ -1377,13 +907,7 @@ def batch_worker_thread(
 
     try:
         from generator import unload_tts_model
-        from gui.compiler import unload_whisper_model
-
-        # Free up GPU memory from the main process before spawning workers
-        unload_tts_model()
-        unload_whisper_model()
-
-        from gui.batch import llm_job_worker, log_memory_usage, video_job_worker
+        from gui.batch import llm_job_worker, log_memory_usage, unload_whisper_model, video_job_worker
         from gui.config import load_prompt_templates
 
         log_memory_usage("After model unloading")
@@ -2163,23 +1687,6 @@ def restart_server(request: Request, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(restart)
     return {"status": "restarting"}
-
-
-@app.post("/api/preview_animation")
-async def preview_animation(request: PreviewAnimationRequest):
-    from gui.preview import create_animation_preview
-    
-    settings_dict = request.settings.model_dump()
-    try:
-        webm_path = await create_animation_preview(
-            settings_dict, 
-            request.test_word or "Awesome", 
-            request.emoji_char or "🚀"
-        )
-        return FileResponse(webm_path, media_type="video/webm")
-    except Exception as e:
-        logger.exception("Failed to generate animation preview")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/health")

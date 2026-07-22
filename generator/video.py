@@ -5,7 +5,6 @@ import os
 import random
 import re
 import subprocess
-import sys
 import time
 import uuid
 
@@ -393,15 +392,6 @@ def compile_video(
     try:
         import select
 
-        def _limit_ffmpeg_memory():
-            try:
-                import resource
-
-                # 6 GB virtual memory limit per FFmpeg process (total system is 6.8GB)
-                resource.setrlimit(resource.RLIMIT_AS, (6 * 1024**3, 6 * 1024**3))
-            except Exception:
-                pass
-
         # Safety timeout: 3x audio duration or 30 minutes, whichever is larger
         _ffmpeg_timeout = max(audio_duration * 3.0, 1800.0)
         _ffmpeg_deadline = time.monotonic() + _ffmpeg_timeout
@@ -415,8 +405,6 @@ def compile_video(
             "encoding": "utf-8",
             "errors": "replace",
         }
-        if sys.platform != "win32":
-            _popen_kwargs["preexec_fn"] = _limit_ffmpeg_memory
 
         with subprocess.Popen(cmd, **_popen_kwargs) as process:
             while True:

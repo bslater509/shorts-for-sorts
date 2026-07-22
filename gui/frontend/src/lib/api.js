@@ -19,20 +19,6 @@ export async function fetchSystemStats() {
   return await apiFetch('/api/system_stats');
 }
 
-export async function previewAnimation(settings, testWord = "Awesome", emojiChar = "🚀") {
-  const res = await fetch('/api/preview_animation', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ settings, test_word: testWord, emoji_char: emojiChar })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || `Preview failed: ${res.status}`);
-  }
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
-}
-
 export async function fetchState() {
   return await apiFetch('/api/state');
 }
@@ -85,58 +71,6 @@ export async function deletePreset(name) {
 
 export async function fetchVoices() {
   return await apiFetch('/api/voices');
-}
-
-export async function generateScript(prompt, voiceOverride, modelOverride) {
-  return await apiFetch('/api/script/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt,
-      selected_voice: voiceOverride || null,
-      model_override: modelOverride || null
-    })
-  });
-}
-
-export async function generateScriptStream(prompt, voiceOverride, modelOverride, onChunk, onDone) {
-  const res = await fetch('/api/script/generate/stream', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      prompt,
-      selected_voice: voiceOverride || null,
-      model_override: modelOverride || null
-    })
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Request failed: ${res.status} ${text}`);
-  }
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let fullText = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = JSON.parse(line.slice(6));
-        if (data.error) throw new Error(data.error);
-        if (data.done) { onDone?.(fullText); return fullText; }
-        if (data.chunk) {
-          fullText += data.chunk;
-          onChunk?.(data.chunk, data.word_count, fullText);
-        }
-      }
-    }
-  }
-  onDone?.(fullText);
-  return fullText;
 }
 
 export async function fetchVideos() {
@@ -207,29 +141,6 @@ export async function searchYoutube(query, limit = 10) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, limit })
   });
-}
-
-export async function extractKeyword() {
-  return await apiFetch('/api/pexels/extract-keyword', { method: 'POST' });
-}
-
-export async function startCompilation(customFilename) {
-  const formData = new FormData();
-  if (customFilename) {
-    formData.append('custom_filename', customFilename);
-  }
-  return await fetch('/api/compile', {
-    method: 'POST',
-    body: formData
-  });
-}
-
-export async function getCompilationStatus() {
-  return await apiFetch('/api/compile/status');
-}
-
-export async function cancelCompilation() {
-  return await apiFetch('/api/compile/cancel', { method: 'POST' });
 }
 
 export async function fetchGallery() {

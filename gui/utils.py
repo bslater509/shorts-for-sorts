@@ -8,7 +8,6 @@ import urllib.parse
 import urllib.request
 
 import questionary
-from openai import OpenAI
 
 from gui.config import BASE_DIR, MUSIC_DIR, VIDEOS_DIR, console, logger, save_settings
 from gui.state import settings, state
@@ -216,44 +215,6 @@ def check_system_dependencies():
     )
 
 
-def extract_keywords_from_script(script_text: str) -> str:
-    active_profile = get_active_llm_profile()
-    api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
-    base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
-    default_model = active_profile.get("model", "gpt-4o-mini")
-    model = default_model
-
-    opencode_key, _ = discover_opencode_keys()
-    if not api_key:
-        api_key = opencode_key
-        if api_key and not base_url:
-            base_url = "https://opencode.ai/zen/go/v1"
-
-    if not api_key:
-        return ""
-
-    if base_url and "opencode.ai" in base_url:
-        model = "deepseek-v4-flash"
-
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a visual research assistant. Analyze the video script and return exactly ONE search term (1-2 words, e.g., 'calm forest', 'neon city', 'space stars') that would make an excellent vertical background loop. Return ONLY the raw search term text with no quotes, punctuation, or explanations.",
-                },
-                {"role": "user", "content": script_text},
-            ],
-            temperature=settings.get("llm_temp_keywords", 0.7),
-        )
-        return response.choices[0].message.content.strip().replace('"', "")
-    except Exception as e:
-        logger.warning(f"Failed to extract keywords via LLM: {e}")
-        return ""
-
-
 def auto_download_pexels_background(position="top"):
     script = state["script_text"].strip()
     if not script:
@@ -274,14 +235,12 @@ def auto_download_pexels_background(position="top"):
         settings["pexels_api_key"] = pexels_key.strip()
         save_settings(settings)
 
-    console.print("[yellow]Extracting visual background search term from script...[/]")
-    keyword = extract_keywords_from_script(script)
+    console.print("[yellow]Enter search keyword for Pexels video download...[/]")
+    keyword = questionary.text(
+        "Enter search keyword for background video:"
+    ).ask()
     if not keyword:
-        keyword = questionary.text(
-            "LLM failed to extract search term. Enter search keyword manually:"
-        ).ask()
-        if not keyword:
-            return
+        return
 
     console.print(f'[green]Extracted keyword search term: [bold cyan]"{keyword}"[/][/]')
     console.print(f'[yellow]Searching Pexels for vertical videos matching "{keyword}"...[/]')

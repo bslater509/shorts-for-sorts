@@ -6,8 +6,6 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState({
     llm_profiles: [],
     active_llm_profile_id: '',
-    max_words: 400,
-    system_prompt: '',
     pexels_api_key: '',
     local_whisper: true,
     local_whisper_model: 'tiny',
@@ -16,7 +14,6 @@ export default function SettingsPage() {
     render_resolution: '720p',
     render_preset: 'fast',
     video_encoder: 'libx264',
-    words_per_screen: '3',
     max_workers: 1,
     llm_max_workers: 5,
     sentry_dsn: '',
@@ -111,10 +108,8 @@ export default function SettingsPage() {
     try {
       const payload = {
         ...settings,
-        max_words: parseInt(settings.max_words) || 400,
         max_workers: parseInt(settings.max_workers) || 1,
         llm_max_workers: parseInt(settings.llm_max_workers) || 5,
-        llm_temp_script: parseFloat(settings.llm_temp_script ?? 0.7),
         llm_temp_metadata: parseFloat(settings.llm_temp_metadata ?? 0.7),
         llm_temp_keywords: parseFloat(settings.llm_temp_keywords ?? 0.7)
       }
@@ -242,43 +237,6 @@ export default function SettingsPage() {
             )}
           </div>
           
-          <div className="grid sm:grid-cols-2 gap-4 pt-4 border-t border-border mt-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Max Script Words Length</label>
-              <input type="number" name="max_words" value={settings.max_words} onChange={handleChange} className="input-base" />
-            </div>
-            <div className="flex flex-col gap-2 md:col-span-2">
-              <label className="text-sm font-medium">System Prompt</label>
-              <textarea 
-                name="system_prompt" 
-                value={settings.system_prompt || ''} 
-                onChange={handleChange} 
-                className="input-base min-h-[120px] font-mono text-sm" 
-                placeholder="You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content..."
-              />
-              <p className="text-xs text-muted-foreground">
-                You can use {'{max_words}'} and {'{max_words_seconds}'} as variables in the prompt.
-              </p>
-            </div>
-            
-            <div className="flex flex-col gap-2 md:col-span-2 mt-2">
-              <label className="text-sm font-medium">LLM Temperatures</label>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border border-border rounded-lg p-4 bg-muted/30">
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs text-muted-foreground font-medium">Script Generation</label>
-                  <input type="number" step="0.1" min="0.0" max="2.0" name="llm_temp_script" value={settings.llm_temp_script !== undefined ? settings.llm_temp_script : 0.7} onChange={handleChange} className="input-base" />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs text-muted-foreground font-medium">Metadata (Title/Hashtags)</label>
-                  <input type="number" step="0.1" min="0.0" max="2.0" name="llm_temp_metadata" value={settings.llm_temp_metadata !== undefined ? settings.llm_temp_metadata : 0.7} onChange={handleChange} className="input-base" />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <label className="text-xs text-muted-foreground font-medium">Keyword Extraction</label>
-                  <input type="number" step="0.1" min="0.0" max="2.0" name="llm_temp_keywords" value={settings.llm_temp_keywords !== undefined ? settings.llm_temp_keywords : 0.7} onChange={handleChange} className="input-base" />
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Third Party */}
@@ -332,20 +290,6 @@ export default function SettingsPage() {
             Whisper Transcription (Subtitles)
           </h3>
           <div className="grid sm:grid-cols-2 gap-4 mb-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Words per Screen</label>
-              <select 
-                name="words_per_screen" 
-                value={settings.words_per_screen || '3'} 
-                onChange={handleChange} 
-                className="input-base"
-              >
-                <option value="1">1 Word (TikTok Style)</option>
-                <option value="3">3 Words (Short Phrases)</option>
-                <option value="sentence">Sentence (Long Chunks)</option>
-                <option value="random">Randomize (Batch Generator Only)</option>
-              </select>
-            </div>
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">Transcription Engine</label>
               <select 

@@ -12,6 +12,32 @@ VOICES = [
     ("Lewis (UK Male)", "bm_lewis"),
 ]
 
+# Display name → Kokoro voice ID (for resolving user-facing names back to valid IDs)
+VOICE_DISPLAY_TO_ID = {
+    # Existing named mappings
+    "Bella (US Female)": "af_bella",
+    "Sarah (US Female)": "af_sarah",
+    "Adam (US Male)": "am_adam",
+    "Michael (US Male)": "am_michael",
+    "Emma (UK Female)": "bf_emma",
+    "Isabella (UK Female)": "bf_isabella",
+    "George (UK Male)": "bm_george",
+    "Lewis (UK Male)": "bm_lewis",
+    # Additional Kokoro voices not in the GUI dropdown but valid in presets
+    "af": "af",
+    "af_nicole": "af_nicole",
+    "af_sky": "af_sky",
+    # Legacy preset names (used in BUILTIN_PRESETS)
+    "Craig Gutsy": "am_michael",
+    "Ana Florence": "af_sarah",
+    "Zacharie Julian": "am_adam",
+    "Claribel Dervla": "af_bella",
+    "Gracie Wise": "bf_emma",
+    "Badr Odhiambo": "bm_george",
+    "Damien Black": "am_michael",
+    "Tammie Ema": "bf_emma",
+}
+
 # Active Session State
 # All keys that compiler.py and server.py access are declared here with None defaults
 # so the schema is explicit and batch-mode jobs don't silently get missing keys.
@@ -50,11 +76,8 @@ state = {
     "emoji_hold_duration": None,
     "emoji_throw_max_count": None,
     "sub_animation_style": None,
-    "loaded_preset_name": None,
-    "batch_num_shorts": None,
     "generated_title": None,
     "generated_hashtags": None,
-    "words_per_screen": None,
 }
 
 # Global Settings (loaded from config/settings.json)

@@ -2,6 +2,7 @@ import os
 import tarfile
 import urllib.request
 import logging
+import socket
 
 logger = logging.getLogger("shorts_creator.emoji_downloader")
 if not logger.handlers and not logging.getLogger("shorts_creator").handlers:
@@ -35,7 +36,13 @@ def download_and_extract_emoji_style(style_name: str):
 
     try:
         logger.info(f"Downloading emoji style {style_name} from {url}...")
-        urllib.request.urlretrieve(url, tarball_path)
+        socket.setdefaulttimeout(30)
+        with urllib.request.urlopen(url, timeout=30) as resp, open(tarball_path, "wb") as f:
+            while True:
+                chunk = resp.read(8192)
+                if not chunk:
+                    break
+                f.write(chunk)
         
         logger.info(f"Extracting emoji style {style_name}...")
         with tarfile.open(tarball_path, "r:gz") as tar:
@@ -56,8 +63,19 @@ def download_and_extract_emoji_style(style_name: str):
 def ensure_emoji_styles():
     os.makedirs(CACHE_DIR, exist_ok=True)
     # Background task / synchronous startup check
+    failed = []
     for style in STYLES:
-        download_and_extract_emoji_style(style)
+        try:
+            download_and_extract_emoji_style(style)
+        except Exception as e:
+            failed.append(style)
+            logger.warning(f"Failed to download emoji style '{style}': {e}")
+    if failed:
+        logger.warning(
+            "Some emoji styles could not be downloaded: %s. "
+            "Color emoji rendering may be degraded.",
+            ", ".join(failed),
+        )
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

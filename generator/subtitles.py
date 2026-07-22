@@ -289,11 +289,13 @@ def generate_ass_subtitles(
     if current_phrase:
         phrases.append(current_phrase)
 
+    target_w = style_opts.get("target_w", 1080)
+    target_h = style_opts.get("target_h", 1920)
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
-        "PlayResX: 1080",
-        "PlayResY: 1920",
+        f"PlayResX: {target_w}",
+        f"PlayResY: {target_h}",
         "WrapStyle: 1",
         "",
         "[V4+ Styles]",

@@ -18,7 +18,6 @@ class SettingsModel(BaseModel):
     render_resolution: str | None = "720p"
     render_preset: str | None = "fast"
     video_encoder: str | None = "libx264"
-    max_words: int | None = 400
     max_workers: int | None = 1
     llm_max_workers: int | None = 5
     words_per_screen: str | None = "3"
@@ -27,7 +26,6 @@ class SettingsModel(BaseModel):
     sub_color: str | None = "#FFFFFF"
     sub_highlight: str | None = "#00FFFF"
     sub_outline: str | None = "#000000"
-    llm_temp_script: float | None = 0.7
     llm_temp_metadata: float | None = 0.7
     llm_temp_keywords: float | None = 0.7
     sub_outline_width: int | None = 5
@@ -131,25 +129,8 @@ class StateModel(BaseModel):
     loaded_preset_name: str | None = None
 
 
-class ScriptGenerateRequest(BaseModel):
-    prompt: str = Field(min_length=1)
-    selected_voice: str | None = None
-    model_override: str | None = None
-
-
-class PreviewAnimationRequest(BaseModel):
-    settings: SettingsModel
-    test_word: str | None = "Awesome"
-    emoji_char: str | None = "🚀"
-
-
 class PexelsSearchRequest(BaseModel):
     query: str = Field(min_length=1)
-
-
-class LogMessageRequest(BaseModel):
-    level: str
-    message: str
 
 
 class PexelsDownloadRequest(BaseModel):

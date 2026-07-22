@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Change to the project root directory
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 # Set up or activate virtual environment
 if [ -d "$HOME/miniconda3/envs/shorts" ]; then

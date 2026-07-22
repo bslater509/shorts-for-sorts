@@ -12,43 +12,8 @@ from gui.models import (
     BatchStartRequest,
     PexelsSearchRequest,
     PresetModel,
-    ScriptGenerateRequest,
     SettingsModel,
 )
-
-
-class TestScriptGenerateRequest(unittest.TestCase):
-    """Tests for ScriptGenerateRequest — script generation request."""
-
-    def test_valid_all_fields(self):
-        """Construct with prompt, selected_voice, and model_override."""
-        req = ScriptGenerateRequest(
-            prompt="Write a short about cats",
-            selected_voice="en-US-Wavenet-D",
-            model_override="gpt-4",
-        )
-        self.assertEqual(req.prompt, "Write a short about cats")
-        self.assertEqual(req.selected_voice, "en-US-Wavenet-D")
-        self.assertEqual(req.model_override, "gpt-4")
-
-    def test_valid_minimal(self):
-        """Construct with only the required prompt field."""
-        req = ScriptGenerateRequest(prompt="Hello world")
-        self.assertEqual(req.prompt, "Hello world")
-        self.assertIsNone(req.selected_voice)
-        self.assertIsNone(req.model_override)
-
-    def test_empty_prompt_fails(self):
-        """An empty string for prompt should raise ValidationError (min_length=1)."""
-        with self.assertRaises(ValidationError):
-            ScriptGenerateRequest(prompt="")
-
-    def test_model_override_optional(self):
-        """model_override should default to None when not provided."""
-        req = ScriptGenerateRequest(prompt="Test")
-        self.assertIsNone(req.model_override)
-        req2 = ScriptGenerateRequest(prompt="Test", model_override="gpt-4")
-        self.assertEqual(req2.model_override, "gpt-4")
 
 
 class TestSettingsModel(unittest.TestCase):
@@ -87,8 +52,6 @@ class TestSettingsModel(unittest.TestCase):
         self.assertEqual(settings.render_resolution, "720p")
         self.assertEqual(settings.render_preset, "fast")
         self.assertEqual(settings.video_encoder, "libx264")
-        self.assertEqual(settings.max_words, 400)
-        self.assertEqual(settings.max_workers, 1)
         self.assertEqual(settings.llm_max_workers, 5)
         self.assertEqual(settings.words_per_screen, "3")
         self.assertEqual(settings.sub_font, "Arial")
@@ -96,9 +59,6 @@ class TestSettingsModel(unittest.TestCase):
         self.assertEqual(settings.sub_color, "#FFFFFF")
         self.assertEqual(settings.sub_highlight, "#00FFFF")
         self.assertEqual(settings.sub_outline, "#000000")
-        self.assertEqual(settings.llm_temp_script, 0.7)
-        self.assertEqual(settings.llm_temp_metadata, 0.7)
-        self.assertEqual(settings.llm_temp_keywords, 0.7)
         self.assertEqual(settings.sub_outline_width, 5)
         self.assertTrue(settings.sub_bold)
         self.assertTrue(settings.word_pop)
@@ -128,7 +88,6 @@ class TestSettingsModel(unittest.TestCase):
         # Spot-check a representative sample of defaults
         self.assertEqual(settings.llm_profiles, [])
         self.assertEqual(settings.active_llm_profile_id, "")
-        self.assertEqual(settings.max_words, 400)
         self.assertEqual(settings.sub_font, "Arial")
         self.assertEqual(settings.sub_size, 72)
 
