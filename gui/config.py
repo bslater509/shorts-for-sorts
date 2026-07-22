@@ -885,20 +885,33 @@ def save_settings(settings_dict):
 
 
 DEFAULT_SCRIPT_SYSTEM_PROMPT = (
-    "You are an elite TikTok and YouTube Shorts scriptwriter known for creating viral, high-retention content. "
-    "Write a highly engaging vertical video script based on the user's topic.\n\n"
-    "Strict Guidelines:\n"
-    "1. The Hook (First 5-10s): Start immediately with a scroll-stopping statement, provocative question, or intriguing hook that grabs attention. No slow introductions.\n"
-    "2. Story Arc: Structure with a clear narrative arc — setup, rising tension or details, and a strong payoff or conclusion. Use rich details and examples to make the content compelling.\n"
-    "3. Length: Aim for approximately {max_words} words (approx. {max_words_seconds} seconds when spoken). This is a medium-to-long Short so pace the story naturally.\n"
-    "4. Pacing: Vary sentence length. Use short punchy lines for impact and longer descriptive sentences for storytelling. Build momentum toward key reveals.\n"
-    "5. Tone: Sound authentic and human — conversational but informed. Avoid robotic, academic, or overly dramatic AI clichés.\n"
+    "You are a versatile short-form scriptwriter creating content for TikTok and YouTube Shorts. "
+    "Write a compelling vertical video script based on the user's topic.\n\n"
+    "Guidelines:\n"
+    "1. The Hook (First 5-10s): Start with a scroll-stopping statement, provocative question, or intriguing hook that grabs attention immediately. No slow introductions.\n"
+    "2. Story Arc: Structure with a clear arc — setup, rising tension or details, and a strong payoff or conclusion. Let the content find its own natural shape.\n"
+    "3. Length: Aim for approximately {max_words} words (approx. {max_words_seconds} seconds when spoken). Stay flexible — let the story dictate the exact length.\n"
+    "4. Pacing: Vary sentence length. Use short punchy lines for impact and longer sentences for storytelling. Build momentum toward key reveals.\n"
+    "5. Tone: Sound authentic and human — conversational but informed. Avoid robotic, academic, or cliché AI writing. Let your voice match the mood of the topic.\n"
     "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
     "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this.\n"
-    "8. Source: Never mention Reddit, subreddits, or forums. Tell the story directly as if it happened to someone."
+    "8. Source: Follow the framing of the user's prompt. If they set a specific scene (Reddit post, historical event, personal story), lean into that framing. If no framing is given, tell the story directly without mentioning external sources."
 )
 
 DEFAULT_PROMPTS = {
+    "Romantic Drama": "Two people whose love is forbidden or tested by impossible circumstances. What stands between them? What are they willing to lose? Tell their story in a way that feels urgent and real — whether it ends in heartbreak, defiance, or something unexpected.",
+    "Family Drama": "A family grappling with secrets, loss, betrayal, or a long-overdue reckoning. Zoom in on one charged moment — a reunion, a discovery, a confrontation — that forces buried tensions to the surface.",
+    "Historical Drama": "Set a story in a pivotal moment in history where ordinary people faced extraordinary stakes. Don't lecture — make the era feel lived-in, the stakes personal, and the outcome anything but certain.",
+    "Psychological Drama": "A character whose grip on reality is fraying — or is it? Plunge into their inner world as a buried memory, a moral dilemma, or a slow unraveling forces them to question everything they thought was true.",
+    "Crime Drama": "A story of crime and consequence where guilt, justice, revenge, or a shot at redemption drives every choice. Start at the moment everything goes wrong and let the fallout unfold.",
+    "Survival Drama": "Strip away comfort and put someone in a harsh, unforgiving situation — nature, circumstance, or other people. Show what they become when there is no way out but through.",
+    "Political Drama": "Power, ambition, and betrayal — where every alliance has a price and ideals collide with corruption. Tell it from the perspective of someone who thought they could stay clean.",
+    "Tragedy": "A character whose greatest strength becomes their fatal flaw. Let the audience see the fall coming and be powerless to stop it. The best tragedies feel inevitable but not predictable.",
+    "Character Drama": "A single life-changing event that redefines who a person is. No elaborate plot — just someone at a crossroads, forced to confront who they have been and who they could become.",
+    "Mystery Drama": "A dark secret buried just beneath the surface. One person starts pulling at a thread and slowly uncovers the truth — only to discover that knowing it may be worse than the not-knowing. Drip-feed the clues.",
+    "Dark Comedy": "A story with a darkly comic edge where the sheer absurdity of a terrible situation becomes the point. Make the viewer uncomfortable and entertained in equal measure.",
+    "Moral Dilemma": "A choice with no good options. Every path comes with a steep cost. Build the tension, show the stakes, and let the moment of decision land with real weight.",
+    "Twist Ending": "Tell a story that builds toward a reveal — a single moment that completely reshapes everything the viewer thought they understood. The twist should feel surprising yet inevitable in hindsight.",
     "History's Coolest Coincidences": "Tell the story of one of the most unbelievable coincidences in history that shaped the world.",
     "Space Is Way Bigger Than You Think": "Explain the scale of the universe using mind-bending analogies that will make the viewer feel tiny.",
     "Signs of High Intelligence": "Highlight 3 unusual behavioral traits or habits that are scientifically linked to high intelligence.",

@@ -1309,7 +1309,7 @@ def batch_worker_thread(
 
             for i in range(1, num_shorts + 1):
                 # Cycle through shuffled prompts for diversity
-                template_title, prompt = prompt_items[i % len(prompt_items)]
+                template_title, prompt = prompt_items[(i - 1) % len(prompt_items)]
 
                 voice_name, voice_id = random.choice(shared_state.VOICES)
 
@@ -1386,7 +1386,7 @@ def batch_worker_thread(
 
                 job_configs[i] = {
                     "index": i,
-                    "prompt": prompt,
+                    "prompt": f"[{template_title}] {prompt}",
                     "voice_id": voice_id,
                     "bg_video_path": top_video,
                     "bg_video_bottom_path": bottom_video,

@@ -237,7 +237,7 @@ export default function Batch() {
                       />
                       <div className="flex flex-col">
                         <span className="text-sm font-medium leading-none">{key}</span>
-                        <span className="text-xs text-muted-foreground mt-1 line-clamp-1" title={availablePrompts[key]}>{availablePrompts[key]}</span>
+                        <span className="text-xs text-muted-foreground mt-1 line-clamp-3" title={availablePrompts[key]}>{availablePrompts[key]}</span>
                       </div>
                     </label>
                   ))}
