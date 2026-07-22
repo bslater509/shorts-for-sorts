@@ -63,7 +63,17 @@ temp_test/
 opencode.json
 .ruff_cache/
 
+# Backup files
+*.bak
+
 # Ad-hoc test scripts
 test_api.py
 test_cors.py
 test_youtube_dl.py
+test_batch_status.py
+test_exec.py
+
+# Refactoring tools
+list_routes.py
+refactor.py
+scripts/refactor_routers.py
