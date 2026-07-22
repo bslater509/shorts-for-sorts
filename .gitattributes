@@ -1,0 +1,32 @@
+* text=auto
+
+*.py text diff=python
+*.jsx text
+*.js text
+*.json text
+*.css text
+*.html text
+*.md text
+*.toml text
+*.yml text
+*.yaml text
+*.editorconfig text
+*.gitignore text
+
+*.sh text eol=lf
+*.bat text eol=crlf
+
+*.svg -text
+*.png -text
+*.ico -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.woff -text
+*.woff2 -text
+*.ttf -text
+*.eot -text
+*.mp4 -text
+*.mp3 -text
+*.wav -text
+*.webm -text
