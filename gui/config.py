@@ -90,6 +90,7 @@ EMOJIS_FILE = os.path.join(CONFIG_DIR, "emojis.json")
 
 GUI_STATE_FILE = os.path.join(CONFIG_DIR, "gui_state.json")
 BATCH_STATS_FILE = os.path.join(CONFIG_DIR, "batch_stats.json")
+FAILED_CONFIGS_FILE = os.path.join(CONFIG_DIR, "failed_batch_configs.json")
 THUMBNAIL_DIR = os.path.join(OUTPUT_DIR, "thumbnails")
 FRONTEND_DIST_DIR = os.path.join(BASE_DIR, "gui/frontend/dist")
 

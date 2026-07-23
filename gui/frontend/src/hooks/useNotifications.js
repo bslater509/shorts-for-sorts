@@ -18,23 +18,31 @@ export function useNotifications() {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
-          const { status, message, level } = data
-          
+          const { status, message, level, metadata } = data
+
+          // Determine toast title and action based on event type
+          let toastTitle = "Notification"
+          let action = undefined
+
           const isMajor = status === "success" || status === "error"
           
-          // Action for major events (success/error)
-          const action = isMajor ? {
-            label: "View Gallery",
-            onClick: () => navigate("/gallery")
-          } : undefined
+          if (status === "job_failed" && metadata?.job_id) {
+            toastTitle = `Job #${metadata.job_id} Failed`
+          } else if (isMajor) {
+            toastTitle = status === "success" ? "Success" : "Error"
+            action = {
+              label: "View Gallery",
+              onClick: () => navigate("/gallery")
+            }
+          }
 
           // 1. Sonner In-App Toast
           if (level === "error") {
-            toast.error("Notification", { description: message, action })
+            toast.error(toastTitle, { description: message, action })
           } else if (level === "success") {
-            toast.success("Notification", { description: message, action })
+            toast.success(toastTitle, { description: message, action })
           } else {
-            toast.info("Notification", { description: message, action })
+            toast.info(toastTitle, { description: message, action })
           }
 
           // 2. OS-level Notification (only for major events)

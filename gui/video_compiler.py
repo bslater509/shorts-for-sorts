@@ -119,14 +119,14 @@ def compile_video_flow(
     if not script:
         logger.error("Script is empty.")
         console.print("[red]Error: Script is empty. Please generate or edit a script first.[/]")
-        return False
+        raise RuntimeError("Script is empty — no text to compile")
 
     if not current_state["bg_video_path"]:
         logger.error("No top/primary background video configured.")
         console.print(
             "[red]Error: No top/primary background video configured. Please configure it first.[/]"
         )
-        return False
+        raise RuntimeError("No background video configured")
 
     video_files = []
     if os.path.exists(VIDEOS_DIR):
@@ -165,7 +165,7 @@ def compile_video_flow(
             console.print(
                 "[red]Error: No background videos found in videos/ folder to select from.[/]"
             )
-            return False
+            raise RuntimeError("No background videos available for random selection")
         resolved_top_path = random.choice(video_files)
         console.print(f"[yellow]Resolved Top Video: {os.path.basename(resolved_top_path)}[/]")
 
@@ -175,7 +175,7 @@ def compile_video_flow(
             console.print(
                 "[red]Error: No background videos found in videos/ folder to select from.[/]"
             )
-            return False
+            raise RuntimeError("No background videos available for random bottom selection")
         remaining = [v for v in video_files if v != resolved_top_path]
         if remaining:
             resolved_bottom_path = random.choice(remaining)
@@ -186,7 +186,7 @@ def compile_video_flow(
     if not resolved_top_path or not os.path.exists(resolved_top_path):
         logger.error("Top background video file '%s' not found.", resolved_top_path)
         console.print(f"[red]Error: Top background video file '{resolved_top_path}' not found.[/]")
-        return False
+        raise RuntimeError(f"Top background video not found: {resolved_top_path}")
 
     if current_state["bg_video_bottom_path"] and (
         not resolved_bottom_path or not os.path.exists(resolved_bottom_path)
@@ -195,7 +195,7 @@ def compile_video_flow(
         console.print(
             f"[red]Error: Bottom background video file '{resolved_bottom_path}' not found.[/]"
         )
-        return False
+        raise RuntimeError(f"Bottom background video not found: {resolved_bottom_path}")
 
     active_profile = get_active_llm_profile()
     api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
@@ -210,7 +210,7 @@ def compile_video_flow(
         console.print(
             "[red]Error: API Key is required to transcribe audio when local Whisper is disabled. Configure it in Settings.[/]"
         )
-        return False
+        raise RuntimeError("API key required for transcription (local Whisper disabled)")
 
     job_id = str(uuid.uuid4())
     audio_path = os.path.join(CACHE_DIR, f"audio_{job_id}.wav")
@@ -623,7 +623,7 @@ def compile_video_flow(
         if os.path.exists(output_path):
             with contextlib.suppress(Exception):
                 os.remove(output_path)
-        return False
+        raise RuntimeError(str(e)) from e
     finally:
         from generator import unload_tts_model
 

@@ -1,7 +1,7 @@
-import { CheckCircle2, XCircle, Clock } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, RefreshCw } from 'lucide-react'
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
 
-const JobCard = ({ job, onClick, progressSegments }) => {
+const JobCard = ({ job, onClick, progressSegments, onRetry }) => {
   const isDone = job.status === 'Done'
   const isFailed = job.failed || job.status?.startsWith('Failed')
   const isQueued = job.status === 'Queued'
@@ -49,7 +49,21 @@ const JobCard = ({ job, onClick, progressSegments }) => {
 
       <div className="mt-auto pt-3 border-t border-border/50 relative">
         {isDone && <span className="text-emerald-500 text-sm font-semibold flex items-center gap-1 drop-shadow-[0_0_4px_rgba(16,185,129,0.5)]"><CheckCircle2 size={16}/> Completed</span>}
-        {isFailed && <span className="text-red-500 text-sm font-semibold flex items-center gap-1 drop-shadow-[0_0_4px_rgba(239,68,68,0.5)]"><XCircle size={16}/> {job.status}</span>}
+        {isFailed && (
+          <div className="flex items-center justify-between">
+            <span className="text-red-500 text-sm font-semibold flex items-center gap-1 drop-shadow-[0_0_4px_rgba(239,68,68,0.5)]"><XCircle size={16}/> {job.status}</span>
+            {onRetry && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRetry(job.id); }}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20"
+                title="Retry this job"
+              >
+                <RefreshCw size={12} />
+                Retry
+              </button>
+            )}
+          </div>
+        )}
         {isQueued && <span className="text-muted-foreground text-sm font-medium flex items-center gap-1"><Clock size={16}/> Queued...</span>}
 
         {isRunning && (

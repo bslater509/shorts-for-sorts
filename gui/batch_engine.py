@@ -16,6 +16,7 @@ import gui.state as shared_state
 from gui.config import (
     BASE_DIR,
     BATCH_STATS_FILE,
+    FAILED_CONFIGS_FILE,
     MUSIC_DIR,
     console,
     logger,
@@ -793,6 +794,55 @@ def batch_worker_thread(
                         batch_state["shared_progress"][i] = "Failed: Batch cancelled"
                 break
 
+            # --- Check for timed-out jobs ---
+            timeout = shared_state.settings.get("batch_job_timeout", 600)
+            if timeout and timeout > 0:
+                now = time.time()
+                # Check LLM futures
+                still_llm_timeout = []
+                for i, f in llm_futures:
+                    if f.done():
+                        still_llm_timeout.append((i, f))
+                        continue
+                    start = batch_state["shared_progress"].get(f"{i}_start")
+                    if start and (now - start) > timeout:
+                        logger.warning("[Batch] Job #%d — LLM timed out after %ds (limit: %ds)", i, int(now - start), timeout)
+                        f.cancel()
+                        batch_state["shared_progress"][i] = f"Failed: Timed out ({int(now - start)}s)"
+                        batch_state["failed_job_configs"].append(job_configs[i])
+                        notify_clients("batch", "job_failed", f"Job #{i} timed out (LLM)", "error", {"job_id": i})
+                        if failure_mode == "stop_all":
+                            batch_state["should_cancel"] = True
+                            break
+                    else:
+                        still_llm_timeout.append((i, f))
+                llm_futures = still_llm_timeout
+                if batch_state["should_cancel"]:
+                    continue
+
+                # Check video futures
+                still_video_timeout = []
+                for i, f in video_futures:
+                    if f.done():
+                        still_video_timeout.append((i, f))
+                        continue
+                    # Video phase start: use LLM end timestamp, or overall start as fallback
+                    v_start = batch_state["shared_progress"].get(f"{i}_phase_llm_end") or batch_state["shared_progress"].get(f"{i}_start")
+                    if v_start and (now - v_start) > timeout:
+                        logger.warning("[Batch] Job #%d — Video timed out after %ds (limit: %ds)", i, int(now - v_start), timeout)
+                        f.cancel()
+                        batch_state["shared_progress"][i] = f"Failed: Timed out ({int(now - v_start)}s)"
+                        batch_state["failed_job_configs"].append(job_configs[i])
+                        notify_clients("batch", "job_failed", f"Job #{i} timed out (Video)", "error", {"job_id": i})
+                        if failure_mode == "stop_all":
+                            batch_state["should_cancel"] = True
+                            break
+                    else:
+                        still_video_timeout.append((i, f))
+                video_futures = still_video_timeout
+                if batch_state["should_cancel"]:
+                    continue
+
             # Sync progress for API (before processing futures to capture last LLM/video state)
             _sync_progress(batch_state, num_shorts)
 
@@ -823,6 +873,7 @@ def batch_worker_thread(
                             logger.warning("[Batch] Job #%d — LLM failed: %s", i, err_msg)
                             batch_state["shared_progress"][i] = f"Failed: {err_msg}"
                             batch_state["failed_job_configs"].append(job_configs[i])
+                            notify_clients("batch", "job_failed", f"Job #{i} failed (LLM): {err_msg}", "error", {"job_id": i})
                             if failure_mode == "stop_all":
                                 batch_state["should_cancel"] = True
                                 break
@@ -830,6 +881,7 @@ def batch_worker_thread(
                         logger.error(f"[Batch Thread] LLM job {i} exception: {e}")
                         batch_state["shared_progress"][i] = f"Failed: {str(e)}"
                         batch_state["failed_job_configs"].append(job_configs[i])
+                        notify_clients("batch", "job_failed", f"Job #{i} failed (LLM): {e}", "error", {"job_id": i})
                         if failure_mode == "stop_all":
                             batch_state["should_cancel"] = True
                             break
@@ -854,6 +906,7 @@ def batch_worker_thread(
                         else:
                             logger.warning("[Batch] Job #%d — video failed: %s", idx, msg)
                             batch_state["failed_job_configs"].append(job_configs[i])
+                            notify_clients("batch", "job_failed", f"Job #{idx} failed (Video): {msg}", "error", {"job_id": idx})
                             if failure_mode == "stop_all":
                                 logger.error(
                                     f"[Batch Thread] Video job {idx} failed: {msg}. Cancelling batch."
@@ -864,6 +917,7 @@ def batch_worker_thread(
                     except Exception as e:
                         logger.error(f"[Batch Thread] Video job {i} exception: {e}")
                         batch_state["failed_job_configs"].append(job_configs[i])
+                        notify_clients("batch", "job_failed", f"Job #{i} failed (Video): {e}", "error", {"job_id": i})
                         if failure_mode == "stop_all":
                             batch_state["should_cancel"] = True
                             batch_state["shared_progress"][i] = f"Failed: {str(e)}"
@@ -889,6 +943,10 @@ def batch_worker_thread(
             config = job_configs.get(i, {})
             start = batch_state["shared_progress"].get(f"{i}_start")
             end = batch_state["shared_progress"].get(f"{i}_end")
+            # Extract error message from status if it's a failure
+            error = ""
+            if str(status).startswith("Failed:"):
+                error = str(status)[len("Failed: "):] if len(status) > 7 else status
             batch_state["batch_results"].append(
                 {
                     "id": i,
@@ -896,6 +954,7 @@ def batch_worker_thread(
                     "voice": detail.get("voice", ""),
                     "layout": detail.get("layout", ""),
                     "status": status,
+                    "error": error,
                     "title": config.get("generated_title", ""),
                     "hashtags": config.get("generated_hashtags", ""),
                     "output_filename": config.get("output_filename", ""),
@@ -1046,6 +1105,17 @@ def batch_worker_thread(
                 avg_video_duration=stored.get("avg_video_duration"),
                 per_job_stats=per_job_stats,
             )
+
+        # Persist failed job configs to disk for retry across restarts
+        try:
+            failed = batch_state.get("failed_job_configs", [])
+            if failed:
+                os.makedirs(os.path.dirname(FAILED_CONFIGS_FILE), exist_ok=True)
+                with open(FAILED_CONFIGS_FILE, "w") as f:
+                    json.dump(failed, f, default=str, indent=2)
+                logger.info("[Batch Thread] Persisted %d failed configs to %s", len(failed), FAILED_CONFIGS_FILE)
+        except Exception as e:
+            logger.warning("[Batch Thread] Failed to persist failed configs: %s", e)
 
     except Exception as e:
         logger.error(f"[Batch Thread] Crash: {e}")

@@ -18,6 +18,7 @@ key.pem
 config/settings.json
 config/gui_state.json
 config/batch_stats.json
+config/failed_batch_configs.json
 
 # Virtual environments & IDEs
 .vscode/

@@ -52,6 +52,8 @@ class SettingsModel(BaseModel):
     emoji_throw_fall_distance: float | None = 153.6
     emoji_spin_speed: float | None = 45.0
     default_batch_size: int | None = 1
+    batch_failure_mode: str | None = "stop_all"
+    batch_job_timeout: int | None = 600
     max_words: int | None = 400
     system_prompt: str | None = ""
     llm_temp_script: float | None = 0.7

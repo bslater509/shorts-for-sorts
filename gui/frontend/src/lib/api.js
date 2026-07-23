@@ -196,6 +196,12 @@ export async function retryFailedBatch() {
   });
 }
 
+export async function retryBatchJob(jobId) {
+  return await apiFetch(`/api/batch/retry-job/${jobId}`, {
+    method: 'POST'
+  });
+}
+
 export async function getBatchReport() {
   return await apiFetch('/api/batch/report');
 }

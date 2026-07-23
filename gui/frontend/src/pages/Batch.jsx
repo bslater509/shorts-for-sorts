@@ -26,6 +26,7 @@ export default function Batch() {
   const [selectedPrompts, setSelectedPrompts] = useState([])
   const [showPromptDropdown, setShowPromptDropdown] = useState(false)
   const [isRetrying, setIsRetrying] = useState(false)
+  const [isRetryingJob, setIsRetryingJob] = useState(null)
   const [connectionError, setConnectionError] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [enableEmojis, setEnableEmojis] = useState(true)
@@ -125,6 +126,17 @@ export default function Batch() {
     } catch (err) {
       alert(`Retry failed: ${err.message}`)
       setIsRetrying(false)
+    }
+  }
+
+  const handleRetryJob = async (jobId) => {
+    setIsRetryingJob(jobId)
+    try {
+      await api.retryBatchJob(jobId)
+      setIsRetryingJob(null)
+    } catch (err) {
+      alert(`Retry job #${jobId} failed: ${err.message}`)
+      setIsRetryingJob(null)
     }
   }
 
@@ -279,6 +291,7 @@ export default function Batch() {
                   job={job}
                   onClick={() => setSelectedJobId(job.id)}
                   progressSegments={batchData?.progress_segments}
+                  onRetry={!inProgress ? handleRetryJob : null}
                 />
               ))}
             </div>

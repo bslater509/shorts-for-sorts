@@ -19,7 +19,7 @@ from gui.batch_engine import (
     batch_worker_thread,
     DEFAULT_PHASE_WEIGHTS,
 )
-from gui.config import BATCH_STATS_FILE, logger
+from gui.config import BATCH_STATS_FILE, FAILED_CONFIGS_FILE, logger
 from gui.models import BatchStartRequest
 
 router = APIRouter()
@@ -307,6 +307,14 @@ def retry_failed_batch():
 
     failed_configs = batch_state.get("failed_job_configs", [])
     if not failed_configs:
+        # Fall back to persisted configs from disk
+        if os.path.exists(FAILED_CONFIGS_FILE):
+            try:
+                with open(FAILED_CONFIGS_FILE) as f:
+                    failed_configs = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("Failed to load persisted failed configs: %s", e)
+    if not failed_configs:
         raise HTTPException(status_code=400, detail="No failed jobs to retry.")
 
     num_failed = len(failed_configs)
@@ -326,6 +334,47 @@ def retry_failed_batch():
     t = threading.Thread(target=batch_worker_thread, args=(num_failed, None), daemon=True)
     t.start()
     return {"status": "started", "message": f"Retrying {num_failed} failed jobs."}
+
+
+@router.post("/api/batch/retry-job/{job_id}")
+def retry_single_job(job_id: int):
+    if batch_state["in_progress"]:
+        raise HTTPException(status_code=400, detail="A batch is currently running.")
+
+    # Find the failed job config by index
+    failed_configs = batch_state.get("failed_job_configs", [])
+    if not failed_configs:
+        # Fall back to persisted configs from disk
+        if os.path.exists(FAILED_CONFIGS_FILE):
+            try:
+                with open(FAILED_CONFIGS_FILE) as f:
+                    failed_configs = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning("Failed to load persisted failed configs: %s", e)
+    target = None
+    for cfg in failed_configs:
+        if cfg.get("index") == job_id:
+            target = cfg
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail=f"No failed job #{job_id} found to retry.")
+
+    new_manager = multiprocessing.Manager()
+    new_shared = new_manager.dict()
+
+    with _batch_lock:
+        batch_state["in_progress"] = True
+        batch_state["num_shorts"] = 1
+        batch_state["progress_dict"].clear()
+        batch_state["manager"] = new_manager
+        batch_state["shared_progress"] = new_shared
+        batch_state["failed_job_configs"] = []
+        batch_state["_retry_configs"] = [target]
+
+    t = threading.Thread(target=batch_worker_thread, args=(1, None), daemon=True)
+    t.start()
+    return {"status": "started", "message": f"Retrying job #{job_id}."}
 
 
 @router.get("/api/batch/report")

@@ -94,6 +94,33 @@ export default function AIGenerationSection({ settings, onChange }) {
           <p className="text-xs text-muted-foreground">Default number of shorts in a batch.</p>
         </div>
         <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium">On Batch Failure</label>
+          <select
+            name="batch_failure_mode"
+            value={settings.batch_failure_mode || 'stop_all'}
+            onChange={onChange}
+            className="input-base"
+          >
+            <option value="stop_all">Stop all jobs</option>
+            <option value="continue">Continue remaining jobs</option>
+          </select>
+          <p className="text-xs text-muted-foreground">Stop entire batch on any failure, or continue with remaining jobs.</p>
+        </div>
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-medium">Job Timeout (seconds)</label>
+          <input
+            type="number"
+            min="60"
+            max="3600"
+            step="30"
+            name="batch_job_timeout"
+            value={settings.batch_job_timeout ?? 600}
+            onChange={onChange}
+            className="input-base"
+          />
+          <p className="text-xs text-muted-foreground">Max seconds per job before it's timed out and marked as failed. 0 = no timeout.</p>
+        </div>
+        <div className="flex flex-col gap-2">
           <label className="text-sm font-medium">Words Per Screen</label>
           <select
             name="words_per_screen"
