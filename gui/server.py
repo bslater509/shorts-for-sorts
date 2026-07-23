@@ -1720,45 +1720,6 @@ def batch_worker_thread(
         merged_avg_llm = None
         merged_avg_video = None
 
-        if batch_ratios and job_count >= 1:
-            sample_count = job_count
-            prev_avg_llm = stored_data.get("avg_llm_duration")
-            prev_avg_video = stored_data.get("avg_video_duration")
-            try:
-                if os.path.exists(BATCH_STATS_FILE):
-                    with open(BATCH_STATS_FILE) as f:
-                        raw = json.load(f)
-                    sample_count = raw.get("sample_count", 0) + job_count
-                    if "avg_llm_duration" in raw:
-                        prev_avg_llm = raw["avg_llm_duration"]
-                    if "avg_video_duration" in raw:
-                        prev_avg_video = raw["avg_video_duration"]
-            except Exception:
-                sample_count = job_count
-
-            # Blend: weight this batch by job_count, cap influence of any single run
-            blend = min(0.5, job_count / (job_count + 3))
-            merged = dict(stored) if stored else dict(DEFAULT_PHASE_WEIGHTS)
-            for phase in merged:
-                if phase in batch_ratios:
-                    merged[phase] = (1 - blend) * stored.get(phase, DEFAULT_PHASE_WEIGHTS[phase]) + blend * batch_ratios[phase]
-
-            merged_avg_llm = None
-            if avg_llm_duration is not None:
-                if prev_avg_llm is not None:
-                    merged_avg_llm = (1 - blend) * prev_avg_llm + blend * avg_llm_duration
-                else:
-                    merged_avg_llm = avg_llm_duration
-
-            merged_avg_video = None
-            if avg_video_duration is not None:
-                if prev_avg_video is not None:
-                    merged_avg_video = (1 - blend) * prev_avg_video + blend * avg_video_duration
-                else:
-                    merged_avg_video = avg_video_duration
-
-            _save_phase_weights(merged, sample_count, merged_avg_llm, merged_avg_video)
-
         # Build per-job feature+duration records for historical prediction
         # (runs even if no jobs completed — just appends to existing list)
         job_features = batch_state.get("_job_features", {})
@@ -1783,12 +1744,58 @@ def batch_worker_thread(
                 record["render_duration"] = et - rs
                 record["video_duration"] = et - vs
                 new_job_stats.append(record)
-        if new_job_stats:
-            per_job_stats = list(batch_state.get("_per_job_stats", []))
-            per_job_stats.extend(new_job_stats)
+
+        # Load existing per_job_stats and extend with new entries
+        per_job_stats = list(batch_state.get("_per_job_stats", []))
+        per_job_stats.extend(new_job_stats)
+
+        # Derive sample_count from per_job_stats so the two never diverge
+        sample_count = len(per_job_stats)
+
+        if batch_ratios and job_count >= 1:
+            prev_avg_llm = stored_data.get("avg_llm_duration")
+            prev_avg_video = stored_data.get("avg_video_duration")
+            try:
+                if os.path.exists(BATCH_STATS_FILE):
+                    with open(BATCH_STATS_FILE) as f:
+                        raw = json.load(f)
+                    if "avg_llm_duration" in raw:
+                        prev_avg_llm = raw["avg_llm_duration"]
+                    if "avg_video_duration" in raw:
+                        prev_avg_video = raw["avg_video_duration"]
+            except Exception:
+                pass
+
+            # Blend: weight this batch by job_count, cap influence of any single run
+            blend = min(0.5, job_count / (job_count + 3))
+            merged = dict(stored) if stored else dict(DEFAULT_PHASE_WEIGHTS)
+            for phase in merged:
+                if phase in batch_ratios:
+                    merged[phase] = (1 - blend) * stored.get(phase, DEFAULT_PHASE_WEIGHTS[phase]) + blend * batch_ratios[phase]
+
+            merged_avg_llm = None
+            if avg_llm_duration is not None:
+                if prev_avg_llm is not None:
+                    merged_avg_llm = (1 - blend) * prev_avg_llm + blend * avg_llm_duration
+                else:
+                    merged_avg_llm = avg_llm_duration
+
+            merged_avg_video = None
+            if avg_video_duration is not None:
+                if prev_avg_video is not None:
+                    merged_avg_video = (1 - blend) * prev_avg_video + blend * avg_video_duration
+                else:
+                    merged_avg_video = avg_video_duration
+
+            _save_phase_weights(merged, sample_count, merged_avg_llm, merged_avg_video, per_job_stats=per_job_stats)
+        elif new_job_stats:
+            # No phase ratios to blend but have new per-job stats — save them alone
+            stored = _load_phase_weights()
             _save_phase_weights(
-                merged, sample_count,
-                avg_llm_duration=merged_avg_llm, avg_video_duration=merged_avg_video,
+                stored.get("phase_ratios", dict(DEFAULT_PHASE_WEIGHTS)),
+                sample_count,
+                avg_llm_duration=stored.get("avg_llm_duration"),
+                avg_video_duration=stored.get("avg_video_duration"),
                 per_job_stats=per_job_stats,
             )
 
@@ -2200,7 +2207,12 @@ def get_batch_stats():
     try:
         if os.path.exists(BATCH_STATS_FILE):
             with open(BATCH_STATS_FILE, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+            # Safety net: derive sample_count from per_job_stats so they never diverge
+            per_job_stats = data.get("per_job_stats", [])
+            if data.get("sample_count", 0) != len(per_job_stats):
+                data["sample_count"] = len(per_job_stats)
+            return data
     except Exception:
         pass
     return {

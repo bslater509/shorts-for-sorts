@@ -10,6 +10,19 @@ from rich.console import Console
 
 from gui.state import settings
 
+# Free Zen LLM models — auto-populated into llm_profiles on startup.
+# Models are removed from this list when no longer free.
+ZEN_BASE_URL = "https://opencode.ai/zen/v1"
+
+FREE_ZEN_MODELS = [
+    {"id": "zen-deepseek-free", "name": "Zen DeepSeek V4 Flash Free", "model": "deepseek-v4-flash-free"},
+    {"id": "zen-mimo-free", "name": "Zen MiMo-V2.5 Free", "model": "mimo-v2.5-free"},
+    {"id": "zen-laguna-free", "name": "Zen Laguna S 2.1 Free", "model": "laguna-s-2.1-free"},
+    {"id": "zen-north-code-free", "name": "Zen North Mini Code Free", "model": "north-mini-code-free"},
+    {"id": "zen-nemotron-free", "name": "Zen Nemotron 3 Ultra Free", "model": "nemotron-3-ultra-free"},
+    {"id": "zen-big-pickle", "name": "Zen Big Pickle", "model": "big-pickle"},
+]
+
 # Directories Setup
 # Since config.py is inside gui,
 # BASE_DIR should resolve to the project root
@@ -837,6 +850,44 @@ def load_settings():
             logger.warning(
                 f"Failed to write default settings to {SETTINGS_FILE}: {e}", exc_info=True
             )
+
+    # --- Auto-populate / prune free Zen LLM profiles ---
+    profiles = settings.get("llm_profiles", [])
+    free_models = {m["model"] for m in FREE_ZEN_MODELS}
+    changed = False
+    active_id = settings.get("active_llm_profile_id", "")
+
+    # Remove stale Zen profiles (model no longer in free list)
+    cleaned = [
+        p for p in profiles
+        if not (p.get("base_url", "").rstrip("/") == ZEN_BASE_URL
+                and p.get("model") not in free_models)
+    ]
+    if len(cleaned) != len(profiles):
+        changed = True
+        settings["llm_profiles"] = profiles = cleaned
+        if active_id and active_id not in {p["id"] for p in profiles}:
+            settings["active_llm_profile_id"] = profiles[0]["id"] if profiles else ""
+
+    # Extract an API key from an existing profile (Go or first with a key)
+    api_key = next((p["api_key"] for p in profiles if p.get("api_key")), "")
+
+    # Add missing free Zen models
+    existing = {(p.get("base_url", "").rstrip("/"), p.get("model")) for p in profiles}
+    for fm in FREE_ZEN_MODELS:
+        if (ZEN_BASE_URL, fm["model"]) not in existing:
+            profiles.append({
+                "id": fm["id"],
+                "name": fm["name"],
+                "api_key": api_key,
+                "base_url": ZEN_BASE_URL,
+                "model": fm["model"],
+            })
+            changed = True
+            settings["llm_profiles"] = profiles
+
+    if changed:
+        save_settings(settings)
 
     sentry_dsn = settings.get("sentry_dsn")
     if sentry_dsn:

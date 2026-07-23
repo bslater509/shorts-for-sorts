@@ -391,7 +391,10 @@ def generate_title_hashtags(
     )
     try:
         response = client.chat.completions.create(
-            model=model, messages=[{"role": "user", "content": prompt}], temperature=temperature
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            timeout=300.0,
         )
         reply = (response.choices[0].message.content or "").strip()
         _, title, hashtags = parse_title_hashtags(reply)
@@ -424,12 +427,6 @@ def unload_whisper_model():
         del _WHISPER_MODEL
         _WHISPER_MODEL = None
         _WHISPER_MODEL_NAME = None
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
         _release_memory_to_os()
         logger.info("Whisper model unloaded from memory.")
 
@@ -486,10 +483,12 @@ def compile_video_flow(
     )
 
     if not script:
+        logger.error("Script is empty.")
         console.print("[red]Error: Script is empty. Please generate or edit a script first.[/]")
         return False
 
     if not current_state["bg_video_path"]:
+        logger.error("No top/primary background video configured.")
         console.print(
             "[red]Error: No top/primary background video configured. Please configure it first.[/]"
         )
@@ -528,6 +527,7 @@ def compile_video_flow(
 
     if resolved_top_path == "random":
         if not video_files:
+            logger.error("No background videos found for random top video selection.")
             console.print(
                 "[red]Error: No background videos found in videos/ folder to select from.[/]"
             )
@@ -537,6 +537,7 @@ def compile_video_flow(
 
     if resolved_bottom_path == "random":
         if not video_files:
+            logger.error("No background videos found for random bottom video selection.")
             console.print(
                 "[red]Error: No background videos found in videos/ folder to select from.[/]"
             )
@@ -549,12 +550,14 @@ def compile_video_flow(
         console.print(f"[yellow]Resolved Bottom Video: {os.path.basename(resolved_bottom_path)}[/]")
 
     if not resolved_top_path or not os.path.exists(resolved_top_path):
+        logger.error("Top background video file '%s' not found.", resolved_top_path)
         console.print(f"[red]Error: Top background video file '{resolved_top_path}' not found.[/]")
         return False
 
     if current_state["bg_video_bottom_path"] and (
         not resolved_bottom_path or not os.path.exists(resolved_bottom_path)
     ):
+        logger.error("Bottom background video file '%s' not found.", resolved_bottom_path)
         console.print(
             f"[red]Error: Bottom background video file '{resolved_bottom_path}' not found.[/]"
         )
@@ -569,6 +572,7 @@ def compile_video_flow(
     local_model_name = settings.get("local_whisper_model", "tiny")
 
     if not use_local_whisper and not api_key:
+        logger.error("API Key required for transcription when local Whisper is disabled.")
         console.print(
             "[red]Error: API Key is required to transcribe audio when local Whisper is disabled. Configure it in Settings.[/]"
         )
@@ -1008,9 +1012,11 @@ def llm_job_worker(job_config, progress_dict):
         api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
         base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
 
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=300.0)
 
         # Streaming LLM call with retry + buffered progress
+        # Retry covers both the initial request AND the streaming read,
+        # so mid-stream disconnects ("incomplete chunked read") trigger a full restart.
         script_text = ""
         _last_ts = time.time()
         _last_wc = 0
@@ -1026,7 +1032,23 @@ def llm_job_worker(job_config, progress_dict):
                     temperature=job_config["script_temp"],
                     stream=True,
                 )
-                break
+                script_text = ""
+                _last_ts = time.time()
+                _last_wc = 0
+                for chunk in response:
+                    if (
+                        chunk.choices
+                        and chunk.choices[0].delta
+                        and chunk.choices[0].delta.content is not None
+                    ):
+                        script_text += chunk.choices[0].delta.content
+                        word_count = len(script_text.split())
+                        now = time.time()
+                        if word_count - _last_wc >= 5 or now - _last_ts >= 0.25:
+                            progress_dict[idx] = f"LLM Script ({word_count} words)"
+                            _last_ts = now
+                            _last_wc = word_count
+                break  # success — exit retry loop
             except Exception as e:
                 err_str = str(e).lower()
                 if (
@@ -1039,26 +1061,15 @@ def llm_job_worker(job_config, progress_dict):
                     raise
                 is_retryable = isinstance(e, (ConnectionError, TimeoutError)) or any(
                     w in err_str
-                    for w in ["rate", "timeout", "connection", "overloaded", "api_error"]
+                    for w in [
+                        "rate", "timeout", "connection", "overloaded",
+                        "api_error", "incomplete chunked read",
+                    ]
                 )
                 if not is_retryable or attempt == 2:
                     raise
                 progress_dict[idx] = f"LLM Script (retry {attempt + 1}/3)"
                 time.sleep(1.0 * (2**attempt))
-
-        for chunk in response:
-            if (
-                chunk.choices
-                and chunk.choices[0].delta
-                and chunk.choices[0].delta.content is not None
-            ):
-                script_text += chunk.choices[0].delta.content
-                word_count = len(script_text.split())
-                now = time.time()
-                if word_count - _last_wc >= 5 or now - _last_ts >= 0.25:
-                    progress_dict[idx] = f"LLM Script ({word_count} words)"
-                    _last_ts = now
-                    _last_wc = word_count
 
         script_text = script_text.strip()
         # Defensively strip any TITLE/HASHTAGS lines that might be in the response
