@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
-import { Settings as SettingsIcon, Save, Key, Cpu, Mic, Video, Loader2, Activity, Plus, Trash, CheckCircle, RefreshCw, FileText, Volume2 } from 'lucide-react'
+import { Settings as SettingsIcon, Save, Loader2 } from 'lucide-react'
 import * as api from '@/lib/api'
+import LLMProfilesSection from '../components/settings/LLMProfilesSection'
+import AIGenerationSection from '../components/settings/AIGenerationSection'
+import ThirdPartySection from '../components/settings/ThirdPartySection'
+import WhisperSection from '../components/settings/WhisperSection'
+import FFmpegSection from '../components/settings/FFmpegSection'
+import AudioDefaultsSection from '../components/settings/AudioDefaultsSection'
+import SystemPerformanceSection from '../components/settings/SystemPerformanceSection'
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState({
@@ -95,15 +102,29 @@ export default function SettingsPage() {
     }))
   }
   
-  const handleDeleteProfile = (id) => {
-    setSettings(prev => ({
-      ...prev,
-      llm_profiles: prev.llm_profiles.filter(p => p.id !== id)
-    }))
+  const handleDeleteProfile = async (id) => {
+    const isDeletingActive = settings.active_llm_profile_id === id
+    const updated = {
+      ...settings,
+      llm_profiles: settings.llm_profiles.filter(p => p.id !== id),
+      active_llm_profile_id: isDeletingActive ? '' : settings.active_llm_profile_id,
+    }
+    setSettings(updated)
+    try {
+      await api.saveSettings(updated)
+    } catch (err) {
+      console.error('Failed to save after deleting profile:', err)
+    }
   }
   
-  const handleSetActiveProfile = (id) => {
-    setSettings(prev => ({ ...prev, active_llm_profile_id: id }))
+  const handleSetActiveProfile = async (id) => {
+    const updated = { ...settings, active_llm_profile_id: id }
+    setSettings(updated)
+    try {
+      await api.saveSettings(updated)
+    } catch (err) {
+      console.error('Failed to save active profile:', err)
+    }
   }
 
   const handleFetchModels = async (profile) => {
@@ -182,351 +203,57 @@ export default function SettingsPage() {
       )}
 
       <div className="flex-1 md:overflow-y-auto pr-2 space-y-6 pb-6">
-        {/* LLM Config */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold flex items-center gap-2">
-              <Cpu className="text-blue-500" size={20} />
-              LLM Profiles
-            </h3>
-            <button onClick={handleAddProfile} className="flex items-center gap-1 px-3 py-1.5 bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 rounded-lg text-sm font-medium transition-colors">
-              <Plus size={16} /> Add Profile
-            </button>
-          </div>
-          
-          <div className="space-y-4">
-            {(!settings.llm_profiles || settings.llm_profiles.length === 0) ? (
-               <p className="text-sm text-muted-foreground italic">No profiles configured. Add one above.</p>
-            ) : (
-               settings.llm_profiles.map((profile, index) => (
-                 <div key={profile.id} className={`p-4 border rounded-lg space-y-4 ${settings.active_llm_profile_id === profile.id ? 'border-blue-500 bg-blue-500/5' : 'border-border'}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <input 
-                          type="text" 
-                          value={profile.name} 
-                          onChange={(e) => handleProfileChange(profile.id, 'name', e.target.value)}
-                          className="font-medium bg-transparent border-b border-dashed border-muted-foreground/30 focus:border-blue-500 focus:outline-none"
-                          placeholder="Profile Name"
-                        />
-                        {settings.active_llm_profile_id === profile.id && (
-                          <span className="flex items-center gap-1 text-xs font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full"><CheckCircle size={12}/> Active</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                         {settings.active_llm_profile_id !== profile.id && (
-                           <button onClick={() => handleSetActiveProfile(profile.id)} className="text-xs px-3 py-1.5 border border-border hover:bg-accent rounded-md">
-                             Set Active
-                           </button>
-                         )}
-                         <button onClick={() => handleDeleteProfile(profile.id)} className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-md" title="Delete Profile">
-                           <Trash size={16} />
-                         </button>
-                      </div>
-                    </div>
-                    
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-muted-foreground">API Key (Optional if env set)</label>
-                        <input type="password" value={profile.api_key} onChange={(e) => handleProfileChange(profile.id, 'api_key', e.target.value)} placeholder="sk-..." className="input-base text-sm py-1.5" />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-muted-foreground">API Base URL</label>
-                        <input type="text" value={profile.base_url} onChange={(e) => handleProfileChange(profile.id, 'base_url', e.target.value)} placeholder="https://api.openai.com/v1" className="input-base text-sm py-1.5" />
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-medium text-muted-foreground flex justify-between items-center">
-                          Model Name
-                          <button 
-                            onClick={() => handleFetchModels(profile)} 
-                            disabled={isFetchingModels[profile.id]}
-                            className="text-blue-500 hover:underline flex items-center gap-1 disabled:opacity-50"
-                          >
-                            {isFetchingModels[profile.id] ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
-                            Fetch Models
-                          </button>
-                        </label>
-                        {availableModels[profile.id] && availableModels[profile.id].length > 0 ? (
-                          <select 
-                            value={profile.model} 
-                            onChange={(e) => handleProfileChange(profile.id, 'model', e.target.value)}
-                            className="input-base text-sm py-1.5"
-                          >
-                            <option value="">-- Select a Model --</option>
-                            {availableModels[profile.id].map(m => (
-                              <option key={m} value={m}>{m}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <input type="text" value={profile.model} onChange={(e) => handleProfileChange(profile.id, 'model', e.target.value)} className="input-base text-sm py-1.5" placeholder="e.g. gpt-4o" />
-                        )}
-                      </div>
-                    </div>
-                 </div>
-               ))
-            )}
-          </div>
-          
-        </div>
+        <LLMProfilesSection
+          profiles={settings.llm_profiles || []}
+          activeProfileId={settings.active_llm_profile_id}
+          onChange={handleProfileChange}
+          onDelete={handleDeleteProfile}
+          onSetActive={handleSetActiveProfile}
+          onFetchModels={handleFetchModels}
+          availableModels={availableModels}
+          isFetchingModels={isFetchingModels}
+          onAddProfile={handleAddProfile}
+        />
 
-        {/* AI Generation */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <FileText className="text-violet-500" size={20} />
-            AI Script Generation
-          </h3>
+        <AIGenerationSection
+          settings={settings}
+          onChange={handleChange}
+        />
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">System Prompt</label>
-            <textarea
-              name="system_prompt"
-              value={settings.system_prompt || ''}
-              onChange={handleChange}
-              rows={24}
-              className="input-base text-sm py-1.5 font-mono resize-y min-h-[300px]"
-              placeholder="Default: You are an elite TikTok and YouTube Shorts scriptwriter..."
-            />
-            <p className="text-xs text-muted-foreground">
-              The system prompt sent to the LLM for every script generation. Leave empty to use the built-in default.
-            </p>
-          </div>
+        <ThirdPartySection
+          settings={settings}
+          onChange={handleChange}
+          onTikTokLogin={async () => {
+            try {
+              const res = await api.loginTikTok();
+              alert(res.message || "Browser opened! Please log in.");
+            } catch (e) {
+              alert("Error: " + e.message);
+            }
+          }}
+        />
 
-          <div className="grid sm:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Script Temperature</label>
-              <input type="number" min="0" max="2" step="0.05" name="llm_temp_script" value={settings.llm_temp_script ?? 0.7} onChange={handleChange} className="input-base" />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Metadata Temperature</label>
-              <input type="number" min="0" max="2" step="0.05" name="llm_temp_metadata" value={settings.llm_temp_metadata ?? 0.7} onChange={handleChange} className="input-base" />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Keywords Temperature</label>
-              <input type="number" min="0" max="2" step="0.05" name="llm_temp_keywords" value={settings.llm_temp_keywords ?? 0.7} onChange={handleChange} className="input-base" />
-            </div>
-          </div>
+        <WhisperSection
+          settings={settings}
+          onChange={handleChange}
+        />
 
-          <div className="grid sm:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Max Script Words</label>
-              <input type="number" min="50" max="2000" step="50" name="max_words" value={settings.max_words || ''} onChange={handleChange} className="input-base" />
-              <p className="text-xs text-muted-foreground">Target word count for generated scripts.</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Default Batch Size</label>
-              <input type="number" min="1" max="100" name="default_batch_size" value={settings.default_batch_size || ''} onChange={handleChange} className="input-base" />
-              <p className="text-xs text-muted-foreground">Default number of shorts in a batch.</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Words Per Screen</label>
-              <select name="words_per_screen" value={settings.words_per_screen || '3'} onChange={handleChange} className="input-base">
-                <option value="1">1 word</option>
-                <option value="3">3 words</option>
-                <option value="sentence">Full sentence</option>
-                <option value="random">Random</option>
-              </select>
-              <p className="text-xs text-muted-foreground">How many words appear per subtitle screen.</p>
-            </div>
-          </div>
-        </div>
+        <FFmpegSection
+          settings={settings}
+          onChange={handleChange}
+        />
 
-        {/* Third Party */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <Key className="text-emerald-500" size={20} />
-            Third Party APIs & Integrations
-          </h3>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Pexels API Key (For Auto-B-Roll)</label>
-              <input type="password" name="pexels_api_key" value={settings.pexels_api_key} onChange={handleChange} placeholder="Optional" className="input-base" />
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Sentry DSN (Error Tracking)</label>
-              <input type="text" name="sentry_dsn" value={settings.sentry_dsn || ''} onChange={handleChange} placeholder="https://..." className="input-base" />
-            </div>
-            <div className="flex flex-col gap-2 md:col-span-2">
-              <label className="text-sm font-medium">TikTok Session ID (For Auto-Uploading)</label>
-              <div className="flex gap-2">
-                <input 
-                  type="password" 
-                  name="tiktok_sessionid" 
-                  value={settings.tiktok_sessionid || ''} 
-                  onChange={handleChange} 
-                  placeholder="Paste sessionid cookie or login..." 
-                  className="input-base flex-1" 
-                />
-                <button 
-                  onClick={async () => {
-                    try {
-                      const res = await api.loginTikTok();
-                      alert(res.message || "Browser opened! Please log in.");
-                    } catch (e) {
-                      alert("Error: " + e.message);
-                    }
-                  }}
-                  className="px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg font-medium text-sm transition-colors whitespace-nowrap"
-                >
-                  Login to TikTok
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AudioDefaultsSection
+          settings={settings}
+          onChange={handleChange}
+        />
 
-        {/* Whisper Config */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <Mic className="text-purple-500" size={20} />
-            Whisper Transcription (Subtitles)
-          </h3>
-          <div className="grid sm:grid-cols-2 gap-4 mb-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Transcription Engine</label>
-              <select 
-                name="local_whisper" 
-              value={String(settings.local_whisper)} 
-              onChange={handleChange}
-              className="input-base max-w-xs"
-            >
-              <option value="true">Local CPU/GPU (faster-whisper)</option>
-              <option value="false">OpenAI API (Cloud)</option>
-            </select>
-            </div>
-          </div>
-
-          {settings.local_whisper ? (
-            <div className="grid sm:grid-cols-2 gap-4 animate-in fade-in duration-300">
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Local Model Size</label>
-                <select name="local_whisper_model" value={settings.local_whisper_model} onChange={handleChange} className="input-base">
-                  <option value="tiny">tiny (fastest, lowest accuracy)</option>
-                  <option value="base">base</option>
-                  <option value="small">small (recommended)</option>
-                  <option value="medium">medium</option>
-                  <option value="large-v3">large-v3 (slowest, highest accuracy)</option>
-                </select>
-              </div>
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-4 animate-in fade-in duration-300">
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Whisper API Key</label>
-                <input type="password" name="whisper_api_key" value={settings.whisper_api_key} onChange={handleChange} className="input-base" />
-              </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Whisper API URL</label>
-                <input type="text" name="whisper_base_url" value={settings.whisper_base_url} onChange={handleChange} className="input-base" />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* FFmpeg Config */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <Video className="text-orange-500" size={20} />
-            Render & FFmpeg Configuration
-          </h3>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Vertical Resolution</label>
-              <select name="render_resolution" value={settings.render_resolution} onChange={handleChange} className="input-base">
-                <option value="720p">720p (720x1280)</option>
-                <option value="1080p">1080p (1080x1920) - Standard</option>
-                <option value="1440p">1440p (1440x2560)</option>
-                <option value="4k">4K (2160x3840)</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">FFmpeg Preset (Speed vs Size)</label>
-              <select name="render_preset" value={settings.render_preset} onChange={handleChange} className="input-base">
-                <option value="ultrafast">ultrafast</option>
-                <option value="superfast">superfast</option>
-                <option value="veryfast">veryfast (recommended)</option>
-                <option value="faster">faster</option>
-                <option value="fast">fast</option>
-                <option value="medium">medium</option>
-                <option value="slow">slow</option>
-              </select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Video Encoder</label>
-              <select name="video_encoder" value={settings.video_encoder} onChange={handleChange} className="input-base">
-                <option value="libx265">libx265 (HEVC CPU - Default)</option>
-                <option value="libx264">libx264 (CPU)</option>
-                <option value="h264_nvenc">h264_nvenc (NVIDIA GPU)</option>
-                <option value="hevc_nvenc">hevc_nvenc (NVIDIA GPU H.265)</option>
-                <option value="h264_amf">h264_amf (AMD GPU)</option>
-                <option value="h264_qsv">h264_qsv (Intel QuickSync)</option>
-              </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Audio Defaults */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <Volume2 className="text-pink-500" size={20} />
-            Audio Defaults
-          </h3>
-          <div className="grid sm:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Voice Speed</label>
-              <input type="number" min="0.5" max="2" step="0.05" name="voice_speed" value={settings.voice_speed ?? 1.0} onChange={handleChange} className="input-base" />
-              <p className="text-xs text-muted-foreground">TTS playback speed (1.0 = normal).</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Voice Volume</label>
-              <input type="number" min="0" max="5" step="0.1" name="voice_volume" value={settings.voice_volume ?? 1.0} onChange={handleChange} className="input-base" />
-              <p className="text-xs text-muted-foreground">Voice audio gain multiplier.</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Music Volume</label>
-              <input type="number" min="0" max="1" step="0.01" name="music_volume" value={settings.music_volume ?? 0.15} onChange={handleChange} className="input-base" />
-              <p className="text-xs text-muted-foreground">Background music volume (0-1).</p>
-            </div>
-          </div>
-        </div>
-
-        {/* System & Performance Config */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm space-y-4">
-          <h3 className="text-lg font-semibold flex items-center gap-2 mb-4">
-            <Activity className="text-blue-400" size={20} />
-            System & Performance
-          </h3>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Max Parallel Operations (CPU/Rendering)</label>
-              <input type="number" min="1" max="64" name="max_workers" value={settings.max_workers || ''} onChange={handleChange} placeholder="Default: CPU Count" className="input-base" />
-              <p className="text-xs text-muted-foreground">Controls how many videos render/process at once.</p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">Max Parallel LLM API Requests</label>
-              <input type="number" min="1" max="64" name="llm_max_workers" value={settings.llm_max_workers || ''} onChange={handleChange} placeholder="Default: 5" className="input-base" />
-              <p className="text-xs text-muted-foreground">Controls how many LLM scripts generate concurrently.</p>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-border mt-4">
-            <h4 className="text-sm font-medium mb-2">Web Notifications</h4>
-            <div className="flex items-center gap-4">
-              <p className="text-xs text-muted-foreground flex-1">
-                Enable background notifications for job completions. (On iOS, add this page to your Home Screen first).
-                <br />
-                Status: <strong>{notificationStatus}</strong>
-              </p>
-              {notificationStatus !== 'granted' && notificationStatus !== 'unsupported' && (
-                <button 
-                  onClick={requestNotificationPermission}
-                  className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors whitespace-nowrap shadow-sm"
-                >
-                  Enable Notifications
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        <SystemPerformanceSection
+          settings={settings}
+          onChange={handleChange}
+          notificationStatus={notificationStatus}
+          onRequestNotification={requestNotificationPermission}
+        />
       </div>
     </div>
   )

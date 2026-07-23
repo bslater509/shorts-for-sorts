@@ -1,0 +1,97 @@
+# Prompt templates — default system prompt and story prompt library
+
+import json
+import os
+
+from gui.config import PROMPTS_FILE, console, logger
+
+DEFAULT_SCRIPT_SYSTEM_PROMPT = (
+    "You are a versatile short-form scriptwriter creating content for TikTok and YouTube Shorts. "
+    "Write a compelling vertical video script based on the user's topic.\n\n"
+    "Guidelines:\n"
+    "1. The Hook (First 5-10s): Start with a scroll-stopping statement, provocative question, or intriguing hook that grabs attention immediately. No slow introductions.\n"
+    "2. Story Arc: Structure with a clear arc — setup, rising tension or details, and a strong payoff or conclusion. Let the content find its own natural shape.\n"
+    "3. Length: Aim for approximately {max_words} words (approx. {max_words_seconds} seconds when spoken). Stay flexible — let the story dictate the exact length.\n"
+    "4. Pacing: Vary sentence length. Use short punchy lines for impact and longer sentences for storytelling. Build momentum toward key reveals.\n"
+    "5. Tone: Sound authentic and human — conversational but informed. Avoid robotic, academic, or cliché AI writing. Let your voice match the mood of the topic.\n"
+    "6. Formatting: Output ONLY the exact spoken words. Do NOT include stage directions, timestamps, speaker tags, or brackets (e.g., no [Music], [Host], or [Visuals]).\n"
+    "7. Chunks: Group every 2-4 sentences into a natural spoken chunk and separate each chunk with a blank line (\\n\\n). This improves voice audio quality significantly — do not skip this.\n"
+    "8. Source: Follow the framing of the user's prompt. If they set a specific scene (Reddit post, historical event, personal story), lean into that framing. If no framing is given, tell the story directly without mentioning external sources."
+)
+
+DEFAULT_PROMPTS = {
+    "Romantic Drama": "Two people whose love is forbidden or tested by impossible circumstances. What stands between them? What are they willing to lose? Tell their story in a way that feels urgent and real — whether it ends in heartbreak, defiance, or something unexpected.",
+    "Family Drama": "A family grappling with secrets, loss, betrayal, or a long-overdue reckoning. Zoom in on one charged moment — a reunion, a discovery, a confrontation — that forces buried tensions to the surface.",
+    "Historical Drama": "Set a story in a pivotal moment in history where ordinary people faced extraordinary stakes. Don't lecture — make the era feel lived-in, the stakes personal, and the outcome anything but certain.",
+    "Psychological Drama": "A character whose grip on reality is fraying — or is it? Plunge into their inner world as a buried memory, a moral dilemma, or a slow unraveling forces them to question everything they thought was true.",
+    "Crime Drama": "A story of crime and consequence where guilt, justice, revenge, or a shot at redemption drives every choice. Start at the moment everything goes wrong and let the fallout unfold.",
+    "Survival Drama": "Strip away comfort and put someone in a harsh, unforgiving situation — nature, circumstance, or other people. Show what they become when there is no way out but through.",
+    "Political Drama": "Power, ambition, and betrayal — where every alliance has a price and ideals collide with corruption. Tell it from the perspective of someone who thought they could stay clean.",
+    "Tragedy": "A character whose greatest strength becomes their fatal flaw. Let the audience see the fall coming and be powerless to stop it. The best tragedies feel inevitable but not predictable.",
+    "Character Drama": "A single life-changing event that redefines who a person is. No elaborate plot — just someone at a crossroads, forced to confront who they have been and who they could become.",
+    "Mystery Drama": "A dark secret buried just beneath the surface. One person starts pulling at a thread and slowly uncovers the truth — only to discover that knowing it may be worse than the not-knowing. Drip-feed the clues.",
+    "Dark Comedy": "A story with a darkly comic edge where the sheer absurdity of a terrible situation becomes the point. Make the viewer uncomfortable and entertained in equal measure.",
+    "Moral Dilemma": "A choice with no good options. Every path comes with a steep cost. Build the tension, show the stakes, and let the moment of decision land with real weight.",
+    "Twist Ending": "Tell a story that builds toward a reveal — a single moment that completely reshapes everything the viewer thought they understood. The twist should feel surprising yet inevitable in hindsight.",
+    "History's Coolest Coincidences": "Tell the story of one of the most unbelievable coincidences in history that shaped the world.",
+    "Space Is Way Bigger Than You Think": "Explain the scale of the universe using mind-bending analogies that will make the viewer feel tiny.",
+    "Signs of High Intelligence": "Highlight 3 unusual behavioral traits or habits that are scientifically linked to high intelligence.",
+    "The Mandela Effect Cases": "Explain the Mandela Effect and share 3 famous examples that will make viewers question their own memory.",
+    "Unusual Jobs That Pay Well": "Introduce 3 weird or lesser-known jobs that pay surprisingly high salaries.",
+    "How To Read Body Language": "Teach 3 quick tips to read someone's body language instantly, like detecting if they are lying or interested.",
+    "Hidden Easter Eggs in Famous Art": "Reveal 3 hidden messages or secrets painted into famous historical artworks like the Mona Lisa or The Last Supper.",
+    "The Origin of Common Phrases": "Explain the fascinating, sometimes dark origins of 3 everyday phrases we use without thinking.",
+    "Why Time Feels Faster as We Age": "Explain the psychological theory of why years seem to speed up as we grow older, and how to slow it down.",
+    "Incredible Animal Superpowers": "Describe 3 animals with incredible, real-life superpowers that seem straight out of comic books.",
+    "Quick Memory Improvement Tricks": "Teach 2 memory techniques (like the Memory Palace) that anyone can use to remember lists or names instantly.",
+    "Fascinating Psychological Phenomena": "Explain a strange psychological phenomenon, like the Baader-Meinhof phenomenon or Placebo Effect, with a cool example.",
+    "Bizarre Science Theories": "Explain a mind-bending, scientifically plausible physics or cosmological theory (like the simulation hypothesis or multiverse) in a simple way.",
+    "Ancient Mythological Beasts": "Describe 3 of the most terrifying or fascinating mythical creatures from ancient folklore and their origins.",
+    "Stoicism & Mental Toughness": "Explain how to apply the ancient philosophy of Stoicism to manage modern stress and build mental resilience.",
+    "How Caffeine Affects Your Brain": "Explain the science of what caffeine actually does to your brain and how to optimize your coffee intake.",
+    "Hidden Symbols in Famous Logos": "Reveal the hidden meanings or visual secrets behind 3 famous company logos.",
+    "History of the Internet": "Explain a surprising, lesser-known story about how the internet was created or its earliest days.",
+    "A Betrayal That Changed History": "A story of betrayal between two people who were once inseparable — a mentor and protégé, or a pair of allies who built something together. The betrayal is personal, political, and its consequences ripple far beyond just the two of them. Build the relationship first, then the moment of betrayal, then the devastating fallout.",
+    "Hollywood's Most Dramatic Feud": "Two talented, ambitious people in the same industry develop a fierce rivalry that spans years. Their mutual hatred becomes as legendary as their work. Show the pettiness, the sabotage, and the uncomfortable complexity of hating someone who is also your equal.",
+    "The Scandal That Shook a Monarchy": "A person in the highest position of power must choose between duty and something they want with their whole heart. Their decision throws an entire nation into crisis and forces them to give up everything. The stakes are historic and deeply personal.",
+    "When Art Turned to Violence": "A fierce artistic rivalry between two performers escalates beyond the stage and spills into the streets. Egos clash, fans take sides, and what begins as creative competition turns into actual chaos. The line between art and violence disappears.",
+    "The Mystery That Haunted a Family": "A person vanishes without a trace under strange circumstances. At first it seems like a simple case, but as the investigation deepens, family secrets and shocking theories surface. No one ever finds the full truth — and the mystery haunts those left behind.",
+    "The Rivalry That Created Masterpieces": "Two creative geniuses working in the same city at the same time despise each other. Their intense hatred drives both to outdo the other, pushing each to create their greatest works. The competition is bitter, petty, and absolutely legendary.",
+    "The War of the Currents": "Two brilliant inventors go to war over whose technology will power the world. One is a savvy businessman who plays dirty, the other a visionary idealist who can't compete in the arena of public opinion. The battle involves public stunts, sabotage, and the fight for the future itself.",
+    "The Curse of the Pharaoh's Tomb": "The discovery of an ancient tomb filled with unimaginable treasure — but those who entered it begin to die one by one. Tell the story of the awe of the find, the wonder of the treasures, and the creeping dread as a so-called curse claims its victims.",
+    "The Deadliest Rivalry in Medicine": "Two experts in the same field engage in a high-stakes battle of wits to prove who is superior. Ambition and pride drive one to set a treacherous trap for the other. But nothing goes as planned — and the outcome is shocking and deeply ironic.",
+    "The Shipwreck That Became a Scandal": "A ship carrying hundreds of people meets a disastrous end at sea. The survivors are left adrift in horrific conditions — exposed, starving, and desperate. When rescue finally arrives, the truth of what happened and who was to blame sparks a national scandal.",
+    "When Rivalry Turned Fatal": "A bitter personal and political rivalry between two formidable people builds for years. Insults, betrayals, and a clash of ambitions lead inexorably to a final, deadly confrontation. The buildup is as dramatic as the shot itself.",
+    "Reddit Betrayal Story": "Write a dramatic Reddit-style story about a betrayal in a close relationship. Someone discovers a hidden truth about a partner, friend, or family member that shatters their trust. The confrontation is emotional and the stakes are deeply personal. Invent specific characters, a unique setting, and a fresh scenario — avoid overused plots.",
+    "Reddit Workplace Justice": "Write a dramatic Reddit-style story from the workplace where someone in power is exposed for wrongdoing, or where an underdog gets satisfying revenge. The poster has evidence, a witness, or a clever plan. The ending should feel like justice — through official channels, public exposure, or poetic irony. Create fresh characters and a believable industry.",
+    "Reddit Family Secret": "Write a dramatic Reddit-style post about the discovery of a long-hidden family secret that changes everything. The discovery happens accidentally — an old letter, a DNA test result, a diary, a slip of the tongue at a gathering. The secret is big enough to fracture relationships but the storyteller is still processing what it means. Avoid the most obvious DNA test plot lines.",
+    "Reddit Entitlement Backfire": "Write a dramatic Reddit-style story about someone with unreasonable expectations who gets spectacular comeuppance. The entitled person could be a relative, neighbor, customer, or stranger. Their demand starts small and escalates. The payoff is deeply satisfying — malicious compliance, public embarrassment, or legal consequences.",
+    "Reddit Twist of Fate": "Write a dramatic Reddit-style story that starts one way and takes an unexpected turn. A routine event, a small decision, or an everyday interaction leads somewhere completely unforeseen. The twist should feel surprising yet inevitable in hindsight. Could be funny, dramatic, suspenseful, or any blend.",
+    "The Will That Changed Everything": "A wealthy person's last will and testament contains a shocking twist that no one saw coming. It pits family members against each other and against an unexpected stranger. Greed, long-buried secrets, and one final surprise from beyond the grave drive the story.",
+    "Hollywood's Best-Kept Secret": "Two famous rivals in the entertainment industry have a secret that would destroy their carefully crafted public images. Behind the public feuding lies an unexpected truth about their relationship. Tell the story of the elaborate deception and the moment it almost unraveled.",
+    "Reddit Stolen Credit": "Write a dramatic Reddit-style story about someone whose work, idea, or achievement was stolen by a colleague, boss, or even a friend. The theft is brazen and the victim has to decide whether to expose it quietly or go public with devastating proof. The reveal is tense and the fallout is massive.",
+    "The Artist Who Vanished": "A brilliant creative mind disappears on the eve of their biggest moment. They leave behind one final work — and it contains clues that no one fully understands. The mystery of what happened to them endures for decades and becomes part of their legend.",
+    "Reddit DNA Discovery": "Write a dramatic Reddit-style story where a casual DNA test or genealogy search uncovers a truth that reshapes someone's entire understanding of their family and identity. The discovery raises more questions than it answers. Focus on the emotional impact, not just the shock value.",
+    "The Night Everything Went Wrong": "A highly anticipated event — a premiere, a launch, a grand opening — is targeted by a jealous rival. What was supposed to be a triumphant night turns into a disaster through clever, perfectly timed sabotage. The culprit's motive is revealed only at the end.",
+    "Workplace Embezzlement Twist": "A low-level employee accidentally stumbles onto evidence of a massive financial crime orchestrated by someone at the very top of the company. Now they have to decide what to do with the information — and who to trust. The tension builds as they get closer to exposing the truth.",
+    "Reddit Fake Friendship": "Write a dramatic Reddit-style story about a friendship that turns out to be built on a lie. Someone discovers that a close friend has been manipulating them, using them, or hiding a significant truth for years. The revelation forces them to question every moment they shared.",
+    "The Impostor Who Fooled Everyone": "An ordinary person with audacity, charm, and nerve convinces a community — or an entire nation — that they are someone they are not. They live a life of luxury, power, and admiration until a small, careless mistake unravels everything. The fall is as spectacular as the rise.",
+}
+
+
+def load_prompt_templates():
+    if not os.path.exists(PROMPTS_FILE):
+        try:
+            with open(PROMPTS_FILE, "w") as f:
+                json.dump(DEFAULT_PROMPTS, f, indent=4)
+        except Exception as e:
+            logger.warning(f"Could not initialize prompts file {PROMPTS_FILE}: {e}", exc_info=True)
+            console.print(f"[red]Warning: Could not initialize prompts file: {e}[/]")
+            return DEFAULT_PROMPTS
+    try:
+        with open(PROMPTS_FILE) as f:
+            return json.load(f)
+    except Exception as e:
+        logger.warning(f"Could not load prompts file {PROMPTS_FILE}: {e}", exc_info=True)
+        console.print(f"[red]Warning: Could not load prompts file, using defaults: {e}[/]")
+        return DEFAULT_PROMPTS
