@@ -1,6 +1,6 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/batch.svg">
-  <img alt="Shorts for Sorts" src="docs/screenshots/batch.svg" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/batch.png">
+  <img alt="Shorts for Sorts" src="docs/screenshots/batch.png" width="100%">
 </picture>
 
 # Shorts for Sorts
@@ -30,7 +30,7 @@
 
 | Batch Generation | Settings Configuration | Gallery |
 |---|---|---|
-| <img src="docs/screenshots/batch.svg" width="250" alt="Batch page"> | <img src="docs/screenshots/settings.svg" width="250" alt="Settings page"> | <img src="docs/screenshots/gallery.svg" width="250" alt="Gallery page"> |
+| <img src="docs/screenshots/batch.png" width="250" alt="Batch page"> | <img src="docs/screenshots/settings.png" width="250" alt="Settings page"> | <img src="docs/screenshots/gallery.png" width="250" alt="Gallery page"> |
 
 ---
 
