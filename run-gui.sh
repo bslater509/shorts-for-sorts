@@ -36,6 +36,16 @@ if [ -f "requirements.txt" ]; then
     fi
 fi
 
+# Keep yt-dlp and ffmpeg-python up to date
+echo "Updating yt-dlp and ffmpeg-python..."
+if command -v uv &> /dev/null; then
+    uv pip install --upgrade yt-dlp ffmpeg-python
+elif [ -f "$HOME/.local/bin/uv" ]; then
+    $HOME/.local/bin/uv pip install --upgrade yt-dlp ffmpeg-python
+else
+    pip install --upgrade yt-dlp ffmpeg-python
+fi
+
 if [ ! -f "cert.pem" ] || [ ! -f "key.pem" ]; then
     echo "Generating self-signed certificate for HTTPS..."
     openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -sha256 -days 365 -nodes -subj "/CN=localhost"
