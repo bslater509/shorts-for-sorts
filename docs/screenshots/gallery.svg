@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="520" fill="url(#bg)" rx="8"/>
+
+  <!-- Sidebar -->
+  <rect x="0" y="0" width="180" height="520" fill="#0f172a" opacity="0.5" rx="8"/>
+  <rect x="16" y="16" width="28" height="28" fill="#863bff" rx="6"/>
+  <text x="52" y="35" fill="#94a3b8" font-family="sans-serif" font-size="11" font-weight="bold">SHORTS FOR SORTS</text>
+  <rect x="16" y="64" width="148" height="28" fill="#863bff" rx="6" opacity="0.1"/>
+  <circle cx="28" cy="78" r="4" fill="#475569"/>
+  <text x="40" y="82" fill="#64748b" font-family="sans-serif" font-size="12">Batch</text>
+  <circle cx="28" cy="114" r="4" fill="#475569"/>
+  <text x="40" y="118" fill="#64748b" font-family="sans-serif" font-size="12">Media</text>
+  <circle cx="28" cy="150" r="4" fill="#475569"/>
+  <text x="40" y="154" fill="#64748b" font-family="sans-serif" font-size="12">Presets</text>
+  <circle cx="28" cy="186" r="4" fill="#c084fc"/>
+  <text x="40" y="190" fill="#c084fc" font-family="sans-serif" font-size="12">Gallery</text>
+  <circle cx="28" cy="222" r="4" fill="#475569"/>
+  <text x="40" y="226" fill="#64748b" font-family="sans-serif" font-size="12">Settings</text>
+  <circle cx="28" cy="258" r="4" fill="#475569"/>
+  <text x="40" y="262" fill="#64748b" font-family="sans-serif" font-size="12">Analytics</text>
+
+  <!-- Header -->
+  <text x="196" y="38" fill="#e2e8f0" font-family="sans-serif" font-size="20" font-weight="bold">Gallery</text>
+  <text x="196" y="56" fill="#64748b" font-family="sans-serif" font-size="11">Browse and manage your generated videos.</text>
+
+  <!-- Search bar -->
+  <rect x="196" y="68" width="300" height="32" fill="#1e293b" rx="6"/>
+  <text x="212" y="88" fill="#475569" font-family="sans-serif" font-size="11">🔍 Search videos...</text>
+
+  <!-- Sort -->
+  <rect x="508" y="68" width="120" height="32" fill="#1e293b" rx="6"/>
+  <text x="524" y="88" fill="#94a3b8" font-family="sans-serif" font-size="11">Newest ▾</text>
+
+  <!-- Clear all -->
+  <rect x="640" y="68" width="90" height="32" fill="#5c1a1a" rx="6"/>
+  <text x="654" y="88" fill="#f87171" font-family="sans-serif" font-size="11">Clear All</text>
+
+  <!-- Video grid -->
+  <!-- Card 1 -->
+  <rect x="196" y="112" width="188" height="200" fill="#1e293b" rx="10"/>
+  <!-- Thumbnail placeholder -->
+  <rect x="196" y="112" width="188" height="100" fill="#334155" rx="10"/>
+  <path d="M280 162 l20 12 -20 12z" fill="#863bff"/>
+  <rect x="196" y="112" width="188" height="100" rx="10" fill="none" stroke="#334155"/>
+  <text x="212" y="232" fill="#e2e8f0" font-family="sans-serif" font-size="12" font-weight="bold">Space facts that will blow your mind</text>
+  <text x="212" y="250" fill="#64748b" font-family="sans-serif" font-size="10">2026-07-24 • 58s</text>
+  <rect x="316" y="280" width="56" height="20" fill="#166534" rx="4"/>
+  <text x="322" y="294" fill="#4ade80" font-family="sans-serif" font-size="9">Published</text>
+  <rect x="212" y="280" width="56" height="20" fill="#334155" rx="4"/>
+  <text x="220" y="294" fill="#94a3b8" font-family="sans-serif" font-size="9">Download</text>
+
+  <!-- Card 2 -->
+  <rect x="396" y="112" width="188" height="200" fill="#1e293b" rx="10"/>
+  <rect x="396" y="112" width="188" height="100" fill="#334155" rx="10"/>
+  <path d="M480 162 l20 12 -20 12z" fill="#863bff"/>
+  <text x="412" y="232" fill="#e2e8f0" font-family="sans-serif" font-size="12" font-weight="bold">Ocean mysteries science can't explain</text>
+  <text x="412" y="250" fill="#64748b" font-family="sans-serif" font-size="10">2026-07-24 • 62s</text>
+  <rect x="516" y="280" width="56" height="20" fill="#78350f" rx="4"/>
+  <text x="524" y="294" fill="#fbbf24" font-family="sans-serif" font-size="9">Draft</text>
+
+  <!-- Card 3 -->
+  <rect x="596" y="112" width="188" height="200" fill="#1e293b" rx="10"/>
+  <rect x="596" y="112" width="188" height="100" fill="#334155" rx="10"/>
+  <path d="M680 162 l20 12 -20 12z" fill="#863bff"/>
+  <text x="612" y="232" fill="#e2e8f0" font-family="sans-serif" font-size="12" font-weight="bold">Mind-blowing AI developments in 2026</text>
+  <text x="612" y="250" fill="#64748b" font-family="sans-serif" font-size="10">2026-07-23 • 55s</text>
+  <rect x="716" y="280" width="56" height="20" fill="#166534" rx="4"/>
+  <text x="722" y="294" fill="#4ade80" font-family="sans-serif" font-size="9">Published</text>
+
+  <!-- Card 4 -->
+  <rect x="196" y="324" width="188" height="180" fill="#1e293b" rx="10"/>
+  <rect x="196" y="324" width="188" height="100" fill="#334155" rx="10"/>
+  <path d="M280 374 l20 12 -20 12z" fill="#863bff"/>
+  <text x="212" y="444" fill="#e2e8f0" font-family="sans-serif" font-size="12" font-weight="bold">Quick cooking hacks</text>
+  <text x="212" y="462" fill="#64748b" font-family="sans-serif" font-size="10">2026-07-23 • 45s</text>
+  <rect x="212" y="478" width="56" height="20" fill="#166534" rx="4"/>
+  <text x="218" y="492" fill="#4ade80" font-family="sans-serif" font-size="9">Published</text>
+
+  <!-- Card 5 -->
+  <rect x="396" y="324" width="188" height="180" fill="#1e293b" rx="10"/>
+  <rect x="396" y="324" width="188" height="100" fill="#334155" rx="10"/>
+  <path d="M480 374 l20 12 -20 12z" fill="#863bff"/>
+  <text x="412" y="444" fill="#e2e8f0" font-family="sans-serif" font-size="12" font-weight="bold">History's greatest coincidences</text>
+  <text x="412" y="462" fill="#64748b" font-family="sans-serif" font-size="10">2026-07-22 • 60s</text>
+  <rect x="412" y="478" width="56" height="20" fill="#78350f" rx="4"/>
+  <text x="420" y="492" fill="#fbbf24" font-family="sans-serif" font-size="9">Draft</text>
+
+  <!-- Pagination -->
+  <rect x="440" y="485" width="24" height="24" fill="#863bff" rx="4"/>
+  <text x="448" y="501" fill="#fff" font-family="sans-serif" font-size="11">1</text>
+  <rect x="468" y="485" width="24" height="24" fill="#1e293b" rx="4"/>
+  <text x="476" y="501" fill="#94a3b8" font-family="sans-serif" font-size="11">2</text>
+  <rect x="496" y="485" width="24" height="24" fill="#1e293b" rx="4"/>
+  <text x="504" y="501" fill="#94a3b8" font-family="sans-serif" font-size="11">3</text>
+</svg>

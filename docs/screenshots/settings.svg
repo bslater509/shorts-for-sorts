@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="520" fill="url(#bg)" rx="8"/>
+
+  <!-- Sidebar -->
+  <rect x="0" y="0" width="180" height="520" fill="#0f172a" opacity="0.5" rx="8"/>
+  <rect x="16" y="16" width="28" height="28" fill="#863bff" rx="6"/>
+  <text x="52" y="35" fill="#94a3b8" font-family="sans-serif" font-size="11" font-weight="bold">SHORTS FOR SORTS</text>
+  <rect x="16" y="64" width="148" height="28" fill="#863bff" rx="6" opacity="0.1"/>
+  <circle cx="28" cy="78" r="4" fill="#475569"/>
+  <text x="40" y="82" fill="#64748b" font-family="sans-serif" font-size="12">Batch</text>
+  <circle cx="28" cy="114" r="4" fill="#475569"/>
+  <text x="40" y="118" fill="#64748b" font-family="sans-serif" font-size="12">Media</text>
+  <circle cx="28" cy="150" r="4" fill="#475569"/>
+  <text x="40" y="154" fill="#64748b" font-family="sans-serif" font-size="12">Presets</text>
+  <circle cx="28" cy="186" r="4" fill="#475569"/>
+  <text x="40" y="190" fill="#64748b" font-family="sans-serif" font-size="12">Gallery</text>
+  <circle cx="28" cy="222" r="4" fill="#c084fc"/>
+  <text x="40" y="226" fill="#c084fc" font-family="sans-serif" font-size="12">Settings</text>
+  <circle cx="28" cy="258" r="4" fill="#475569"/>
+  <text x="40" y="262" fill="#64748b" font-family="sans-serif" font-size="12">Analytics</text>
+
+  <!-- Header -->
+  <text x="196" y="38" fill="#e2e8f0" font-family="sans-serif" font-size="20" font-weight="bold">System Configuration</text>
+  <text x="196" y="56" fill="#64748b" font-family="sans-serif" font-size="11">Configure models, API keys, render settings, and AI generation defaults.</text>
+  <rect x="680" y="20" width="104" height="32" fill="#3b82f6" rx="6"/>
+  <text x="694" y="40" fill="#fff" font-family="sans-serif" font-size="11" font-weight="bold">Save Settings</text>
+
+  <!-- Settings sections -->
+  <!-- LLM Profiles -->
+  <rect x="196" y="72" width="588" height="80" fill="#1e293b" rx="10"/>
+  <text x="212" y="94" fill="#e2e8f0" font-family="sans-serif" font-size="14" font-weight="bold">⚙ LLM Providers</text>
+  <rect x="212" y="104" width="556" height="36" fill="#0f172a" rx="6"/>
+  <text x="224" y="126" fill="#94a3b8" font-family="sans-serif" font-size="11">Zen DeepSeek V4 Flash Free</text>
+  <text x="380" y="126" fill="#64748b" font-family="sans-serif" font-size="11">deepseek-v4-flash-free</text>
+  <circle cx="748" cy="122" r="5" fill="#22c55e"/>
+
+  <!-- AI Generation Section -->
+  <rect x="196" y="164" width="588" height="200" fill="#1e293b" rx="10"/>
+  <text x="212" y="186" fill="#e2e8f0" font-family="sans-serif" font-size="14" font-weight="bold">📝 AI Script Generation</text>
+
+  <!-- System Prompt -->
+  <text x="212" y="210" fill="#94a3b8" font-family="sans-serif" font-size="11">System Prompt</text>
+  <rect x="212" y="218" width="556" height="40" fill="#0f172a" rx="4"/>
+  <text x="224" y="236" fill="#475569" font-family="sans-serif" font-size="10">You are an elite TikTok and YouTube Shorts scriptwriter...</text>
+  <text x="224" y="250" fill="#475569" font-family="sans-serif" font-size="10">creative hooks that capture attention in the first 3 seconds...</text>
+
+  <!-- Batch settings -->
+  <text x="212" y="280" fill="#94a3b8" font-family="sans-serif" font-size="12" font-weight="bold">Batch Settings</text>
+
+  <rect x="212" y="290" width="120" height="55" fill="#0f172a" rx="6"/>
+  <text x="224" y="308" fill="#94a3b8" font-family="sans-serif" font-size="9">Default Batch Size</text>
+  <text x="224" y="330" fill="#e2e8f0" font-family="sans-serif" font-size="16" font-weight="bold">5</text>
+
+  <rect x="344" y="290" width="140" height="55" fill="#0f172a" rx="6"/>
+  <text x="356" y="308" fill="#94a3b8" font-family="sans-serif" font-size="9">On Batch Failure</text>
+  <rect x="356" y="318" width="116" height="20" fill="#334155" rx="4"/>
+  <text x="364" y="332" fill="#e2e8f0" font-family="sans-serif" font-size="10">Stop all jobs ▾</text>
+
+  <rect x="496" y="290" width="130" height="55" fill="#0f172a" rx="6"/>
+  <text x="508" y="308" fill="#94a3b8" font-family="sans-serif" font-size="9">Job Timeout</text>
+  <text x="508" y="330" fill="#e2e8f0" font-family="sans-serif" font-size="16" font-weight="bold">600</text>
+  <text x="552" y="330" fill="#64748b" font-family="sans-serif" font-size="10">s</text>
+
+  <!-- Render section -->
+  <rect x="196" y="376" width="588" height="130" fill="#1e293b" rx="10"/>
+  <text x="212" y="398" fill="#e2e8f0" font-family="sans-serif" font-size="14" font-weight="bold">🎬 Render & FFmpeg</text>
+
+  <rect x="212" y="412" width="130" height="50" fill="#0f172a" rx="6"/>
+  <text x="224" y="430" fill="#94a3b8" font-family="sans-serif" font-size="9">Resolution</text>
+  <rect x="224" y="438" width="106" height="18" fill="#334155" rx="4"/>
+  <text x="232" y="450" fill="#e2e8f0" font-family="sans-serif" font-size="10">720p ▾</text>
+
+  <rect x="354" y="412" width="130" height="50" fill="#0f172a" rx="6"/>
+  <text x="366" y="430" fill="#94a3b8" font-family="sans-serif" font-size="9">Preset</text>
+  <rect x="366" y="438" width="106" height="18" fill="#334155" rx="4"/>
+  <text x="374" y="450" fill="#e2e8f0" font-family="sans-serif" font-size="10">fast ▾</text>
+
+  <rect x="496" y="412" width="130" height="50" fill="#0f172a" rx="6"/>
+  <text x="508" y="430" fill="#94a3b8" font-family="sans-serif" font-size="9">Max Workers</text>
+  <text x="508" y="450" fill="#e2e8f0" font-family="sans-serif" font-size="14" font-weight="bold">2</text>
+</svg>
