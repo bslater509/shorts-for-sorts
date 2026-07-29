@@ -6,10 +6,10 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from gui.progress_utils import (
-    get_progress_percentage,
     format_elapsed,
-    make_progress_bar,
+    get_progress_percentage,
     log_memory_usage,
+    make_progress_bar,
 )
 
 

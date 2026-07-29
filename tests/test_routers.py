@@ -9,8 +9,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from gui.routers.admin import router as admin_router
-from gui.routers.settings import router as settings_router
 from gui.routers.batch import router as batch_router
+from gui.routers.settings import router as settings_router
 
 app = FastAPI()
 app.include_router(admin_router)

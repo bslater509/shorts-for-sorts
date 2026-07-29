@@ -3,9 +3,21 @@ import { BarChart3, RefreshCw, RotateCcw, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import SummaryCards from '@/components/analytics/SummaryCards'
+import SuccessRateSummary from '@/components/analytics/SuccessRateSummary'
+import EfficiencyMetrics from '@/components/analytics/EfficiencyMetrics'
 import PhaseDistributionChart from '@/components/analytics/PhaseDistributionChart'
 import DurationByVoiceChart from '@/components/analytics/DurationByVoiceChart'
+import SpeakingSpeedByVoiceChart from '@/components/analytics/SpeakingSpeedByVoiceChart'
+import DurationDistributionChart from '@/components/analytics/DurationDistributionChart'
+import VoiceUsageChart from '@/components/analytics/VoiceUsageChart'
+import ModelUsageChart from '@/components/analytics/ModelUsageChart'
+import WordsPerSentenceChart from '@/components/analytics/WordsPerSentenceChart'
+import ChunkDistributionChart from '@/components/analytics/ChunkDistributionChart'
+import DurationTrendChart from '@/components/analytics/DurationTrendChart'
+import WordCountTrendChart from '@/components/analytics/WordCountTrendChart'
+import LayoutComparisonChart from '@/components/analytics/LayoutComparisonChart'
 import PerJobBreakdownChart from '@/components/analytics/PerJobBreakdownChart'
+import CorrelationScatterChart from '@/components/analytics/CorrelationScatterChart'
 import ComplexityTable from '@/components/analytics/ComplexityTable'
 import HistoricalJobsTable from '@/components/analytics/HistoricalJobsTable'
 
@@ -80,13 +92,36 @@ export default function Analytics() {
   const phaseRatios = stats?.phase_ratios || {}
 
   // Phase distribution data for pie chart
-  const phaseData = useMemo(() =>
-    PHASES.map(phase => ({
+  const phaseData = useMemo(() => {
+    if (!phaseRatios || Object.keys(phaseRatios).length === 0) {
+      return PHASES.map(phase => ({ name: phase, value: 0 }))
+    }
+    const raw = PHASES.map(phase => ({
       name: phase,
-      value: phaseRatios[phase] != null ? Math.round(phaseRatios[phase] * 100) : 0,
-    })),
-    [phaseRatios]
-  )
+      value: (phaseRatios[phase] || 0) * 100,
+    }))
+    const sumRaw = raw.reduce((sum, item) => sum + item.value, 0)
+    if (sumRaw < 0.1) {
+      return raw.map(item => ({ name: item.name, value: 0 }))
+    }
+    const rounded = raw.map(item => ({
+      name: item.name,
+      value: Math.floor(item.value),
+      remainder: item.value - Math.floor(item.value)
+    }))
+    const sumFloor = rounded.reduce((sum, item) => sum + item.value, 0)
+    const remainderToDistribute = Math.round(100 - sumFloor)
+    
+    rounded.sort((a, b) => b.remainder - a.remainder)
+    for (let i = 0; i < remainderToDistribute && i < rounded.length; i++) {
+      rounded[i].value += 1
+    }
+    
+    return PHASES.map(phase => ({
+      name: phase,
+      value: rounded.find(r => r.name === phase)?.value || 0
+    }))
+  }, [phaseRatios])
 
   // Duration by voice (group + average)
   const voiceDurationData = useMemo(() => {
@@ -288,13 +323,41 @@ export default function Analytics() {
         sampleCount={sampleCount}
       />
     )},
+    { id: 'successRate', component: <SuccessRateSummary perJobStats={perJobStats} /> },
+    { id: 'efficiency', component: <EfficiencyMetrics perJobStats={perJobStats} /> },
     { id: 'charts', component: (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PhaseDistributionChart phaseData={phaseData} />
         <DurationByVoiceChart voiceDurationData={voiceDurationData} />
       </div>
     )},
+    { id: 'voiceUsage', component: (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <VoiceUsageChart perJobStats={perJobStats} />
+        <ModelUsageChart perJobStats={perJobStats} />
+      </div>
+    )},
+    { id: 'voiceSpeed', component: (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <SpeakingSpeedByVoiceChart perJobStats={perJobStats} />
+        <DurationDistributionChart perJobStats={perJobStats} />
+      </div>
+    )},
+    { id: 'contentStructure', component: (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <WordsPerSentenceChart perJobStats={perJobStats} />
+        <ChunkDistributionChart perJobStats={perJobStats} />
+      </div>
+    )},
+    { id: 'trends', component: (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <DurationTrendChart perJobStats={perJobStats} />
+        <WordCountTrendChart perJobStats={perJobStats} />
+      </div>
+    )},
+    { id: 'layout', component: <LayoutComparisonChart perJobStats={perJobStats} /> },
     { id: 'breakdown', component: <PerJobBreakdownChart stackedBarData={stackedBarData} /> },
+    { id: 'correlation', component: <CorrelationScatterChart perJobStats={perJobStats} /> },
     { id: 'complexity', component: <ComplexityTable complexityData={complexityData} /> },
     { id: 'history', component: <HistoricalJobsTable perJobStats={perJobStats} /> },
   ]

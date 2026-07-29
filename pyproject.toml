@@ -19,6 +19,8 @@ dependencies = [
     "kokoro-onnx",
     "numpy<2.0.0",
     "playwright",
+    "rich",
+    "Pillow",
 ]
 
 [tool.ruff]

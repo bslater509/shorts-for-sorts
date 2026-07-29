@@ -1,7 +1,17 @@
-# Application State and Session Constants
+"""Application state and session constants.
 
-# TTS Voice options
-VOICES = [
+Defines the available TTS voice options, the active session state dictionary,
+and the global settings dictionary.  Module-level mutable dicts are used as
+a lightweight shared-state mechanism.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+# --- TTS Voice options ---
+
+VOICES: list[tuple[str, str]] = [
     ("Bella (US Female)", "af_bella"),
     ("Sarah (US Female)", "af_sarah"),
     ("Adam (US Male)", "am_adam"),
@@ -11,9 +21,10 @@ VOICES = [
     ("George (UK Male)", "bm_george"),
     ("Lewis (UK Male)", "bm_lewis"),
 ]
+"""List of ``(display_name, kokoro_voice_id)`` tuples for the GUI dropdown."""
 
 # Display name → Kokoro voice ID (for resolving user-facing names back to valid IDs)
-VOICE_DISPLAY_TO_ID = {
+VOICE_DISPLAY_TO_ID: dict[str, str] = {
     # Existing named mappings
     "Bella (US Female)": "af_bella",
     "Sarah (US Female)": "af_sarah",
@@ -37,15 +48,18 @@ VOICE_DISPLAY_TO_ID = {
     "Damien Black": "am_michael",
     "Tammie Ema": "bf_emma",
 }
+"""Maps display names and legacy preset names to Kokoro voice IDs."""
 
-# Active Session State
-# All keys that compiler.py and server.py access are declared here with None defaults
-# so the schema is explicit and batch-mode jobs don't silently get missing keys.
-state = {
+DEFAULT_VOICE_ID: str = "af_bella"
+"""Default voice identifier used when no voice is selected."""
+
+# --- Active Session State ---
+
+state: dict[str, Any] = {
     "script_text": "",
     "bg_video_path": None,
     "bg_video_bottom_path": None,
-    "selected_voice": "af_bella",
+    "selected_voice": DEFAULT_VOICE_ID,
     "bg_music_path": None,
     "music_volume": None,  # Falls back to settings default if None
     "voice_volume": None,  # Falls back to settings default if None
@@ -78,6 +92,17 @@ state = {
     "generated_title": None,
     "generated_hashtags": None,
 }
+"""Active session state dictionary.
 
-# Global Settings (loaded from config/settings.json)
-settings = {}
+All keys that ``video_compiler.py`` and ``server.py`` access are declared here
+with ``None`` defaults so the schema is explicit and batch-mode jobs do not
+silently encounter missing keys.
+"""
+
+# --- Global Settings ---
+
+settings: dict[str, Any] = {}
+"""Global settings dictionary loaded from ``config/settings.json``.
+
+Populated at startup by :func:`gui.settings_manager.load_settings`.
+"""

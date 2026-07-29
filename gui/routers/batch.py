@@ -1,26 +1,26 @@
 """Batch generation REST API routes."""
 
+from __future__ import annotations
+
 import json
 import multiprocessing
 import os
 import threading
+from typing import Any
 
 import psutil
 from fastapi import APIRouter, HTTPException
 
-import gui.state as shared_state
 from gui.batch_engine import (
+    _PHASE_TRACKING_KEYS,
     _batch_lock,
     _batch_state_lock,
     _compute_eta,
     _log_memory_warning,
-    _PHASE_TRACKING_KEYS,
     batch_state,
     batch_worker_thread,
-    DEFAULT_PHASE_WEIGHTS,
 )
 from gui.config import (
-    BATCH_STATS_FILE,
     CANCELLED_CONFIGS_FILE,
     DISMISSED_JOBS_FILE,
     FAILED_CONFIGS_FILE,
@@ -28,20 +28,39 @@ from gui.config import (
 )
 from gui.models import BatchStartRequest
 
-router = APIRouter()
+router: APIRouter = APIRouter()
+
+# --- Constants ---
+
+MAX_SHORTS: int = 100
+"""Maximum number of shorts allowed in a single batch."""
+
+MIN_SHORTS: int = 1
+
+# Pipeline progress segment boundaries (for frontend display)
+PROGRESS_SEGMENTS: list[dict[str, Any]] = [
+    {"name": "LLM", "start": 0, "end": 20},
+    {"name": "Voice", "start": 20, "end": 45},
+    {"name": "Transcribe", "start": 45, "end": 55},
+    {"name": "Render", "start": 55, "end": 100},
+]
 
 
 # ---------------------------------------------------------------------------
-# Persistence helpers for dismissed jobs
+# Persistence helpers
 # ---------------------------------------------------------------------------
 
 
-def _load_dismissed_jobs() -> set:
-    """Load dismissed job IDs from disk. Returns an empty set on any failure."""
+def _load_dismissed_jobs() -> set[int]:
+    """Load dismissed job IDs from disk.
+
+    Returns:
+        Set of job IDs, or an empty set on any failure.
+    """
     try:
         if os.path.exists(DISMISSED_JOBS_FILE):
             with open(DISMISSED_JOBS_FILE) as f:
-                data = json.load(f)
+                data: Any = json.load(f)
             if isinstance(data, list):
                 return set(data)
     except (json.JSONDecodeError, OSError) as e:
@@ -49,8 +68,12 @@ def _load_dismissed_jobs() -> set:
     return set()
 
 
-def _save_dismissed_jobs(job_ids: set):
-    """Persist dismissed job IDs to disk as a JSON array of ints."""
+def _save_dismissed_jobs(job_ids: set[int]) -> None:
+    """Persist dismissed job IDs to disk as a JSON array of ints.
+
+    Args:
+        job_ids: Set of dismissed job IDs.
+    """
     try:
         os.makedirs(os.path.dirname(DISMISSED_JOBS_FILE), exist_ok=True)
         with open(DISMISSED_JOBS_FILE, "w") as f:
@@ -59,8 +82,12 @@ def _save_dismissed_jobs(job_ids: set):
         logger.warning("Failed to save dismissed jobs: %s", e)
 
 
-def _load_cancelled_configs() -> list:
-    """Load cancelled job configs from disk. Returns an empty list on any failure."""
+def _load_cancelled_configs() -> list[dict[str, Any]]:
+    """Load cancelled job configs from disk.
+
+    Returns:
+        List of config dicts, or an empty list on failure.
+    """
     try:
         if os.path.exists(CANCELLED_CONFIGS_FILE):
             with open(CANCELLED_CONFIGS_FILE) as f:
@@ -70,19 +97,36 @@ def _load_cancelled_configs() -> list:
     return []
 
 
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
 @router.get("/api/prompts")
-def get_prompts():
+def get_prompts() -> dict[str, str]:
+    """Return the library of prompt templates."""
     from gui.config import load_prompt_templates
 
     return load_prompt_templates()
 
 
 @router.post("/api/batch/start")
-def start_batch(data: BatchStartRequest):
+def start_batch(data: BatchStartRequest) -> dict[str, str]:
+    """Start a new batch generation run.
+
+    Args:
+        data: Batch parameters including number of shorts and optional overrides.
+
+    Returns:
+        Status message indicating the batch has started.
+    """
     _log_memory_warning()
-    num_shorts = data.num_shorts
-    if num_shorts < 1 or num_shorts > 100:
-        raise HTTPException(status_code=400, detail="Number of shorts must be between 1 and 100.")
+    num_shorts: int = data.num_shorts
+    if num_shorts < MIN_SHORTS or num_shorts > MAX_SHORTS:
+        raise HTTPException(
+            status_code=400,
+            detail="Number of shorts must be between 1 and 100.",
+        )
 
     # Create expensive manager outside lock so we don't block for too long
     new_manager = multiprocessing.Manager()
@@ -90,8 +134,10 @@ def start_batch(data: BatchStartRequest):
 
     with _batch_lock:
         if batch_state["in_progress"]:
-            new_manager.shutdown()  # clean up the manager we just created
-            raise HTTPException(status_code=400, detail="A batch job is already running.")
+            new_manager.shutdown()
+            raise HTTPException(
+                status_code=400, detail="A batch job is already running."
+            )
         batch_state["in_progress"] = True
         batch_state["num_shorts"] = num_shorts
         batch_state["progress_dict"].clear()
@@ -114,45 +160,50 @@ def start_batch(data: BatchStartRequest):
         daemon=True,
     )
     t.start()
-    return {"status": "started", "message": f"Batch generation of {num_shorts} shorts started."}
+    return {
+        "status": "started",
+        "message": f"Batch generation of {num_shorts} shorts started.",
+    }
 
 
 @router.get("/api/batch/status")
-def get_batch_status():
-    from gui.batch import get_progress_percentage
+def get_batch_status() -> dict[str, Any]:
+    """Return the current batch status with per-job progress, ETAs, and pipeline stats."""
+    from gui.progress_utils import get_progress_percentage
 
     with _batch_state_lock:
-        # Load dismissed jobs from disk on first read if not already loaded
         if "_dismissed_jobs" not in batch_state:
             batch_state["_dismissed_jobs"] = _load_dismissed_jobs()
-        dismissed = batch_state.get("_dismissed_jobs", set())
+        dismissed: set[int] = batch_state.get("_dismissed_jobs", set())
 
         # Compute stats from completed jobs
-        completed_durations = []
+        completed_durations: list[float] = []
         for i in range(1, batch_state["num_shorts"] + 1):
             st = batch_state["progress_dict"].get(f"{i}_start")
             et = batch_state["progress_dict"].get(f"{i}_end")
             status_i = batch_state["progress_dict"].get(i, "Queued")
             if st and et and status_i == "Done":
                 completed_durations.append(et - st)
-        avg_completion_time = (
-            sum(completed_durations) / len(completed_durations) if completed_durations else None
+        avg_completion_time: float | None = (
+            sum(completed_durations) / len(completed_durations)
+            if completed_durations
+            else None
         )
 
         smoothed_etas = batch_state.get("_smoothed_eta", {})
         phase_weights = batch_state.get("_phase_weights")
 
-        cancelled_count = 0
-        failed_count = 0
-        jobs = []
+        cancelled_count: int = 0
+        failed_count: int = 0
+        jobs: list[dict[str, Any]] = []
+
         for i in range(1, batch_state["num_shorts"] + 1):
-            status = batch_state["progress_dict"].get(i, "Queued")
+            status: str = batch_state["progress_dict"].get(i, "Queued")
             pct = get_progress_percentage(status)
 
             start_time = batch_state["progress_dict"].get(f"{i}_start")
             end_time = batch_state["progress_dict"].get(f"{i}_end")
 
-            # Count cancelled/failed separately
             is_cancelled = status == "Cancelled"
             is_failed = status.startswith("Failed") and not is_cancelled
             if is_cancelled:
@@ -160,7 +211,7 @@ def get_batch_status():
             elif is_failed:
                 failed_count += 1
 
-            # Build error_detail
+            error_detail: str | None
             if is_cancelled:
                 error_detail = "Cancelled by user"
             elif is_failed:
@@ -168,19 +219,23 @@ def get_batch_status():
             else:
                 error_detail = None
 
-            # Dismissed flag
             is_dismissed = i in dismissed
 
-            # Gather phase entry timestamps for this job
-            job_phase_times = {}
+            job_phase_times: dict[str, float] = {}
             for suffix in _PHASE_TRACKING_KEYS:
                 val = batch_state["progress_dict"].get(f"{i}{suffix}")
                 if val:
                     job_phase_times[suffix] = val
 
             eta_str, eta_seconds, elapsed_str, eta_llm, eta_video = _compute_eta(
-                start_time, end_time, pct, status,
-                job_phase_times, avg_completion_time, smoothed_etas, i,
+                start_time,
+                end_time,
+                pct,
+                status,
+                job_phase_times,
+                avg_completion_time,
+                smoothed_etas,
+                i,
                 phase_weights=phase_weights,
                 avg_llm_duration=batch_state.get("_avg_llm_duration"),
                 avg_video_duration=batch_state.get("_avg_video_duration"),
@@ -216,15 +271,12 @@ def get_batch_status():
         llm_max_workers = batch_state.get("llm_max_workers", 5)
 
         # Pipeline-aware global ETA
-        # LLM runs in parallel (llm_max_workers), video runs sequentially (max_workers).
-        # Total remaining ≈ sum(LLM remaining) / llm_max_workers + sum(video remaining) / max_workers
-        avg_llm_dur = batch_state.get("_avg_llm_duration", 30) or 30
-        avg_video_dur = batch_state.get("_avg_video_duration", 60) or 60
-        total_llm = 0.0
-        total_video = 0.0
+        avg_llm_dur: float = batch_state.get("_avg_llm_duration", 30) or 30
+        avg_video_dur: float = batch_state.get("_avg_video_duration", 60) or 60
+        total_llm: float = 0.0
+        total_video: float = 0.0
         for j in jobs:
             s = j["status"]
-            # Skip done, failed, cancelled, and dismissed jobs
             if s == "Done" or s.startswith("Failed") or s == "Cancelled" or j.get("dismissed", False):
                 continue
             if s != "Queued" and j.get("eta_llm") is not None:
@@ -233,7 +285,10 @@ def get_batch_status():
             else:
                 total_llm += avg_llm_dur
                 total_video += avg_video_dur
-        global_eta_seconds = (total_llm / max(1, llm_max_workers)) + (total_video / max(1, max_workers))
+        global_eta_seconds: float = (
+            total_llm / max(1, llm_max_workers)
+            + total_video / max(1, max_workers)
+        )
 
     return {
         "in_progress": in_progress,
@@ -245,32 +300,32 @@ def get_batch_status():
         "memory_percent": psutil.virtual_memory().percent,
         "cancelledCount": cancelled_count,
         "failedCount": failed_count,
-        "progress_segments": [
-            {"name": "LLM", "start": 0, "end": 20},
-            {"name": "Voice", "start": 20, "end": 45},
-            {"name": "Transcribe", "start": 45, "end": 55},
-            {"name": "Render", "start": 55, "end": 100},
-        ],
+        "progress_segments": PROGRESS_SEGMENTS,
     }
 
 
 @router.get("/api/batch/job/{job_id}")
-def get_batch_job_detail(job_id: int):
-    from gui.batch import get_progress_percentage
+def get_batch_job_detail(job_id: int) -> dict[str, Any]:
+    """Return detailed information about a specific batch job.
+
+    Args:
+        job_id: The 1-indexed job number.
+
+    Returns:
+        Job status, progress, ETA, and full configuration.
+    """
+    from gui.progress_utils import get_progress_percentage
 
     with _batch_state_lock:
-        # Check if the job exists
         if job_id < 1 or job_id > batch_state["num_shorts"]:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        # Get progress info
         status = batch_state["progress_dict"].get(job_id, "Unknown")
         pct = get_progress_percentage(status)
 
         start_time = batch_state["progress_dict"].get(f"{job_id}_start")
         end_time = batch_state["progress_dict"].get(f"{job_id}_end")
 
-        # Compute average completion time from finished jobs
         completed_durations = []
         for i in range(1, batch_state["num_shorts"] + 1):
             st = batch_state["progress_dict"].get(f"{i}_start")
@@ -279,10 +334,11 @@ def get_batch_job_detail(job_id: int):
             if st and et and status_i == "Done":
                 completed_durations.append(et - st)
         avg_completion_time = (
-            sum(completed_durations) / len(completed_durations) if completed_durations else None
+            sum(completed_durations) / len(completed_durations)
+            if completed_durations
+            else None
         )
 
-        # Gather phase entry timestamps for this job
         job_phase_times = {}
         for suffix in _PHASE_TRACKING_KEYS:
             val = batch_state["progress_dict"].get(f"{job_id}{suffix}")
@@ -292,8 +348,14 @@ def get_batch_job_detail(job_id: int):
         smoothed_etas = batch_state.get("_smoothed_eta", {})
         phase_weights = batch_state.get("_phase_weights")
         eta_str, eta_seconds, elapsed_str, eta_llm, eta_video = _compute_eta(
-            start_time, end_time, pct, status,
-            job_phase_times, avg_completion_time, smoothed_etas, job_id,
+            start_time,
+            end_time,
+            pct,
+            status,
+            job_phase_times,
+            avg_completion_time,
+            smoothed_etas,
+            job_id,
             phase_weights=phase_weights,
             avg_llm_duration=batch_state.get("_avg_llm_duration"),
             avg_video_duration=batch_state.get("_avg_video_duration"),
@@ -301,20 +363,16 @@ def get_batch_job_detail(job_id: int):
             per_job_stats=batch_state.get("_per_job_stats"),
         )
 
-        # Get detail and config
         detail = batch_state["job_details"].get(job_id, {})
         config = batch_state.get("job_configs", {}).get(job_id, {})
 
-    # Build response with ALL job settings
     is_cancelled = status == "Cancelled"
     is_failed = status.startswith("Failed") and not is_cancelled
 
-    # Load dismissed jobs if not already
     if "_dismissed_jobs" not in batch_state:
         batch_state["_dismissed_jobs"] = _load_dismissed_jobs()
     is_dismissed = job_id in batch_state.get("_dismissed_jobs", set())
 
-    # Build error_detail
     if is_cancelled:
         error_detail = "Cancelled by user"
     elif is_failed:
@@ -337,7 +395,7 @@ def get_batch_job_detail(job_id: int):
         "elapsed": elapsed_str,
         "eta": eta_str,
         "eta_seconds": eta_seconds,
-        # Full config fields (all optional - use empty string/0/False defaults)
+        # Full config fields
         "prompt": config.get("prompt", ""),
         "voice_id": config.get("voice_id", ""),
         "bg_video_path": config.get("bg_video_path", ""),
@@ -383,7 +441,8 @@ def get_batch_job_detail(job_id: int):
 
 
 @router.post("/api/batch/cancel")
-def cancel_batch():
+def cancel_batch() -> dict[str, str]:
+    """Request cancellation of the running batch."""
     with _batch_state_lock:
         in_progress = batch_state["in_progress"]
         if in_progress:
@@ -397,50 +456,57 @@ def cancel_batch():
 
 
 @router.post("/api/batch/cancel-job/{job_id}")
-def cancel_single_job(job_id: int):
-    """Cancel a single queued or waiting job. Only works when batch is in progress."""
+def cancel_single_job(job_id: int) -> dict[str, str]:
+    """Cancel a single queued or waiting job in an active batch.
+
+    Args:
+        job_id: The 1-indexed job number to cancel.
+
+    Raises:
+        HTTPException: If no batch is running or the job cannot be cancelled.
+    """
     with _batch_state_lock:
         if not batch_state["in_progress"]:
-            raise HTTPException(status_code=400, detail="No active batch in progress.")
+            raise HTTPException(
+                status_code=400, detail="No active batch in progress."
+            )
 
         status = batch_state["progress_dict"].get(job_id)
         if status not in ("Queued", "Waiting for LLM"):
             raise HTTPException(
                 status_code=400,
-                detail=f"Job #{job_id} is in status '{status}' and cannot be cancelled. Only 'Queued' or 'Waiting for LLM' jobs can be cancelled.",
+                detail=f"Job #{job_id} is in status '{status}' "
+                f"and cannot be cancelled. Only 'Queued' or "
+                f"'Waiting for LLM' jobs can be cancelled.",
             )
 
-        # Set status to Cancelled
         batch_state["progress_dict"][job_id] = "Cancelled"
-
-        # Store config for potential retry
         config = batch_state.get("job_configs", {}).get(job_id)
         if config is not None:
             if "_cancelled_job_configs" not in batch_state:
                 batch_state["_cancelled_job_configs"] = []
             batch_state["_cancelled_job_configs"].append(config)
 
-        return {
-            "status": "success",
-            "message": f"Job #{job_id} cancelled.",
-        }
+        return {"status": "success", "message": f"Job #{job_id} cancelled."}
 
 
 @router.post("/api/batch/retry-cancelled")
-def retry_cancelled_batch():
-    """Retry all cancelled jobs. Same pattern as retry_failed_batch."""
+def retry_cancelled_batch() -> dict[str, str]:
+    """Retry all cancelled jobs from the last batch."""
     if batch_state["in_progress"]:
-        raise HTTPException(status_code=400, detail="A batch is currently running.")
+        raise HTTPException(
+            status_code=400, detail="A batch is currently running."
+        )
 
     cancelled_configs = batch_state.get("_cancelled_job_configs", [])
     if not cancelled_configs:
-        # Fall back to persisted configs from disk
         cancelled_configs = _load_cancelled_configs()
     if not cancelled_configs:
-        raise HTTPException(status_code=400, detail="No cancelled jobs to retry.")
+        raise HTTPException(
+            status_code=400, detail="No cancelled jobs to retry."
+        )
 
     num_cancelled = len(cancelled_configs)
-
     new_manager = multiprocessing.Manager()
     new_shared = new_manager.dict()
 
@@ -453,14 +519,23 @@ def retry_cancelled_batch():
         batch_state["_cancelled_job_configs"] = []
         batch_state["_retry_configs"] = cancelled_configs
 
-    t = threading.Thread(target=batch_worker_thread, args=(num_cancelled, None), daemon=True)
+    t = threading.Thread(
+        target=batch_worker_thread, args=(num_cancelled, None), daemon=True
+    )
     t.start()
-    return {"status": "started", "message": f"Retrying {num_cancelled} cancelled jobs."}
+    return {
+        "status": "started",
+        "message": f"Retrying {num_cancelled} cancelled jobs.",
+    }
 
 
 @router.post("/api/batch/dismiss-job/{job_id}")
-def dismiss_job(job_id: int):
-    """Dismiss a job so it is hidden from the active job list."""
+def dismiss_job(job_id: int) -> dict[str, str]:
+    """Dismiss a job so it is hidden from the active job list.
+
+    Args:
+        job_id: The job number to dismiss.
+    """
     with _batch_state_lock:
         if "_dismissed_jobs" not in batch_state:
             batch_state["_dismissed_jobs"] = _load_dismissed_jobs()
@@ -471,13 +546,15 @@ def dismiss_job(job_id: int):
 
 
 @router.post("/api/batch/retry-failed")
-def retry_failed_batch():
+def retry_failed_batch() -> dict[str, str]:
+    """Retry all failed jobs from the last batch."""
     if batch_state["in_progress"]:
-        raise HTTPException(status_code=400, detail="A batch is currently running.")
+        raise HTTPException(
+            status_code=400, detail="A batch is currently running."
+        )
 
     failed_configs = batch_state.get("failed_job_configs", [])
     if not failed_configs:
-        # Fall back to persisted configs from disk
         if os.path.exists(FAILED_CONFIGS_FILE):
             try:
                 with open(FAILED_CONFIGS_FILE) as f:
@@ -485,10 +562,11 @@ def retry_failed_batch():
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning("Failed to load persisted failed configs: %s", e)
     if not failed_configs:
-        raise HTTPException(status_code=400, detail="No failed jobs to retry.")
+        raise HTTPException(
+            status_code=400, detail="No failed jobs to retry."
+        )
 
     num_failed = len(failed_configs)
-
     new_manager = multiprocessing.Manager()
     new_shared = new_manager.dict()
 
@@ -501,20 +579,30 @@ def retry_failed_batch():
         batch_state["failed_job_configs"] = []
         batch_state["_retry_configs"] = failed_configs
 
-    t = threading.Thread(target=batch_worker_thread, args=(num_failed, None), daemon=True)
+    t = threading.Thread(
+        target=batch_worker_thread, args=(num_failed, None), daemon=True
+    )
     t.start()
-    return {"status": "started", "message": f"Retrying {num_failed} failed jobs."}
+    return {
+        "status": "started",
+        "message": f"Retrying {num_failed} failed jobs.",
+    }
 
 
 @router.post("/api/batch/retry-job/{job_id}")
-def retry_single_job(job_id: int):
-    if batch_state["in_progress"]:
-        raise HTTPException(status_code=400, detail="A batch is currently running.")
+def retry_single_job(job_id: int) -> dict[str, str]:
+    """Retry a single failed job by ID.
 
-    # Find the failed job config by index
+    Args:
+        job_id: The job number to retry.
+    """
+    if batch_state["in_progress"]:
+        raise HTTPException(
+            status_code=400, detail="A batch is currently running."
+        )
+
     failed_configs = batch_state.get("failed_job_configs", [])
     if not failed_configs:
-        # Fall back to persisted configs from disk
         if os.path.exists(FAILED_CONFIGS_FILE):
             try:
                 with open(FAILED_CONFIGS_FILE) as f:
@@ -528,7 +616,10 @@ def retry_single_job(job_id: int):
             break
 
     if not target:
-        raise HTTPException(status_code=404, detail=f"No failed job #{job_id} found to retry.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No failed job #{job_id} found to retry.",
+        )
 
     new_manager = multiprocessing.Manager()
     new_shared = new_manager.dict()
@@ -542,22 +633,35 @@ def retry_single_job(job_id: int):
         batch_state["failed_job_configs"] = []
         batch_state["_retry_configs"] = [target]
 
-    t = threading.Thread(target=batch_worker_thread, args=(1, None), daemon=True)
+    t = threading.Thread(
+        target=batch_worker_thread, args=(1, None), daemon=True
+    )
     t.start()
     return {"status": "started", "message": f"Retrying job #{job_id}."}
 
 
 @router.get("/api/batch/report")
-def get_batch_report():
+def get_batch_report() -> dict[str, Any]:
+    """Return the completed batch report.
+
+    Returns:
+        Summary and per-job results from the last batch.
+    """
     with _batch_state_lock:
         results = batch_state.get("batch_results", [])
     if not results:
-        raise HTTPException(status_code=404, detail="No batch results available.")
+        raise HTTPException(
+            status_code=404, detail="No batch results available."
+        )
 
-    total = len(results)
-    succeeded = sum(1 for r in results if r["status"] == "Done")
-    cancelled = sum(1 for r in results if r["status"] == "Cancelled")
-    failed = sum(1 for r in results if r["status"].startswith("Failed") and r["status"] != "Cancelled")
+    total: int = len(results)
+    succeeded: int = sum(1 for r in results if r["status"] == "Done")
+    cancelled: int = sum(1 for r in results if r["status"] == "Cancelled")
+    failed: int = sum(
+        1
+        for r in results
+        if r["status"].startswith("Failed") and r["status"] != "Cancelled"
+    )
 
     return {
         "summary": {

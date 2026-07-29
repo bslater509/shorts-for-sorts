@@ -1,11 +1,20 @@
-# Emoji map — keyword-to-emoji mapping for video captions
+"""Emoji map — keyword-to-emoji mapping for video captions.
+
+Provides a built-in default emoji map and functions to load/save
+the user-customisable emoji map from a JSON file on disk.
+"""
+
+from __future__ import annotations
 
 import json
 import os
+from typing import Any
 
-from gui.config import EMOJIS_FILE, console, logger
+from gui.config import EMOJIS_FILE, logger
 
-DEFAULT_EMOJI_MAP = {
+# --- Default emoji map ---
+
+DEFAULT_EMOJI_MAP: dict[str, dict[str, str]] = {
     "science": {"emoji": "🧪", "anim": "fade"},
     "scientific": {"emoji": "🧪", "anim": "fade"},
     "scientist": {"emoji": "🧪", "anim": "fade"},
@@ -359,25 +368,58 @@ DEFAULT_EMOJI_MAP = {
     "style": {"emoji": "💅", "anim": "fade"},
     "tears": {"emoji": "😭", "anim": "fade"},
 }
+"""Built-in default keyword-to-emoji mapping with animation style hints."""
+
+# --- Constants ---
+
+FALLBACK_EMOJI: str = "❓"
+"""Emoji used when a map entry is missing the ``"emoji"`` key."""
+
+FALLBACK_ANIM: str = "none"
+"""Animation style used when a map entry is missing the ``"anim"`` key."""
 
 
-def _normalize_emoji_map(raw_map: dict) -> dict:
-    """Normalize emoji_map entries so each value is a dict with 'emoji' and 'anim' keys."""
-    normalized = {}
+# --- Public API ---
+
+
+def _normalize_emoji_map(
+    raw_map: dict[str, Any]
+) -> dict[str, dict[str, str]]:
+    """Normalise emoji map entries so each value is a ``dict`` with ``"emoji"`` and ``"anim"`` keys.
+
+    Accepts both plain-string values (treated as emoji with ``"none"`` animation)
+    and dictionary values.
+
+    Args:
+        raw_map: Raw emoji map with string or dict values.
+
+    Returns:
+        Normalised dictionary where every value has the form
+        ``{"emoji": str, "anim": str}``.
+    """
+    normalized: dict[str, dict[str, str]] = {}
     for key, value in raw_map.items():
         if isinstance(value, str):
-            normalized[key] = {"emoji": value, "anim": "none"}
+            normalized[key] = {"emoji": value, "anim": FALLBACK_ANIM}
         elif isinstance(value, dict):
             normalized[key] = {
-                "emoji": value.get("emoji", "❓"),
-                "anim": value.get("anim", "none"),
+                "emoji": value.get("emoji", FALLBACK_EMOJI),
+                "anim": value.get("anim", FALLBACK_ANIM),
             }
         else:
-            normalized[key] = {"emoji": str(value), "anim": "none"}
+            normalized[key] = {"emoji": str(value), "anim": FALLBACK_ANIM}
     return normalized
 
 
-def load_emoji_map() -> dict:
+def load_emoji_map() -> dict[str, dict[str, str]]:
+    """Load the emoji map from disk, falling back to the built-in default.
+
+    If the emoji file does not exist on disk, it is created with the
+    default map.  Corrupted files are logged and fall back to the default.
+
+    Returns:
+        Normalised emoji map dictionary.
+    """
     if not os.path.exists(EMOJIS_FILE):
         try:
             with open(EMOJIS_FILE, "w", encoding="utf-8") as f:
@@ -385,23 +427,38 @@ def load_emoji_map() -> dict:
             return _normalize_emoji_map(DEFAULT_EMOJI_MAP)
         except Exception as e:
             logger.warning(
-                f"Failed to create default emoji map file at {EMOJIS_FILE}: {e}", exc_info=True
+                "Failed to create default emoji map file at %s: %s",
+                EMOJIS_FILE,
+                e,
+                exc_info=True,
             )
             return _normalize_emoji_map(DEFAULT_EMOJI_MAP)
     try:
         with open(EMOJIS_FILE, encoding="utf-8") as f:
-            raw = json.load(f)
+            raw: dict[str, Any] = json.load(f)
             return _normalize_emoji_map(raw)
     except Exception as e:
-        logger.warning(f"Failed to load emoji map from {EMOJIS_FILE}: {e}", exc_info=True)
+        logger.warning(
+            "Failed to load emoji map from %s: %s", EMOJIS_FILE, e, exc_info=True
+        )
         return _normalize_emoji_map(DEFAULT_EMOJI_MAP)
 
 
-def save_emoji_map(emoji_map: dict) -> bool:
+def save_emoji_map(emoji_map: dict[str, Any]) -> bool:
+    """Save an emoji map dictionary to disk as JSON.
+
+    Args:
+        emoji_map: The emoji map to persist.
+
+    Returns:
+        ``True`` on success, ``False`` on failure.
+    """
     try:
         with open(EMOJIS_FILE, "w", encoding="utf-8") as f:
             json.dump(emoji_map, f, indent=4, ensure_ascii=False)
         return True
     except Exception as e:
-        logger.warning(f"Failed to save emoji map to {EMOJIS_FILE}: {e}", exc_info=True)
+        logger.warning(
+            "Failed to save emoji map to %s: %s", EMOJIS_FILE, e, exc_info=True
+        )
         return False

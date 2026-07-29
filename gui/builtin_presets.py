@@ -1,11 +1,16 @@
-# Built-in presets and preset load/save/delete functions
+"""Built-in video style presets and preset load/save/delete functions."""
+
+from __future__ import annotations
 
 import json
 import os
+from typing import Any, Optional
 
-from gui.config import PRESETS_FILE, console, logger
+from gui.config import PRESETS_FILE, logger
 
-BUILTIN_PRESETS = {
+# --- Built-in presets ---
+
+BUILTIN_PRESETS: dict[str, dict[str, Any]] = {
     "Split-Screen Chill (Yellow Highlight)": {
         "name": "Split-Screen Chill (Yellow Highlight)",
         "selected_voice": "am_michael",
@@ -207,30 +212,59 @@ BUILTIN_PRESETS = {
         "emoji_throw_max_count": 3,
     },
 }
+"""Dictionary of built-in preset configurations.  Keys are preset display names."""
 
 
-def load_presets():
-    presets = BUILTIN_PRESETS.copy()
+# --- Public API ---
+
+
+def load_presets() -> dict[str, dict[str, Any]]:
+    """Load all presets (built-in + custom) from disk.
+
+    Custom presets are merged on top of built-ins, so a custom preset with
+    the same name will override the built-in.
+
+    Returns:
+        Combined preset dictionary keyed by display name.
+    """
+    presets: dict[str, dict[str, Any]] = BUILTIN_PRESETS.copy()
     if os.path.exists(PRESETS_FILE):
         try:
             with open(PRESETS_FILE) as f:
-                custom_presets = json.load(f)
+                custom_presets: dict[str, dict[str, Any]] = json.load(f)
                 for name, p in custom_presets.items():
                     presets[name] = p
         except Exception as e:
-            logger.warning(f"Failed to load custom presets from {PRESETS_FILE}: {e}", exc_info=True)
+            logger.warning(
+                "Failed to load custom presets from %s: %s",
+                PRESETS_FILE,
+                e,
+                exc_info=True,
+            )
     return presets
 
 
-def save_custom_preset(name, preset_dict):
-    presets = {}
+def save_custom_preset(name: str, preset_dict: dict[str, Any]) -> bool:
+    """Save a custom preset to disk.
+
+    Args:
+        name: Display name for the preset.
+        preset_dict: Preset configuration dictionary.
+
+    Returns:
+        ``True`` on success, ``False`` on failure.
+    """
+    presets: dict[str, Any] = {}
     if os.path.exists(PRESETS_FILE):
         try:
             with open(PRESETS_FILE) as f:
                 presets = json.load(f)
         except Exception as e:
             logger.warning(
-                f"Failed to load presets file prior to saving preset '{name}': {e}", exc_info=True
+                "Failed to load presets file prior to saving preset '%s': %s",
+                name,
+                e,
+                exc_info=True,
             )
     presets[name] = preset_dict
     try:
@@ -239,21 +273,39 @@ def save_custom_preset(name, preset_dict):
         return True
     except Exception as e:
         logger.warning(
-            f"Failed to save preset '{name}' to custom presets file {PRESETS_FILE}: {e}",
+            "Failed to save preset '%s' to custom presets file %s: %s",
+            name,
+            PRESETS_FILE,
+            e,
             exc_info=True,
         )
         return False
 
 
-def delete_custom_preset(name):
-    presets = {}
+def delete_custom_preset(name: str) -> bool:
+    """Delete a custom preset from disk.
+
+    Only custom presets (stored in the presets file) can be deleted;
+    built-in presets are unaffected.
+
+    Args:
+        name: The display name of the preset to delete.
+
+    Returns:
+        ``True`` if the preset was deleted, ``False`` if it was not found
+        or could not be deleted.
+    """
+    presets: dict[str, Any] = {}
     if os.path.exists(PRESETS_FILE):
         try:
             with open(PRESETS_FILE) as f:
                 presets = json.load(f)
         except Exception as e:
             logger.warning(
-                f"Failed to load presets file prior to deleting preset '{name}': {e}", exc_info=True
+                "Failed to load presets file prior to deleting preset '%s': %s",
+                name,
+                e,
+                exc_info=True,
             )
     if name in presets:
         del presets[name]
@@ -263,7 +315,9 @@ def delete_custom_preset(name):
             return True
         except Exception as e:
             logger.warning(
-                f"Failed to save custom presets file after deleting preset '{name}': {e}",
+                "Failed to save custom presets file after deleting preset '%s': %s",
+                name,
+                e,
                 exc_info=True,
             )
             return False

@@ -1,36 +1,102 @@
-import concurrent.futures
+"""Batch job orchestration — job config, progress console, LLM worker, and video worker.
+
+Contains the :class:`BatchJobConfig` dataclass, the :class:`ProgressConsole`
+class that intercepts console output for progress tracking, the per-job
+LLM script generation worker, and the video compilation worker for batch mode.
+"""
+
+from __future__ import annotations
+
 import os
 import re
 import time
 import traceback
 from dataclasses import dataclass, fields
+from typing import Any, Optional
 
 from gui import state as shared_state
-from gui.config import OUTPUT_DIR, console, logger
+from gui.config import console, logger
+from gui.llm_utils import parse_title_hashtags, retry_with_backoff
+from gui.progress_utils import log_memory_usage
 from gui.utils import resolve_preset_path
+from gui.video_compiler import compile_video_flow
 
-from gui.video_compiler import compile_video_flow, _release_memory_to_os, unload_whisper_model
-from gui.progress_utils import (
-    get_progress_percentage,
-    make_progress_bar,
-    format_elapsed,
-    display_progress_table,
-    log_memory_usage,
+# --- Constants ---
+
+DEFAULT_LLM_MODEL: str = "gpt-4o-mini"
+"""Default model used for LLM script generation in batch mode."""
+
+LLM_RETRY_ATTEMPTS: int = 3
+"""Number of retry attempts for the LLM streaming call."""
+
+STREAM_PROGRESS_WORD_INTERVAL: int = 5
+"""Minimum word-count change to emit a progress update during streaming."""
+
+STREAM_PROGRESS_TIME_INTERVAL: float = 0.25
+"""Minimum time interval (seconds) between streaming progress updates."""
+
+TITLE_FALLBACK: str = "Batch Video"
+"""Fallback title used when LLM title generation fails."""
+
+HASHTAGS_FALLBACK: str = "#shorts #video"
+"""Fallback hashtags used when LLM hashtag generation fails."""
+
+# Output filename fallback
+BATCH_FILENAME_FALLBACK: str = "batch_video"
+
+# Keywords that indicate retryable streaming errors
+STREAM_RETRYABLE_KEYWORDS: tuple[str, ...] = (
+    "rate",
+    "timeout",
+    "connection",
+    "overloaded",
+    "api_error",
+    "incomplete chunked read",
 )
-from gui.llm_utils import retry_with_backoff, parse_title_hashtags, generate_title_hashtags
+
+# Non-retryable error keywords for streaming
+STREAM_NON_RETRYABLE_KEYWORDS: tuple[str, ...] = (
+    "bad request",
+    "auth",
+    "unauthorized",
+    "401",
+    "403",
+)
+
+# Prompt templates
+TITLE_HASHTAGS_APPENDIX: str = (
+    "\n\n9. After the script ends, include exactly one line "
+    "'TITLE: <short catchy title under 5 words>' "
+    "followed by one line 'HASHTAGS: <5 trending hashtags>' "
+    "based on your script. "
+    "Do not include these lines within the script body."
+)
+"""Appendix appended to system prompts to request title/hashtags in the response."""
+
+# --- Dataclasses ---
 
 
 @dataclass
 class BatchJobConfig:
-    # Required fields (no defaults)
+    """Configuration for a single batch job.
+
+    Required Fields:
+        index: Job index (1-based).
+        prompt: The script generation prompt.
+        voice_id: Kokoro voice identifier.
+        bg_video_path: Path to the top background video.
+        output_filename: Desired output filename.
+        settings: Global settings snapshot (for worker process isolation).
+    """
+
     index: int
     prompt: str
     voice_id: str
     bg_video_path: str
     output_filename: str
-    settings: dict
+    settings: dict[str, Any]
 
-    # Optional fields (with defaults)
+    # Optional fields with defaults
     bg_video_bottom_path: str | None = None
     bg_music_path: str | None = None
     music_volume: float = 0.15
@@ -63,37 +129,70 @@ class BatchJobConfig:
     sub_animation_style: str = "tiktok_pop"
     script_temp: float = 0.7
     meta_temp: float = 0.7
-    model: str = "gpt-4o-mini"
+    model: str = DEFAULT_LLM_MODEL
     system_prompt: str = ""
     generated_title: str | None = None
     generated_hashtags: str | None = None
     script_text: str | None = None
 
     @classmethod
-    def from_dict(cls, data: dict) -> "BatchJobConfig":
-        valid_fields = {f.name for f in fields(cls)}
-        kwargs = {k: data[k] for k in data if k in valid_fields}
+    def from_dict(cls, data: dict[str, Any]) -> BatchJobConfig:
+        """Construct a :class:`BatchJobConfig` from a dictionary, ignoring unknown keys.
+
+        Args:
+            data: Dictionary of field values.
+
+        Returns:
+            A new :class:`BatchJobConfig` instance.
+
+        Raises:
+            TypeError: If a required field is missing.
+        """
+        valid_fields: set[str] = {f.name for f in fields(cls)}
+        kwargs: dict[str, Any] = {k: data[k] for k in data if k in valid_fields}
         return cls(**kwargs)
 
 
-class ProgressConsole:
-    def __init__(self, idx, p_dict):
-        self.idx = idx
-        self.p_dict = p_dict
+# --- Progress Console ---
 
-    def print(self, *args, **kwargs):
-        msg = " ".join(str(a) for a in args)
+
+class ProgressConsole:
+    """Intercepts ``console.print`` calls to extract progress information.
+
+    Maps log-style messages to status strings stored in a shared progress
+    dictionary (typically a ``multiprocessing.Manager.dict``).
+    """
+
+    def __init__(self, idx: int, p_dict: dict[str, Any]) -> None:
+        """Initialise the console proxy.
+
+        Args:
+            idx: Job index (1-based) for status key prefix.
+            p_dict: Shared progress dictionary to write status updates into.
+        """
+        self.idx: int = idx
+        self.p_dict: dict[str, Any] = p_dict
+
+    def print(self, *args: Any, **kwargs: Any) -> None:
+        """Intercept a print call and parse it for progress information.
+
+        Args:
+            *args: Positional arguments (first is typically the message).
+            **kwargs: Keyword arguments (ignored).
+        """
+        msg: str = " ".join(str(a) for a in args)
+
         # Direct float/numeric progress callback (e.g., FFmpeg progress percentage)
         try:
-            pct = float(msg)
+            pct: float = float(msg)
             self.p_dict[self.idx] = f"FFmpeg Rendering ({pct:.1f}%)"
             return
         except (TypeError, ValueError):
             pass
+
         try:
             if "Generating voice for sentence" in msg or "Generating voice for chunk" in msg:
-                # Record phase entry timestamp (first time only)
-                phase_key = f"{self.idx}_phase_voice_start"
+                phase_key: str = f"{self.idx}_phase_voice_start"
                 if phase_key not in self.p_dict:
                     self.p_dict[phase_key] = time.time()
                 match = re.search(r"(?:sentence|chunk) (\d+/\d+)", msg)
@@ -126,21 +225,40 @@ class ProgressConsole:
                 if phase_key not in self.p_dict:
                     self.p_dict[phase_key] = time.time()
                 self.p_dict[self.idx] = "FFmpeg Rendering"
-            elif "ℹ️ Found cached" in msg:
+            elif "\u2139\ufe0f Found cached" in msg:
                 self.p_dict[self.idx] = "Reusing Cache (Voice)"
         except Exception:
             logger.debug(
                 "ProgressConsole.print exception for idx=%d", self.idx, exc_info=True
             )
 
-    def clear(self):
+    def clear(self) -> None:
+        """No-op for console.clear compatibility."""
         pass
 
 
-def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executor):
-    # Validate job config early to catch missing required keys
+# --- Orchestration ---
+
+
+def orchestrate_batch_job(
+    job_config: dict[str, Any],
+    progress_dict: dict[str, Any],
+    llm_executor: Any,
+    video_executor: Any,
+) -> tuple[int, bool, str | None]:
+    """Orchestrate a single batch job: LLM → video compilation.
+
+    Args:
+        job_config: Job configuration dictionary.
+        progress_dict: Shared progress dictionary.
+        llm_executor: ``ThreadPoolExecutor`` for LLM calls.
+        video_executor: ``ProcessPoolExecutor`` for video compilation.
+
+    Returns:
+        Tuple of ``(idx, success, message_or_error)``.
+    """
     BatchJobConfig.from_dict(job_config)
-    idx = job_config["index"]
+    idx: int = job_config["index"]
     progress_dict[f"{idx}_start"] = time.time()
     try:
         progress_dict[idx] = "Waiting for LLM"
@@ -156,13 +274,14 @@ def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executo
             return (idx, False, err_msg)
 
         job_config["script_text"] = script_text
-
         progress_dict[idx] = "Waiting for Compilation"
         log_memory_usage(f"Job {idx}: after LLM, before video")
 
         # 2. Run Video Generation in ProcessPool
-        future_video = video_executor.submit(video_job_worker, job_config, progress_dict)
-        result = future_video.result()
+        future_video = video_executor.submit(
+            video_job_worker, job_config, progress_dict
+        )
+        result: Any = future_video.result()
         log_memory_usage(f"Job {idx}: video complete")
         return result
 
@@ -172,8 +291,22 @@ def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executo
         return (idx, False, str(e))
 
 
-def llm_job_worker(job_config, progress_dict):
-    idx = job_config["index"]
+# --- Workers ---
+
+
+def llm_job_worker(
+    job_config: dict[str, Any], progress_dict: dict[str, Any]
+) -> tuple[bool, Optional[str], Optional[str]]:
+    """Generate a script for a batch job via the LLM API.
+
+    Args:
+        job_config: Job configuration dictionary.
+        progress_dict: Shared progress dictionary for status updates.
+
+    Returns:
+        Tuple of ``(success, script_text, error_message)``.
+    """
+    idx: int = job_config["index"]
     progress_dict[f"{idx}_llm_worker_start"] = time.time()
     progress_dict[idx] = "LLM Script"
     logger.info(
@@ -185,9 +318,9 @@ def llm_job_worker(job_config, progress_dict):
     try:
         from openai import OpenAI
 
-        profiles = job_config["settings"].get("llm_profiles", [])
-        active_id = job_config["settings"].get("active_llm_profile_id")
-        active_profile = {}
+        profiles: list[dict[str, Any]] = job_config["settings"].get("llm_profiles", [])
+        active_id: str | None = job_config["settings"].get("active_llm_profile_id")
+        active_profile: dict[str, Any] = {}
         for p in profiles:
             if p.get("id") == active_id:
                 active_profile = p
@@ -195,24 +328,28 @@ def llm_job_worker(job_config, progress_dict):
         if not active_profile and profiles:
             active_profile = profiles[0]
 
-        api_key = active_profile.get("api_key") or os.environ.get("OPENAI_API_KEY")
-        base_url = active_profile.get("base_url") or os.environ.get("OPENAI_BASE_URL")
+        api_key: str = active_profile.get("api_key") or os.environ.get(
+            "OPENAI_API_KEY", ""
+        )
+        base_url: str = active_profile.get("base_url") or os.environ.get(
+            "OPENAI_BASE_URL", ""
+        )
 
-        client = OpenAI(api_key=api_key, base_url=base_url, timeout=300.0)
+        client: OpenAI = OpenAI(api_key=api_key, base_url=base_url, timeout=300.0)
 
-        # Streaming LLM call with retry + buffered progress
-        # Retry covers both the initial request AND the streaming read,
-        # so mid-stream disconnects ("incomplete chunked read") trigger a full restart.
-        script_text = ""
-        _last_ts = time.time()
-        _last_wc = 0
+        script_text: str = ""
+        _last_ts: float = time.time()
+        _last_wc: int = 0
 
-        for attempt in range(3):
+        for attempt in range(LLM_RETRY_ATTEMPTS):
             try:
                 response = client.chat.completions.create(
                     model=job_config["model"],
                     messages=[
-                        {"role": "system", "content": job_config["system_prompt"]},
+                        {
+                            "role": "system",
+                            "content": job_config["system_prompt"],
+                        },
                         {"role": "user", "content": job_config["prompt"]},
                     ],
                     temperature=job_config["script_temp"],
@@ -228,65 +365,53 @@ def llm_job_worker(job_config, progress_dict):
                         and chunk.choices[0].delta.content is not None
                     ):
                         script_text += chunk.choices[0].delta.content
-                        word_count = len(script_text.split())
-                        now = time.time()
-                        if word_count - _last_wc >= 5 or now - _last_ts >= 0.25:
+                        word_count: int = len(script_text.split())
+                        now: float = time.time()
+                        if (
+                            word_count - _last_wc >= STREAM_PROGRESS_WORD_INTERVAL
+                            or now - _last_ts >= STREAM_PROGRESS_TIME_INTERVAL
+                        ):
                             progress_dict[idx] = f"LLM Script ({word_count} words)"
                             _last_ts = now
                             _last_wc = word_count
                 break  # success — exit retry loop
             except Exception as e:
-                err_str = str(e).lower()
-                if (
-                    "bad request" in err_str
-                    or "auth" in err_str
-                    or "unauthorized" in err_str
-                    or "401" in err_str
-                    or "403" in err_str
-                ):
+                err_str: str = str(e).lower()
+                if any(k in err_str for k in STREAM_NON_RETRYABLE_KEYWORDS):
                     raise
-                is_retryable = isinstance(e, (ConnectionError, TimeoutError)) or any(
-                    w in err_str
-                    for w in [
-                        "rate", "timeout", "connection", "overloaded",
-                        "api_error", "incomplete chunked read",
-                    ]
-                )
-                if not is_retryable or attempt == 2:
+                is_retryable: bool = isinstance(
+                    e, (ConnectionError, TimeoutError)
+                ) or any(w in err_str for w in STREAM_RETRYABLE_KEYWORDS)
+                if not is_retryable or attempt == LLM_RETRY_ATTEMPTS - 1:
                     raise
-                progress_dict[idx] = f"LLM Script (retry {attempt + 1}/3)"
+                progress_dict[idx] = f"LLM Script (retry {attempt + 1}/{LLM_RETRY_ATTEMPTS})"
                 time.sleep(1.0 * (2**attempt))
 
         script_text = script_text.strip()
-        # Defensively strip any TITLE/HASHTAGS lines that might be in the response
-        script_text, _, _ = parse_title_hashtags(script_text)
+        script_text, title, hashtags = parse_title_hashtags(script_text)
 
-        # Always use a dedicated second LLM call for title and hashtags
+        # Generate safe output filename from title
         try:
-            title, hashtags = generate_title_hashtags(
-                script_text,
-                client,
-                job_config["model"],
-                job_config.get("meta_temp", job_config.get("script_temp", 0.7)),
+            safe_title: str = (
+                re.sub(r"[\s\-]+", "_", title.lower()) if title else BATCH_FILENAME_FALLBACK
             )
-
-            safe_title = re.sub(r"[\s\-]+", "_", title.lower())
             safe_title = re.sub(r"[^\w_]", "", safe_title).strip("_")
             if not safe_title:
-                safe_title = "batch_video"
+                safe_title = BATCH_FILENAME_FALLBACK
 
-            orig_filename = job_config["output_filename"]
+            orig_filename: str = job_config["output_filename"]
             timestamp_match = re.search(r"rendered_batch_(\d+)_", orig_filename)
-            timestamp = timestamp_match.group(1) if timestamp_match else str(int(time.time()))
+            timestamp: str = (
+                timestamp_match.group(1) if timestamp_match else str(int(time.time()))
+            )
 
-            new_filename = f"{safe_title}_{timestamp}_{idx}.mp4"
+            new_filename: str = f"{safe_title}_{timestamp}_{idx}.mp4"
             job_config["output_filename"] = new_filename
-            job_config["generated_title"] = title or "Batch Video"
-            job_config["generated_hashtags"] = hashtags or "#shorts #video"
+            job_config["generated_title"] = title or TITLE_FALLBACK
+            job_config["generated_hashtags"] = hashtags or HASHTAGS_FALLBACK
         except Exception:
-            # Fallback if title/hashtag generation fails
-            job_config["generated_title"] = "Batch Video"
-            job_config["generated_hashtags"] = "#shorts #video"
+            job_config["generated_title"] = TITLE_FALLBACK
+            job_config["generated_hashtags"] = HASHTAGS_FALLBACK
 
         logger.info(
             "[Batch LLM #%d] Script done: %d words, title=%s",
@@ -301,20 +426,31 @@ def llm_job_worker(job_config, progress_dict):
         return False, None, str(e)
 
 
-def video_job_worker(job_config, progress_dict):
+def video_job_worker(
+    job_config: dict[str, Any],
+    progress_dict: dict[str, Any],
+) -> tuple[int, bool, str]:
+    """Run video compilation for a batch job.
 
-    idx = job_config["index"]
-    output_filename = job_config["output_filename"]
+    Args:
+        job_config: Job configuration dictionary.
+        progress_dict: Shared progress dictionary for status updates.
+
+    Returns:
+        Tuple of ``(idx, success, message_or_filename)``.
+    """
+    idx: int = job_config["index"]
+    output_filename: str = job_config["output_filename"]
     logger.info("[Batch Video #%d] Starting compilation -> %s", idx, output_filename)
 
     # Resolve relative asset paths before loading into state
-    from gui.utils import resolve_preset_path
+    resolved_bg_video: str | None = resolve_preset_path(job_config["bg_video_path"])
+    resolved_bg_video_bottom: str | None = resolve_preset_path(
+        job_config["bg_video_bottom_path"]
+    )
+    resolved_bg_music: str | None = resolve_preset_path(job_config["bg_music_path"])
 
-    resolved_bg_video = resolve_preset_path(job_config["bg_video_path"])
-    resolved_bg_video_bottom = resolve_preset_path(job_config["bg_video_bottom_path"])
-    resolved_bg_music = resolve_preset_path(job_config["bg_music_path"])
-
-    # Update process-local state and settings dictionaries
+    # Update process-local state and settings
     shared_state.state.clear()
     shared_state.state.update(
         {
@@ -333,7 +469,6 @@ def video_job_worker(job_config, progress_dict):
             "sub_outline_width": job_config["sub_outline_width"],
             "sub_bold": job_config["sub_bold"],
             "enable_emojis": job_config["enable_emojis"],
-
             "enable_emoji_animation": job_config.get("enable_emoji_animation", True),
             "emoji_scale_factor": job_config.get("emoji_scale_factor", 1.5),
             "emoji_hold_duration": job_config.get("emoji_hold_duration", 0.5),
@@ -344,18 +479,18 @@ def video_job_worker(job_config, progress_dict):
             "inactive_alpha": job_config["inactive_alpha"],
             "voice_speed": job_config.get("voice_speed", 1.0),
             "loaded_preset_name": "Randomized Batch Job",
-            "generated_title": job_config.get("generated_title", "Batch Video"),
-            "generated_hashtags": job_config.get("generated_hashtags", "#shorts #video"),
+            "generated_title": job_config.get("generated_title", TITLE_FALLBACK),
+            "generated_hashtags": job_config.get("generated_hashtags", HASHTAGS_FALLBACK),
         }
     )
 
     shared_state.settings.clear()
     shared_state.settings.update(job_config["settings"])
 
-    # Monkeypatch the config console for progress redirection in this worker process
-    progress_console = ProgressConsole(idx, progress_dict)
-    console.print = progress_console.print
-    console.clear = progress_console.clear
+    # Monkeypatch the config console for progress redirection
+    progress_console: ProgressConsole = ProgressConsole(idx, progress_dict)
+    console.print = progress_console.print  # type: ignore[assignment]
+    console.clear = progress_console.clear  # type: ignore[assignment]
 
     log_memory_usage(f"Job {idx}: starting compilation")
 
@@ -364,11 +499,12 @@ def video_job_worker(job_config, progress_dict):
             progress_dict[idx] = "Compiling"
         except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
             logger.warning(
-                f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                "Batch job %d: failed to update progress (manager may have shut down)",
+                idx,
                 exc_info=True,
             )
 
-        success = retry_with_backoff(
+        success: bool = retry_with_backoff(
             lambda: compile_video_flow(
                 skip_confirm=True,
                 custom_output_filename=output_filename,
@@ -379,15 +515,17 @@ def video_job_worker(job_config, progress_dict):
             try:
                 from gui.config import OUTPUT_DIR
 
-                base_name = os.path.splitext(output_filename)[0]
-                txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
+                base_name: str = os.path.splitext(output_filename)[0]
+                txt_path: str = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
                 with open(txt_path, "w", encoding="utf-8") as f:
-                    f.write(f"{job_config.get('generated_title', 'Batch Video')}\n")
-                    f.write(f"{job_config.get('generated_hashtags', '#shorts')}\n\n")
+                    f.write(f"{job_config.get('generated_title', TITLE_FALLBACK)}\n")
+                    f.write(f"{job_config.get('generated_hashtags', HASHTAGS_FALLBACK)}\n\n")
                     f.write(f"Script:\n{job_config.get('script_text', '')}\n")
             except Exception:
                 logger.warning(
-                    f"Batch job {idx}: failed to write metadata .txt (manager may have shut down)",
+                    "Batch job %d: failed to write metadata .txt "
+                    "(manager may have shut down)",
+                    idx,
                     exc_info=True,
                 )
 
@@ -397,7 +535,9 @@ def video_job_worker(job_config, progress_dict):
                 progress_dict[f"{idx}_end"] = time.time()
             except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
                 logger.warning(
-                    f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                    "Batch job %d: failed to update progress "
+                    "(manager may have shut down)",
+                    idx,
                     exc_info=True,
                 )
             return (idx, True, output_filename)
@@ -407,18 +547,27 @@ def video_job_worker(job_config, progress_dict):
                 progress_dict[f"{idx}_end"] = time.time()
             except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
                 logger.warning(
-                    f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                    "Batch job %d: failed to update progress "
+                    "(manager may have shut down)",
+                    idx,
                     exc_info=True,
                 )
             return (idx, False, "Compilation failed (check logs/app.log)")
     except Exception as e:
-        logger.error(f"Batch job {idx} exception: {e}\n{traceback.format_exc()}")
+        logger.error(
+            "Batch job %d exception: %s\n%s",
+            idx,
+            e,
+            traceback.format_exc(),
+        )
         try:
             progress_dict[idx] = f"Failed: {str(e)}"
             progress_dict[f"{idx}_end"] = time.time()
         except (KeyError, BrokenPipeError, ConnectionRefusedError, OSError):
             logger.warning(
-                f"Batch job {idx}: failed to update progress (manager may have shut down)",
+                "Batch job %d: failed to update progress "
+                "(manager may have shut down)",
+                idx,
                 exc_info=True,
             )
         return (idx, False, str(e))

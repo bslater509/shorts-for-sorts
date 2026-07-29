@@ -1,331 +1,284 @@
-import json
+"""GUI utility functions: LLM profile resolution, path helpers, system dependency checks."""
+
+from __future__ import annotations
+
 import os
 import shutil
 import subprocess
-import sys
-import time
-import urllib.parse
-import urllib.request
+from typing import Any, Optional
 
-import questionary
-
-from gui.config import BASE_DIR, MUSIC_DIR, VIDEOS_DIR, console, logger, save_settings
+from gui.assets_utils import list_music_files, list_video_files
+from gui.config import BASE_DIR, MUSIC_DIR, VIDEOS_DIR, console, logger
 from gui.state import settings, state
 
+# --- Constants ---
 
-def get_active_llm_profile():
-    profiles = settings.get("llm_profiles", [])
-    active_id = settings.get("active_llm_profile_id")
+DEFAULT_MUSIC_URL: str = (
+    "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+)
+"""Default background music download URL used when no music files are found."""
+
+RANDOM_PATH: str = "random"
+"""Sentinel value meaning "pick a random file from the available assets"."""
+
+# Substrings that identify process names using the server port
+SERVER_PROCESS_NAMES: tuple[str, ...] = ("python", "uvicorn", "gunicorn", "hypercorn")
+"""Process name substrings that identify our own server processes for port cleanup."""
+
+# fontconfig search strings for emoji font detection
+EMOJI_FONT_PATTERNS: tuple[str, ...] = ("symbola", "emoji")
+"""Substrings to search for in ``fc-list`` output to detect emoji font support."""
+
+
+# --- Public helpers ---
+
+
+def get_active_llm_profile() -> dict[str, Any]:
+    """Retrieve the currently active LLM profile from settings.
+
+    Falls back to the first profile if the active ID is invalid,
+    or returns an empty dict if no profiles exist.
+
+    Returns:
+        The active profile dictionary (may be empty).
+    """
+    profiles: list[dict[str, Any]] = settings.get("llm_profiles", [])
+    active_id: Optional[str] = settings.get("active_llm_profile_id")
     for profile in profiles:
         if profile.get("id") == active_id:
             return profile
-    # Fallback to first profile if active is invalid, or return empty dict
+    # Fallback to first profile if active is invalid
     if profiles:
         return profiles[0]
     return {}
 
 
-DEFAULT_VIDEO_URL = None
-DEFAULT_MUSIC_URL = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+def make_preset_path_relative(path: Optional[str]) -> Optional[str]:
+    """Convert an absolute path to a relative path rooted at :data:`BASE_DIR`.
 
+    Special values ``None`` and ``"random"`` are returned unchanged.
 
-def make_preset_path_relative(path):
-    if not path or path == "random":
+    Args:
+        path: The filesystem path to relativize.
+
+    Returns:
+        Relative path, or the original value for sentinel cases.
+    """
+    if not path or path == RANDOM_PATH:
         return path
     if path.startswith(BASE_DIR):
         return os.path.relpath(path, BASE_DIR)
     return path
 
 
-def resolve_preset_path(path):
+def resolve_preset_path(path: Optional[str]) -> Optional[str]:
+    """Resolve a (possibly relative) preset path to an absolute filesystem path.
+
+    Args:
+        path: The path to resolve.  ``None`` and ``"random"`` are returned as-is.
+
+    Returns:
+        Absolute path, or the original value for sentinel cases.
+    """
     if not path:
         return None
-    if path == "random":
-        return "random"
+    if path == RANDOM_PATH:
+        return RANDOM_PATH
     if os.path.isabs(path):
         return path
-    else:
-        full = os.path.join(BASE_DIR, path)
-        return full
+    full: str = os.path.join(BASE_DIR, path)
+    return full
 
 
+def check_system_dependencies() -> None:
+    """Verify that required system tools (ffmpeg, ffprobe) are installed.
 
+    Attempts auto-installation via ``apt-get`` on Debian-based systems when
+    tools are missing.  Also checks for emoji font support and attempts
+    to install ``fonts-symbola`` if needed.
 
-
-def check_system_dependencies():
-    ffmpeg_found = shutil.which("ffmpeg") is not None
-    ffprobe_found = shutil.which("ffprobe") is not None
+    Raises:
+        RuntimeError: If ffmpeg or ffprobe cannot be found and auto-installation
+            fails.
+    """
+    ffmpeg_found: bool = shutil.which("ffmpeg") is not None
+    ffprobe_found: bool = shutil.which("ffprobe") is not None
 
     # Check for emoji fonts to prevent square glyphs ("tofu")
     if shutil.which("fc-list") is not None:
-        try:
-            res = subprocess.run(["fc-list", ":", "family"], capture_output=True, text=True)
-            families = res.stdout.lower()
-            if not ("symbola" in families or "emoji" in families):
-                console.print(
-                    "[bold yellow]Warning: No emoji or symbol fonts detected. Subtitle emojis may render as squares.[/]"
-                )
-                apt_found = shutil.which("apt-get") is not None
-                if apt_found:
-                    console.print("[yellow]Attempting to install 'fonts-symbola' via apt-get...[/]")
-                    try:
-                        is_root = False
-                        if hasattr(os, "getuid"):
-                            is_root = os.getuid() == 0
-                        cmd_prefix = [] if is_root else ["sudo"]
-                        subprocess.run(
-                            cmd_prefix + ["apt-get", "update", "-y"],
-                            check=True,
-                            timeout=120,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        subprocess.run(
-                            cmd_prefix + ["apt-get", "install", "-y", "fonts-symbola"],
-                            check=True,
-                            timeout=300,
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                        console.print("[green]Successfully installed 'fonts-symbola'![/]")
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to auto-install 'fonts-symbola': {e}", exc_info=True
-                        )
-                        console.print(
-                            "[yellow]Auto-installation of fonts-symbola failed. Emojis may render as squares.[/]"
-                        )
-        except Exception as e:
-            logger.warning(f"Error checking system fonts: {e}", exc_info=True)
+        _check_emoji_fonts()
 
     if ffmpeg_found and ffprobe_found:
         return
 
     logger.error("System dependencies 'ffmpeg' or 'ffprobe' are missing.")
-    console.print("[bold yellow]System dependencies 'ffmpeg' or 'ffprobe' are missing.[/]")
+    console.print(
+        "[bold yellow]System dependencies 'ffmpeg' or 'ffprobe' are missing.[/]"
+    )
 
-    apt_found = shutil.which("apt-get") is not None
+    apt_found: bool = shutil.which("apt-get") is not None
     if apt_found:
-        console.print("[yellow]Attempting to install 'ffmpeg' using apt-get...[/]")
-        try:
-            is_root = False
-            if hasattr(os, "getuid"):
-                is_root = os.getuid() == 0
-            cmd_prefix = [] if is_root else ["sudo"]
+        _auto_install_ffmpeg()
 
-            console.print("[yellow]Running: apt-get update -y[/]")
-            subprocess.run(cmd_prefix + ["apt-get", "update", "-y"], check=True, timeout=120)
-
-            console.print("[yellow]Running: apt-get install -y ffmpeg[/]")
-            subprocess.run(
-                cmd_prefix + ["apt-get", "install", "-y", "ffmpeg"], check=True, timeout=300
-            )
-
-            # Recheck
-            if shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None:
-                console.print("[green]Successfully installed ffmpeg/ffprobe via apt-get.[/]")
-                return
-        except Exception as e:
-            logger.error(f"Auto-installation of ffmpeg failed: {e}", exc_info=True)
-            console.print(f"[red]Auto-installation failed: {e}[/]")
+    if shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None:
+        return
 
     logger.error(
-        "Required system packages 'ffmpeg' and 'ffprobe' could not be resolved automatically."
+        "Required system packages 'ffmpeg' and 'ffprobe' "
+        "could not be resolved automatically."
     )
-    console.print("[bold red]Please install ffmpeg and ffprobe manually to proceed.[/]")
+    console.print(
+        "[bold red]Please install ffmpeg and ffprobe manually to proceed.[/]"
+    )
     console.print("Instructions:")
     console.print("- Ubuntu/Debian: sudo apt-get update && sudo apt-get install -y ffmpeg")
     console.print("- macOS: brew install ffmpeg")
     console.print("- Windows: scoop install ffmpeg or choco install ffmpeg")
-    raise RuntimeError(
-        "ffmpeg and ffprobe are required but not installed."
-    )
+    raise RuntimeError("ffmpeg and ffprobe are required but not installed.")
 
 
-def auto_download_pexels_background(position="top"):
-    script = state["script_text"].strip()
-    if not script:
-        console.print(
-            "[red]Error: Script is empty. Please generate or edit a script first to extract keywords.[/]"
-        )
-        return
+def download_default_assets_if_empty() -> None:
+    """Download default background music if the music directory is empty.
 
-    pexels_key = settings.get("pexels_api_key", "").strip()
-    if not pexels_key:
-        console.print(
-            "[yellow]Pexels API Key is missing. You can get a free key at https://www.pexels.com/api/[/]"
-        )
-        pexels_key = questionary.password("Please enter your Pexels API Key to proceed:").ask()
-        if not pexels_key:
-            console.print("[yellow]Cancelled API download.[/]")
-            return
-        settings["pexels_api_key"] = pexels_key.strip()
-        save_settings(settings)
-
-    console.print("[yellow]Enter search keyword for Pexels video download...[/]")
-    keyword = questionary.text(
-        "Enter search keyword for background video:"
-    ).ask()
-    if not keyword:
-        return
-
-    console.print(f'[green]Extracted keyword search term: [bold cyan]"{keyword}"[/][/]')
-    console.print(f'[yellow]Searching Pexels for vertical videos matching "{keyword}"...[/]')
-
-    url = f"https://api.pexels.com/videos/search?query={urllib.parse.quote(keyword)}&orientation=portrait&per_page=10"
-    req = urllib.request.Request(
-        url, headers={"Authorization": pexels_key, "User-Agent": "Mozilla/5.0"}
-    )
-
-    try:
-        with urllib.request.urlopen(req) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-    except Exception as e:
-        console.print(f"[red]Failed to search Pexels API: {e}[/]")
-        logger.error(f"Pexels search failed: {e}", exc_info=True)
-        return
-
-    videos = res_data.get("videos", [])
-    if not videos:
-        console.print(f'[red]No videos found on Pexels for query "{keyword}".[/]')
-        return
-
-    console.print(
-        f"\n[cyan]Found {len(videos)} matching vertical videos on Pexels. Select one to download:[/]"
-    )
-    choices = []
-    for idx, v in enumerate(videos[:5]):
-        duration = v.get("duration", 0)
-        user_name = v.get("user", {}).get("name", "Unknown Artist")
-        choices.append(
-            questionary.Choice(
-                title=f"📹 Video #{idx + 1} by {user_name} ({duration}s duration)", value=v
-            )
-        )
-    choices.append(questionary.Choice("<- Cancel", "cancel"))
-
-    selected_video = questionary.select(
-        "Select background video to download:", choices=choices
-    ).ask()
-    if not selected_video or selected_video == "cancel":
-        return
-
-    video_files = selected_video.get("video_files", [])
-    if not video_files:
-        console.print("[red]Error: Selected video has no downloadable files.[/]")
-        return
-
-    vertical_files = [vf for vf in video_files if (vf.get("width") or 0) < (vf.get("height") or 0)]
-    files_to_check = vertical_files if vertical_files else video_files
-
-    best_file = sorted(files_to_check, key=lambda x: x.get("width") or 0, reverse=True)[0]
-    download_url = best_file.get("link")
-
-    if not download_url:
-        console.print("[red]Error: Selected video file has no direct download link.[/]")
-        return
-
-    clean_keyword = "".join(c for c in keyword.lower() if c.isalnum() or c == " ").replace(" ", "_")
-    filename = f"pexels_{clean_keyword}_{selected_video.get('id')}.mp4"
-    dest_path = os.path.join(VIDEOS_DIR, filename)
-
-    console.print(
-        f"[yellow]Downloading video file ({best_file.get('width')}x{best_file.get('height')})...[/]"
-    )
-    try:
-        from generator import download_file
-
-        download_file(download_url, dest_path, f"Pexels Video: {filename}")
-
-        state_key = "bg_video_path" if position == "top" else "bg_video_bottom_path"
-        state[state_key] = dest_path
-        pos_label = "TOP (Primary Video)" if position == "top" else "BOTTOM (Satisfying Loop)"
-        console.print(
-            f"[green]Successfully downloaded and configured background video for {pos_label}: {filename}[/]"
-        )
-    except Exception as e:
-        console.print(f"[red]Failed to download Pexels video: {e}[/]")
-        logger.error(f"Failed to download Pexels video: {e}", exc_info=True)
-
-
-def download_default_assets_if_empty():
+    Also logs a warning if no background videos are found and clears
+    the corresponding state key.
+    """
     from generator import download_file
 
     # Check background videos
     os.makedirs(VIDEOS_DIR, exist_ok=True)
-    video_files = [
-        f
-        for f in os.listdir(VIDEOS_DIR)
-        if f.lower().endswith((".mp4", ".mov", ".mkv", ".webm", ".avi"))
+    video_files: list[str] = [
+        os.path.basename(f) for f in list_video_files(VIDEOS_DIR, exclude_sfx=False)
     ]
     if not video_files:
-        if DEFAULT_VIDEO_URL:
-            console.print(
-                "[bold yellow]No background videos found in videos/. Downloading a default loop...[/]"
-            )
-            dest_video = os.path.join(VIDEOS_DIR, "default_loop.mp4")
-            try:
-                download_file(DEFAULT_VIDEO_URL, dest_video, "Default Video Loop")
-                state["bg_video_path"] = dest_video
-                console.print("[green]Successfully downloaded and selected default loop video.[/]")
-            except Exception as e:
-                logger.error(
-                    f"Failed to download default video loop from {DEFAULT_VIDEO_URL}: {e}",
-                    exc_info=True,
-                )
-                state["bg_video_path"] = None
-                console.print(
-                    "[bold yellow]No background videos found. "
-                    "Add .mp4 files to videos/ directory, "
-                    "or the server will run without a default background.[/]"
-                )
-        else:
-            state["bg_video_path"] = None
-            console.print(
-                "[bold yellow]No background videos found. "
-                "Add .mp4 files to videos/ directory, "
-                "or the server will run without a default background.[/]"
-            )
-    else:
-        # Default to the most recently modified video if not already set
-        if not state.get("bg_video_path"):
-            latest_video = sorted(
-                video_files,
-                key=lambda x: os.path.getmtime(os.path.join(VIDEOS_DIR, x)),
-                reverse=True,
-            )[0]
-            state["bg_video_path"] = os.path.join(VIDEOS_DIR, latest_video)
+        state["bg_video_path"] = None
+        console.print(
+            "[bold yellow]No background videos found. "
+            "Add .mp4 files to videos/ directory, "
+            "or the server will run without a default background.[/]"
+        )
+    elif not state.get("bg_video_path"):
+        latest_video: str = sorted(
+            video_files,
+            key=lambda x: os.path.getmtime(os.path.join(VIDEOS_DIR, x)),
+            reverse=True,
+        )[0]
+        state["bg_video_path"] = os.path.join(VIDEOS_DIR, latest_video)
 
     # Check background music
     os.makedirs(MUSIC_DIR, exist_ok=True)
-    music_files = [
-        f
-        for f in os.listdir(MUSIC_DIR)
-        if f.lower().endswith((".mp3", ".wav", ".m4a", ".ogg", ".flac"))
+    music_files: list[str] = [
+        os.path.basename(f) for f in list_music_files(MUSIC_DIR)
     ]
     if not music_files:
         console.print(
-            "[bold yellow]No music tracks found in music/. Downloading default background music...[/]"
+            "[bold yellow]No music tracks found in music/. "
+            "Downloading default background music...[/]"
         )
-        dest_music = os.path.join(MUSIC_DIR, "default_music.mp3")
+        dest_music: str = os.path.join(MUSIC_DIR, "default_music.mp3")
         try:
             download_file(
-                DEFAULT_MUSIC_URL, dest_music, "Default Background Music (SoundHelix Song 1)"
+                DEFAULT_MUSIC_URL,
+                dest_music,
+                "Default Background Music (SoundHelix Song 1)",
             )
             state["bg_music_path"] = dest_music
             console.print("[green]Successfully downloaded and selected default music track.[/]")
         except Exception as e:
             logger.error(
-                f"Failed to download default music track from {DEFAULT_MUSIC_URL}: {e}",
+                "Failed to download default music track from %s: %s",
+                DEFAULT_MUSIC_URL,
+                e,
                 exc_info=True,
             )
             console.print(f"[red]Failed to download default music track: {e}[/]")
-    else:
-        # Default to the most recently modified music track if not already set
-        if not state.get("bg_music_path"):
-            latest_music = sorted(
-                music_files,
-                key=lambda x: os.path.getmtime(os.path.join(MUSIC_DIR, x)),
-                reverse=True,
-            )[0]
-            state["bg_music_path"] = os.path.join(MUSIC_DIR, latest_music)
+    elif not state.get("bg_music_path"):
+        latest_music: str = sorted(
+            music_files,
+            key=lambda x: os.path.getmtime(os.path.join(MUSIC_DIR, x)),
+            reverse=True,
+        )[0]
+        state["bg_music_path"] = os.path.join(MUSIC_DIR, latest_music)
+
+
+# --- Internal helpers ---
+
+
+def _check_emoji_fonts() -> None:
+    """Check for emoji/symbol font support and attempt auto-installation if missing."""
+    try:
+        res: subprocess.CompletedProcess = subprocess.run(
+            ["fc-list", ":", "family"], capture_output=True, text=True
+        )
+        families: str = res.stdout.lower()
+        if not any(p in families for p in EMOJI_FONT_PATTERNS):
+            console.print(
+                "[bold yellow]Warning: No emoji or symbol fonts detected. "
+                "Subtitle emojis may render as squares.[/]"
+            )
+            apt_found: bool = shutil.which("apt-get") is not None
+            if apt_found:
+                _auto_install_emoji_fonts()
+    except Exception as e:
+        logger.warning("Error checking system fonts: %s", e, exc_info=True)
+
+
+def _auto_install_ffmpeg() -> None:
+    """Attempt to install ffmpeg via apt-get."""
+    console.print("[yellow]Attempting to install 'ffmpeg' using apt-get...[/]")
+    try:
+        _is_root: bool = hasattr(os, "getuid") and os.getuid() == 0
+        cmd_prefix: list[str] = [] if _is_root else ["sudo"]
+
+        console.print("[yellow]Running: apt-get update -y[/]")
+        subprocess.run(
+            cmd_prefix + ["apt-get", "update", "-y"], check=True, timeout=120
+        )
+
+        console.print("[yellow]Running: apt-get install -y ffmpeg[/]")
+        subprocess.run(
+            cmd_prefix + ["apt-get", "install", "-y", "ffmpeg"],
+            check=True,
+            timeout=300,
+        )
+
+        if shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None:
+            console.print("[green]Successfully installed ffmpeg/ffprobe via apt-get.[/]")
+    except Exception as e:
+        logger.error(
+            "Auto-installation of ffmpeg failed: %s", e, exc_info=True
+        )
+        console.print(f"[red]Auto-installation failed: {e}[/]")
+
+
+def _auto_install_emoji_fonts() -> None:
+    """Attempt to install fonts-symbola via apt-get."""
+    console.print(
+        "[yellow]Attempting to install 'fonts-symbola' via apt-get...[/]"
+    )
+    try:
+        _is_root: bool = hasattr(os, "getuid") and os.getuid() == 0
+        cmd_prefix: list[str] = [] if _is_root else ["sudo"]
+        subprocess.run(
+            cmd_prefix + ["apt-get", "update", "-y"],
+            check=True,
+            timeout=120,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        subprocess.run(
+            cmd_prefix + ["apt-get", "install", "-y", "fonts-symbola"],
+            check=True,
+            timeout=300,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        console.print("[green]Successfully installed 'fonts-symbola'![/]")
+    except Exception as e:
+        logger.warning(
+            "Failed to auto-install 'fonts-symbola': %s", e, exc_info=True
+        )
+        console.print(
+            "[yellow]Auto-installation of fonts-symbola failed. "
+            "Emojis may render as squares.[/]"
+        )

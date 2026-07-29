@@ -28,7 +28,6 @@ __all__ = [
     "MODEL_URL",
     "VOICES_PATH",
     "VOICES_URL",
-    "_release_memory_to_os",
     "download_file",
     "format_time",
     "generate_voice",

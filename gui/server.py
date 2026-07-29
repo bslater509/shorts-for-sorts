@@ -1,19 +1,31 @@
+"""FastAPI web server for the Shorts for Sorts GUI.
+
+Handles startup initialisation, WebSocket connections for notifications
+and system stats, media file serving, SPA routing, and module registration.
+"""
+
+from __future__ import annotations
+
 import os
 import sys
+from typing import Any
 
 # Ensure parent directory is in sys.path
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 import asyncio
-import threading
+import logging
 
 import psutil
 from fastapi import FastAPI, Header, HTTPException, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
+
+import uvicorn
 
 from gui.config import (
     FRONTEND_DIST_DIR,
@@ -22,23 +34,21 @@ from gui.config import (
     TEMP_DIR,
     VIDEOS_DIR,
     clear_cache,
-    logger,
     load_settings,
+    logger,
 )
 from gui.media import stream_media
-from gui.utils import check_system_dependencies, download_default_assets_if_empty
-from gui.ws_manager import manager, notify_clients, set_main_loop
-
-# Import all routers
-from gui.routers.settings import router as settings_router
-from gui.routers.assets import router as assets_router
-from gui.routers.integrations import router as integrations_router
-from gui.routers.batch import router as batch_router
 from gui.routers.admin import router as admin_router
+from gui.routers.assets import router as assets_router
+from gui.routers.batch import router as batch_router
+from gui.routers.integrations import router as integrations_router
+from gui.routers.settings import router as settings_router
+from gui.utils import check_system_dependencies, download_default_assets_if_empty
+from gui.ws_manager import manager, set_main_loop
 
-app = FastAPI(title="Shorts for Sorts Web GUI")
+# --- Application ---
 
-from fastapi.middleware.cors import CORSMiddleware
+app: FastAPI = FastAPI(title="Shorts for Sorts Web GUI")
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,26 +58,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# --- Constants ---
+
+POLL_INTERVAL_SECONDS: float = 1.0
+"""Interval (seconds) for system-stats WebSocket updates."""
+
+SYSTEM_STATS_PORT: int = 5000
+"""Default port for the server."""
+
+# Process name substrings used when freeing the port
+SERVER_PROCESS_NAMES: tuple[str, ...] = (
+    "python",
+    "uvicorn",
+    "gunicorn",
+    "hypercorn",
+)
+
+# uvicorn access log paths to filter from noise
+NOISY_LOG_PATHS: tuple[str, ...] = (
+    "/api/batch/status",
+    "/api/compile/status",
+    "/api/system_stats",
+)
+
+
 # ---------------------------------------------------------------------------
 # Startup events
 # ---------------------------------------------------------------------------
 
 
 @app.on_event("startup")
-async def save_event_loop():
+async def save_event_loop() -> None:
+    """Store the running event loop reference for WebSocket notification scheduling."""
     set_main_loop(asyncio.get_running_loop())
 
 
 @app.on_event("startup")
-async def cleanup_temp_dir():
+async def cleanup_temp_dir() -> None:
+    """Remove orphaned temp files on startup."""
     try:
         for f in os.listdir(TEMP_DIR):
-            file_path = os.path.join(TEMP_DIR, f)
+            file_path: str = os.path.join(TEMP_DIR, f)
             if os.path.isfile(file_path):
                 os.remove(file_path)
         logger.info("Cleaned up orphaned files in temp directory on startup.")
     except Exception as e:
-        logger.warning(f"Failed to clean temp directory on startup: {e}")
+        logger.warning("Failed to clean temp directory on startup: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +113,8 @@ async def cleanup_temp_dir():
 
 
 @app.websocket("/api/notifications")
-async def websocket_notifications(websocket: WebSocket):
+async def websocket_notifications(websocket: WebSocket) -> None:
+    """WebSocket endpoint for receiving real-time event notifications."""
     await manager.connect(websocket)
     try:
         while True:
@@ -86,25 +124,27 @@ async def websocket_notifications(websocket: WebSocket):
 
 
 @app.websocket("/api/system_stats")
-async def websocket_system_stats(websocket: WebSocket):
+async def websocket_system_stats(websocket: WebSocket) -> None:
+    """WebSocket endpoint that streams CPU and memory usage every second."""
     await websocket.accept()
     # Initial call to cpu_percent to set baseline
     psutil.cpu_percent(interval=None)
     try:
         while True:
-            await asyncio.sleep(1)
-            cpu_usage = psutil.cpu_percent(interval=None)
-
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            cpu_usage: float = psutil.cpu_percent(interval=None)
             memory_info = psutil.virtual_memory()
-            memory_percent = memory_info.percent
 
             await websocket.send_json(
-                {"cpu_percent": round(cpu_usage, 1), "memory_percent": round(memory_percent, 1)}
+                {
+                    "cpu_percent": round(cpu_usage, 1),
+                    "memory_percent": round(memory_info.percent, 1),
+                }
             )
     except Exception as e:
         # Silently ignore disconnections; log unexpected errors for diagnosis
         if not isinstance(e, WebSocketDisconnect):
-            logger.debug(f"[WebSocket system_stats] Unexpected error: {e}")
+            logger.debug("[WebSocket system_stats] Unexpected error: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -112,13 +152,13 @@ async def websocket_system_stats(websocket: WebSocket):
 # ---------------------------------------------------------------------------
 
 
-def init_app_state():
-    """Initializes the backend settings, dependencies, and default state."""
+def init_app_state() -> None:
+    """Initialise the backend settings, verify dependencies, and download default assets."""
     clear_cache()
     try:
         check_system_dependencies()
     except Exception as e:
-        logger.warning(f"System dependencies check failed: {e}")
+        logger.warning("System dependencies check failed: %s", e)
 
     load_settings()
     download_default_assets_if_empty()
@@ -126,21 +166,24 @@ def init_app_state():
 
 init_app_state()
 
+
 # ---------------------------------------------------------------------------
 # Media serving
 # ---------------------------------------------------------------------------
 
 
 @app.get("/videos/{filename:path}")
-def serve_video(filename: str, range: str = Header(None)):
-    safe_path = os.path.realpath(os.path.join(VIDEOS_DIR, filename))
+def serve_video(filename: str, range: str = Header(None)) -> Any:
+    """Serve a video file from the videos directory with range-request support."""
+    safe_path: str = os.path.realpath(os.path.join(VIDEOS_DIR, filename))
     if not safe_path.startswith(os.path.realpath(VIDEOS_DIR)):
         raise HTTPException(status_code=403, detail="Forbidden")
     return stream_media(safe_path, range)
 
 
 @app.get("/music/{filename:path}")
-def serve_music(filename: str, range: str = Header(None)):
+def serve_music(filename: str, range: str = Header(None)) -> Any:
+    """Serve a music file from the music directory with range-request support."""
     safe_path = os.path.realpath(os.path.join(MUSIC_DIR, filename))
     if not safe_path.startswith(os.path.realpath(MUSIC_DIR)):
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -148,7 +191,8 @@ def serve_music(filename: str, range: str = Header(None)):
 
 
 @app.get("/output/{filename:path}")
-def serve_output(filename: str, range: str = Header(None)):
+def serve_output(filename: str, range: str = Header(None)) -> Any:
+    """Serve a rendered output video with range-request support."""
     safe_path = os.path.realpath(os.path.join(OUTPUT_DIR, filename))
     if not safe_path.startswith(os.path.realpath(OUTPUT_DIR)):
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -161,16 +205,27 @@ def serve_output(filename: str, range: str = Header(None)):
 
 if os.path.exists(FRONTEND_DIST_DIR):
     app.mount(
-        "/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST_DIR, "assets")), name="assets"
+        "/assets",
+        StaticFiles(directory=os.path.join(FRONTEND_DIST_DIR, "assets")),
+        name="assets",
     )
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIST_DIR), name="static")
+    app.mount(
+        "/static",
+        StaticFiles(directory=FRONTEND_DIST_DIR),
+        name="static",
+    )
 else:
-    app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "gui/static")), name="static")
+    app.mount(
+        "/static",
+        StaticFiles(directory=os.path.join(BASE_DIR, "gui/static")),
+        name="static",
+    )
 
 
 @app.get("/")
-def get_root():
-    dist_index = os.path.join(FRONTEND_DIST_DIR, "index.html")
+def get_root() -> Any:
+    """Serve the SPA index.html (frontend build or static fallback)."""
+    dist_index: str = os.path.join(FRONTEND_DIST_DIR, "index.html")
     if os.path.exists(dist_index):
         return FileResponse(dist_index)
     return FileResponse(os.path.join(BASE_DIR, "gui/static/index.html"))
@@ -188,7 +243,8 @@ app.include_router(admin_router)
 
 
 @app.get("/{full_path:path}")
-def catch_all(full_path: str):
+def catch_all(full_path: str) -> Any:
+    """SPA catch-all: serve index.html for any unrecognised frontend path."""
     dist_index = os.path.join(FRONTEND_DIST_DIR, "index.html")
     if os.path.exists(dist_index):
         return FileResponse(dist_index)
@@ -199,15 +255,55 @@ def catch_all(full_path: str):
 # Main entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    import logging
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
-    import uvicorn
+
+def _free_server_port(port: int) -> None:
+    """Kill known server processes occupying the given port.
+
+    Only targets Python/uvicorn/gunicorn/hypercorn processes to avoid
+    accidentally killing unrelated services.
+
+    Args:
+        port: The TCP port to check.
+    """
+    try:
+        for proc in psutil.process_iter(["pid", "name"]):
+            try:
+                for conn in proc.net_connections(kind="inet"):
+                    if conn.laddr.port == port:
+                        proc_name: str = proc.name().lower()
+                        if any(n in proc_name for n in SERVER_PROCESS_NAMES):
+                            logger.info(
+                                "Killing process %d (%s) using port %d",
+                                proc.pid,
+                                proc.name(),
+                                port,
+                            )
+                            proc.kill()
+                        else:
+                            logger.warning(
+                                "Port %d in use by non-server process %d (%s) — skipping.",
+                                port,
+                                proc.pid,
+                                proc.name(),
+                            )
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+    except Exception as e:
+        logger.info("Error while trying to free port %d: %s", port, e)
+
+
+if __name__ == "__main__":
 
     class EndpointFilter(logging.Filter):
+        """Filter out noisy uvicorn access log paths."""
+
         def filter(self, record: logging.LogRecord) -> bool:
-            msg = record.getMessage()
-            return not ("GET /api/batch/status" in msg or "GET /api/compile/status" in msg or "/api/system_stats" in msg)
+            msg: str = record.getMessage()
+            return not any(p in msg for p in NOISY_LOG_PATHS)
 
     logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
@@ -215,36 +311,19 @@ if __name__ == "__main__":
     logging.getLogger("asyncio").setLevel(logging.ERROR)
 
     # Kill only *known server processes* on port 5000 to avoid killing unrelated services
-    try:
-        for proc in psutil.process_iter(["pid", "name"]):
-            try:
-                for conn in proc.net_connections(kind="inet"):
-                    if conn.laddr.port == 5000:
-                        proc_name = proc.name().lower()
-                        # Only kill Python/server processes to avoid killing unrelated services
-                        if any(
-                            n in proc_name for n in ("python", "uvicorn", "gunicorn", "hypercorn")
-                        ):
-                            logger.info(
-                                f"Killing process {proc.pid} ({proc.name()}) using port 5000"
-                            )
-                            proc.kill()
-                        else:
-                            logger.warning(
-                                f"Port 5000 in use by non-server process {proc.pid} ({proc.name()}) — skipping."
-                            )
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                pass
-    except Exception as e:
-        logger.info(f"Error while trying to free port 5000: {e}")
+    _free_server_port(SYSTEM_STATS_PORT)
 
     # Load config port or default to 5000
-    ssl_kwargs = {}
+    ssl_kwargs: dict[str, str] = {}
     if "--https" in sys.argv:
         if os.path.exists("cert.pem") and os.path.exists("key.pem"):
             ssl_kwargs["ssl_certfile"] = "cert.pem"
             ssl_kwargs["ssl_keyfile"] = "key.pem"
         else:
-            logger.info("HTTPS requested but cert.pem or key.pem not found. Running in HTTP mode.")
+            logger.info(
+                "HTTPS requested but cert.pem or key.pem not found. "
+                "Running in HTTP mode."
+            )
 
-    uvicorn.run(app, host="0.0.0.0", port=5000, **ssl_kwargs)
+    port: int = int(os.environ.get("PORT", SYSTEM_STATS_PORT))
+    uvicorn.run(app, host="0.0.0.0", port=port, **ssl_kwargs)

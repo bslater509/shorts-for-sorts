@@ -1,11 +1,24 @@
-"""Pydantic request/response models for the Shorts for Sorts API."""
+"""Pydantic request/response models for the Shorts for Sorts API.
 
+These models define the schema for all REST endpoint request bodies and
+responses, providing automatic validation and documentation via FastAPI.
+"""
+
+from __future__ import annotations
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 
 class SettingsModel(BaseModel):
-    llm_profiles: list | None = []
+    """Application settings schema.
+
+    All fields are optional with sensible defaults.  Used by the
+    ``POST /api/settings`` endpoint.
+    """
+
+    llm_profiles: list[dict[str, Any]] | None = []
     active_llm_profile_id: str | None = ""
     pexels_api_key: str | None = ""
     voice_speed: float | None = 1.0
@@ -62,6 +75,8 @@ class SettingsModel(BaseModel):
 
 
 class PresetModel(BaseModel):
+    """Video style preset schema for saving and loading custom presets."""
+
     name: str
     selected_voice: str
     voice_speed: float
@@ -94,6 +109,8 @@ class PresetModel(BaseModel):
 
 
 class StateModel(BaseModel):
+    """Active session state schema for the ``POST /api/state`` endpoint."""
+
     script_text: str
     bg_video_path: str | None = None
     bg_video_bottom_path: str | None = None
@@ -133,10 +150,14 @@ class StateModel(BaseModel):
 
 
 class PexelsSearchRequest(BaseModel):
+    """Request body for ``POST /api/pexels/search``."""
+
     query: str = Field(min_length=1)
 
 
 class PexelsDownloadRequest(BaseModel):
+    """Request body for ``POST /api/pexels/download``."""
+
     download_url: str
     video_id: int
     keyword: str
@@ -144,27 +165,37 @@ class PexelsDownloadRequest(BaseModel):
 
 
 class YoutubeDownloadRequest(BaseModel):
+    """Request body for ``POST /api/youtube/download``."""
+
     url: str
     downscale: bool = False
 
 
 class YoutubeSearchRequest(BaseModel):
+    """Request body for ``POST /api/youtube/search``."""
+
     query: str = Field(min_length=1)
     limit: int = 10
 
 
 class FetchModelsRequest(BaseModel):
+    """Request body for ``POST /api/llm/models``."""
+
     api_key: str | None = ""
     base_url: str | None = ""
 
 
 class TiktokUploadRequest(BaseModel):
+    """Request body for ``POST /api/tiktok/upload``."""
+
     filename: str
     description: str
     visibility: str = "Public"
 
 
 class BatchStartRequest(BaseModel):
+    """Request body for ``POST /api/batch/start``."""
+
     num_shorts: int = Field(default=5, ge=1, le=100)
     prompts: list[str] = []
     enable_emojis: bool | None = None

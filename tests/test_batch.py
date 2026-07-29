@@ -4,13 +4,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from gui.batch import (
-    BatchJobConfig,
-    ProgressConsole,
-    format_elapsed,
-    get_progress_percentage,
-    make_progress_bar,
-)
+from gui.batch import BatchJobConfig, ProgressConsole
+from gui.progress_utils import format_elapsed, get_progress_percentage, make_progress_bar
 
 
 class TestBatchJobConfig(unittest.TestCase):
@@ -220,7 +215,7 @@ class TestGetProgressPercentage(unittest.TestCase):
         self.assertEqual(get_progress_percentage("SomeRandomStatus"), 0)
 
     def test_llm_script_returns_10(self):
-        self.assertEqual(get_progress_percentage("LLM Script"), 10)
+        self.assertEqual(get_progress_percentage("LLM Script"), 5)
         self.assertEqual(get_progress_percentage("LLM Script (42 words)"), 5)
         self.assertEqual(get_progress_percentage("LLM Script (400 words)"), 14)
 

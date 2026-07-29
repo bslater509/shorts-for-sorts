@@ -1,35 +1,67 @@
-"""WebSocket connection manager and notify_clients helper.
+"""WebSocket connection manager and ``notify_clients`` helper.
 
-Isolated into its own module to break circular imports between server.py
+Isolated into its own module to break circular imports between ``server.py``
 (app creation, WebSocket routes) and the route/batch modules that need
 to broadcast notifications.
 """
 
+from __future__ import annotations
+
 import asyncio
+from typing import Any
 
 from fastapi import WebSocket
 
-_main_loop = None
+_main_loop: asyncio.AbstractEventLoop | None = None
+"""Reference to the running asyncio event loop, set by :func:`set_main_loop`."""
 
 
-def set_main_loop(loop):
+def set_main_loop(loop: asyncio.AbstractEventLoop | None) -> None:
+    """Store a reference to the running event loop for cross-thread scheduling.
+
+    Args:
+        loop: The main event loop (or ``None`` to clear).
+    """
     global _main_loop
     _main_loop = loop
 
 
 class ConnectionManager:
-    def __init__(self):
+    """Manages active WebSocket connections and provides broadcast capabilities."""
+
+    def __init__(self) -> None:
+        """Initialise with an empty connection list."""
         self.active_connections: list[WebSocket] = []
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
+        """Accept a new WebSocket connection and add it to the active list.
+
+        Args:
+            websocket: The incoming WebSocket to accept and track.
+        """
         await websocket.accept()
         self.active_connections.append(websocket)
 
-    def disconnect(self, websocket: WebSocket):
+    def disconnect(self, websocket: WebSocket) -> None:
+        """Remove a WebSocket from the active connection list.
+
+        Safe to call even if the websocket is not currently tracked.
+
+        Args:
+            websocket: The WebSocket to remove.
+        """
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
 
-    async def broadcast(self, message: dict):
+    async def broadcast(self, message: dict[str, Any]) -> None:
+        """Send a JSON message to every connected WebSocket.
+
+        Connections that raise an exception during send are automatically
+        disconnected.
+
+        Args:
+            message: Dictionary payload to serialise as JSON.
+        """
         for connection in list(self.active_connections):
             try:
                 await connection.send_json(message)
@@ -37,13 +69,34 @@ class ConnectionManager:
                 self.disconnect(connection)
 
 
-manager = ConnectionManager()
+manager: ConnectionManager = ConnectionManager()
+"""Module-level singleton connection manager instance."""
 
 
-def notify_clients(event_type: str, status: str, message: str, level: str = "info", metadata: dict = None):
+def notify_clients(
+    event_type: str,
+    status: str,
+    message: str,
+    level: str = "info",
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Schedule a broadcast notification to all connected WebSocket clients.
+
+    Uses :func:`asyncio.run_coroutine_threadsafe` to safely schedule the
+    broadcast from any thread.  Silently returns if no event loop has been
+    registered yet.
+
+    Args:
+        event_type: High-level event category (e.g. ``"batch"``, ``"compile"``).
+        status: Status label (e.g. ``"started"``, ``"success"``, ``"error"``).
+        message: Human-readable notification text.
+        level: Log/display level (``"info"``, ``"warning"``, ``"error"``, ``"success"``).
+        metadata: Optional extra key-value pairs to include in the payload.
+    """
     if _main_loop is None or _main_loop.is_closed():
         return
-    payload = {
+
+    payload: dict[str, Any] = {
         "event_type": event_type,
         "status": status,
         "message": message,

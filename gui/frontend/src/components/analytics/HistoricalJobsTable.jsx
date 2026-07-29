@@ -131,6 +131,9 @@ const HistoricalJobsTable = ({ perJobStats }) => {
                 <th className={thClass} onClick={() => handleSort('sentence_count')}>Sent.{renderSortArrow('sentence_count')}</th>
                 <th className={thClass} onClick={() => handleSort('chunk_count')}>Chunks{renderSortArrow('chunk_count')}</th>
                 <th className={thClass} onClick={() => handleSort('voice_id')}>Voice{renderSortArrow('voice_id')}</th>
+                <th className={thClass} onClick={() => handleSort('model')}>Model{renderSortArrow('model')}</th>
+                <th className={thClass} onClick={() => handleSort('layout')}>Layout{renderSortArrow('layout')}</th>
+                <th className={thClass} onClick={() => handleSort('status')}>Status{renderSortArrow('status')}</th>
                 <th className={thClass} onClick={() => handleSort('llm_duration')}>LLM{renderSortArrow('llm_duration')}</th>
                 <th className={thClass} onClick={() => handleSort('voice_duration')}>Voice Dur{renderSortArrow('voice_duration')}</th>
                 <th className={thClass} onClick={() => handleSort('transcribe_duration')}>Transcribe{renderSortArrow('transcribe_duration')}</th>
@@ -158,6 +161,33 @@ const HistoricalJobsTable = ({ perJobStats }) => {
                     <td className="py-2 px-3 text-sm tabular-nums text-foreground">{job.chunk_count ?? <span className="text-muted-foreground/40">—</span>}</td>
                     <td className="py-2 px-3">
                       <VoiceTooltip voiceId={job.voice_id} />
+                    </td>
+                    <td className="py-2 px-3 text-[11px] text-muted-foreground font-mono max-w-[80px] truncate" title={job.model || ''}>
+                      {job.model || <span className="text-muted-foreground/40">—</span>}
+                    </td>
+                    <td className="py-2 px-3">
+                      {job.layout ? (
+                        <span className="text-[11px] font-medium text-muted-foreground bg-secondary/20 rounded-md px-2 py-0.5">
+                          {job.layout === 'Split-Screen' ? 'Split' : 'Full'}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3">
+                      {job.status === 'failed' ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-400 bg-rose-500/10 rounded-md px-2 py-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                          Failed
+                        </span>
+                      ) : job.status === 'success' || !job.status ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-400 bg-emerald-500/10 rounded-md px-2 py-0.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          OK
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
                     </td>
                     <td className="py-2 px-3">
                       <InlineMiniBar value={job.llm_duration} max={maxByKey.llm_duration} color={COLUMN_COLORS.llm_duration} />

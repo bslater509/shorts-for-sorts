@@ -50,7 +50,7 @@ class TestSettingsModel(unittest.TestCase):
         self.assertEqual(settings.whisper_api_key, "")
         self.assertEqual(settings.whisper_base_url, "")
         self.assertEqual(settings.render_resolution, "720p")
-        self.assertEqual(settings.render_preset, "fast")
+        self.assertEqual(settings.render_preset, "ultrafast")
         self.assertEqual(settings.video_encoder, "libx264")
         self.assertEqual(settings.llm_max_workers, 5)
         self.assertEqual(settings.words_per_screen, "3")
