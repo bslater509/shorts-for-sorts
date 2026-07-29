@@ -2,7 +2,7 @@ import { CheckCircle2, XCircle, Clock, RefreshCw, Ban, X, Square } from 'lucide-
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
 import { Button } from "@/components/ui/button"
 
-const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQueued }) => {
+const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQueued, index = 0 }) => {
   const isDone = job.status === 'Done'
   const isCancelled = job.cancelled || job.status === 'Cancelled'
   const isFailed = (job.failed || job.status?.startsWith('Failed')) && !isCancelled
@@ -16,9 +16,19 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter') onClick() }}
-      className="bg-background border border-border/50 rounded-xl p-3 flex flex-col gap-2 shadow-sm hover:border-blue-500/30 hover:shadow-[0_4px_20px_-4px_rgba(59,130,246,0.1)] transition-all duration-300 relative overflow-hidden backdrop-blur-sm cursor-pointer"
+      className="group bg-background border border-border/50 rounded-xl p-3 flex flex-col gap-2 shadow-sm hover:border-blue-500/40 hover:shadow-[0_4px_24px_-4px_rgba(59,130,246,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500/50 transition-all duration-300 relative overflow-hidden backdrop-blur-sm cursor-pointer animate-in fade-in slide-in-from-bottom-3 fill-mode-both"
+      style={{ animationDelay: `${index * 80}ms` }}
     >
-      {isRunning && <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/5 via-transparent to-transparent pointer-events-none" />}
+      {/* Shimmer overlay for running jobs */}
+      {isRunning && (
+        <>
+          <div className="absolute inset-0 bg-gradient-to-tr from-blue-500/5 via-transparent to-transparent pointer-events-none" />
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-blue-400/5 to-transparent pointer-events-none animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
+        </>
+      )}
+
+      {/* Hover glow accent */}
+      <div className="absolute -inset-px rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br from-blue-500/5 via-transparent to-purple-500/5 pointer-events-none" />
 
       {/* Top row: topic + time badges */}
       <div className="flex items-start justify-between gap-2 relative">
@@ -51,15 +61,19 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
 
       {/* Status row */}
       {isDone && (
-        <span className="text-emerald-500 text-xs font-semibold flex items-center gap-1 drop-shadow-[0_0_4px_rgba(16,185,129,0.5)]">
-          <CheckCircle2 size={14} /> Completed
+        <span className="text-emerald-400 text-xs font-semibold flex items-center gap-1.5 drop-shadow-[0_0_6px_rgba(16,185,129,0.4)] animate-in fade-in slide-in-from-left-2 duration-300">
+          <span className="relative flex items-center justify-center">
+            <CheckCircle2 size={14} className="text-emerald-400" />
+            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400/20" style={{ animationDuration: '2s' }} />
+          </span>
+          Completed
         </span>
       )}
 
       {isCancelled && (
-        <div className="flex items-center justify-between">
-          <span className="text-orange-400 text-xs font-semibold flex items-center gap-1 drop-shadow-[0_0_4px_rgba(249,115,22,0.5)]">
-            <Ban size={14} /> Cancelled
+        <div className="flex items-center justify-between animate-in fade-in duration-200">
+          <span className="text-orange-400 text-xs font-semibold flex items-center gap-1.5 drop-shadow-[0_0_4px_rgba(249,115,22,0.4)]">
+            <Ban size={14} className="text-orange-400" /> Cancelled
           </span>
           <div className="flex items-center gap-1">
             {onRetry && (
@@ -89,9 +103,9 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
       )}
 
       {isFailed && (
-        <div className="flex items-center justify-between">
-          <span className="text-red-500 text-xs font-semibold flex items-center gap-1 drop-shadow-[0_0_4px_rgba(239,68,68,0.5)]">
-            <XCircle size={14} /> {job.status}
+        <div className="flex items-center justify-between animate-in fade-in duration-200">
+          <span className="text-red-400 text-xs font-semibold flex items-center gap-1.5 drop-shadow-[0_0_4px_rgba(239,68,68,0.4)]">
+            <XCircle size={14} className="text-red-400" /> {job.status}
           </span>
           <div className="flex items-center gap-1">
             {onRetry && (
@@ -140,12 +154,18 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
       )}
 
       {isRunning && (
-        <div className="space-y-1">
-          <div className="flex justify-between text-[10px] font-medium">
-            <span className="text-blue-500 truncate pr-2 drop-shadow-[0_0_2px_rgba(59,130,246,0.3)]">{job.status}</span>
-            <span className="text-foreground shrink-0">{p}%</span>
+        <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex justify-between items-center text-[10px] font-medium">
+            <span className="text-blue-400 truncate pr-2 flex items-center gap-1.5">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500" />
+              </span>
+              <span className="drop-shadow-[0_0_2px_rgba(59,130,246,0.3)]">{job.status || 'Processing'}</span>
+            </span>
+            <span className="text-foreground/80 font-semibold tabular-nums">{p}%</span>
           </div>
-          <MultiSegmentProgressBar progress={p} segments={progressSegments} />
+          <MultiSegmentProgressBar progress={p} segments={progressSegments} isRunning={isRunning} />
         </div>
       )}
     </div>

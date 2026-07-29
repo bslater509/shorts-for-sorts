@@ -88,4 +88,21 @@
   .glass {
     @apply bg-card/60 backdrop-blur-xl border border-white/10 shadow-2xl;
   }
+
+  /* Shimmer animation for progress bars and loading states */
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  .animate-shimmer {
+    animation: shimmer 3s ease-in-out infinite;
+  }
+  .animate-shimmer-fast {
+    animation: shimmer 1.5s ease-in-out infinite;
+  }
+
+  /* Tabular numbers for progress counters */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
 }

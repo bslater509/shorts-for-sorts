@@ -1,10 +1,31 @@
-import { useState } from 'react'
-import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal, Ban, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal, Ban, ChevronRight, AlertTriangle } from 'lucide-react'
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
 import { Button } from "@/components/ui/button"
 
 const JobDetailModal = ({ job, onClose, progress }) => {
   const [errorExpanded, setErrorExpanded] = useState(false)
+  const [visibleSections, setVisibleSections] = useState(new Set())
+
+  useEffect(() => {
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handleEsc)
+    return () => window.removeEventListener('keydown', handleEsc)
+  }, [onClose])
+
+  // Reveal sections progressively when content mounts
+  useEffect(() => {
+    if (!job) return
+    const sectionIds = ['progress', 'error', 'ai', 'text', 'emoji', 'audio', 'video', 'content', 'system_prompt', 'prompt']
+    const timer = setTimeout(() => {
+      sectionIds.forEach((id, i) => {
+        setTimeout(() => {
+          setVisibleSections(prev => new Set(prev).add(id))
+        }, i * 60)
+      })
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [job?.id])
 
   if (!job) return null
 
@@ -29,14 +50,17 @@ const JobDetailModal = ({ job, onClose, progress }) => {
     </div>
   )
 
-  const Section = ({ title, icon, children }) => (
-    <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3">{icon} {title}</h3>
-      <div className="divide-y divide-border/20">
-        {children}
+  const Section = ({ title, icon, sectionId, children }) => {
+    if (sectionId && !visibleSections.has(sectionId)) return null
+    return (
+      <div className="bg-secondary/20 border border-border/40 rounded-xl p-4 animate-in fade-in slide-in-from-bottom-2 duration-300 fill-mode-both">
+        <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3">{icon} {title}</h3>
+        <div className="divide-y divide-border/20">
+          {children}
+        </div>
       </div>
-    </div>
-  )
+    )
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
@@ -66,13 +90,13 @@ const JobDetailModal = ({ job, onClose, progress }) => {
           </div>
 
           {/* Progress Section */}
-          <Section title="Progress" icon={<Activity size={16} className="text-blue-400" />}>
+          <Section title="Progress" sectionId="progress" icon={<Activity size={16} className="text-blue-400" />}>
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-xs font-medium text-blue-400">{job.status}</span>
                 <span className="text-xs font-bold">{p}%</span>
               </div>
-              <MultiSegmentProgressBar progress={p} segments={progress} />
+              <MultiSegmentProgressBar progress={p} segments={progress} isRunning={isRunning} />
               <div className="flex gap-4">
                 <SettingRow label="Elapsed" value={job.elapsed} />
                 <SettingRow label="ETA" value={job.eta} />
@@ -82,30 +106,36 @@ const JobDetailModal = ({ job, onClose, progress }) => {
 
           {/* Error Details */}
           {(isFailed || isCancelled) && (
-            <Section title="Error Details" icon={<AlertTriangle size={16} className={isFailed ? 'text-red-400' : 'text-orange-400'} />}>
+            <Section title="Error Details" sectionId="error" icon={<AlertTriangle size={16} className={isFailed ? 'text-red-400' : 'text-orange-400'} />}>
               <div>
-                <div
+                <button
                   onClick={() => setErrorExpanded(!errorExpanded)}
-                  className="flex items-center justify-between cursor-pointer py-1.5"
+                  className="flex items-center justify-between w-full cursor-pointer py-1.5 text-left group"
                 >
-                  <span className="text-xs text-muted-foreground font-medium">
+                  <span className="text-xs text-muted-foreground font-medium group-hover:text-foreground transition-colors">
                     {isFailed ? 'Failure reason' : 'Cancellation reason'}
                   </span>
-                  {errorExpanded ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
+                  <span className={`transition-transform duration-200 ${errorExpanded ? 'rotate-90' : ''}`}>
+                    <ChevronRight size={14} className="text-muted-foreground" />
+                  </span>
+                </button>
+                <div className={`grid transition-all duration-300 ease-in-out ${
+                  errorExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                }`}>
+                  <div className="overflow-hidden">
+                    <pre className={`text-xs text-foreground mt-2 whitespace-pre-wrap bg-background border rounded-lg p-3 font-mono leading-relaxed overflow-x-auto ${
+                      isFailed ? 'border-red-500/30' : 'border-orange-500/30'
+                    }`}>
+                      {job.error_detail || (isFailed ? 'An unknown error occurred.' : 'No cancellation details provided.')}
+                    </pre>
+                  </div>
                 </div>
-                {errorExpanded && (
-                  <pre className={`text-xs text-foreground mt-2 whitespace-pre-wrap bg-background border rounded-lg p-3 font-mono leading-relaxed overflow-x-auto ${
-                    isFailed ? 'border-red-500/30' : 'border-orange-500/30'
-                  }`}>
-                    {job.error_detail || (isFailed ? 'An unknown error occurred.' : 'No cancellation details provided.')}
-                  </pre>
-                )}
               </div>
             </Section>
           )}
 
           {/* AI Settings */}
-          <Section title="AI Settings" icon={<Sparkles size={16} className="text-purple-400" />}>
+          <Section title="AI Settings" sectionId="ai" icon={<Sparkles size={16} className="text-purple-400" />}>
             <SettingRow label="Model" value={job.model || '—'} />
             <SettingRow label="Script Temp" value={job.script_temp || '—'} />
             <SettingRow label="Meta Temp" value={job.meta_temp || '—'} />
@@ -113,7 +143,7 @@ const JobDetailModal = ({ job, onClose, progress }) => {
           </Section>
 
           {/* Text / Subtitles */}
-          <Section title="Text &amp; Subtitles" icon={<Type size={16} className="text-amber-400" />}>
+          <Section title="Text &amp; Subtitles" sectionId="text" icon={<Type size={16} className="text-amber-400" />}>
             <SettingRow label="Font" value={job.sub_font || '—'} />
             <SettingRow label="Font Size" value={job.sub_size ? `${job.sub_size}px` : '—'} />
             <SettingRow label="Color" value={job.sub_color || '—'} />
@@ -134,7 +164,7 @@ const JobDetailModal = ({ job, onClose, progress }) => {
           </Section>
 
           {/* Emoji Settings */}
-          <Section title="Emoji" icon={<Smile size={16} className="text-yellow-400" />}>
+          <Section title="Emoji" sectionId="emoji" icon={<Smile size={16} className="text-yellow-400" />}>
             <SettingRow label="Enabled" value={job.enable_emojis ? 'Yes' : 'No'} />
             <SettingRow label="Animation" value={job.enable_emoji_animation ? 'On' : 'Off'} />
             <SettingRow label="Scale" value={job.emoji_scale_factor || '—'} />
@@ -145,7 +175,7 @@ const JobDetailModal = ({ job, onClose, progress }) => {
           </Section>
 
           {/* Audio Settings */}
-          <Section title="Audio" icon={<Volume2 size={16} className="text-green-400" />}>
+          <Section title="Audio" sectionId="audio" icon={<Volume2 size={16} className="text-green-400" />}>
             <SettingRow label="Voice" value={job.voice_name || job.voice_id || '—'} />
             <SettingRow label="Voice Speed" value={job.voice_speed || '—'} />
             <SettingRow label="Music Volume" value={job.music_volume || '—'} />
@@ -153,14 +183,14 @@ const JobDetailModal = ({ job, onClose, progress }) => {
           </Section>
 
           {/* Video Settings */}
-          <Section title="Video" icon={<Film size={16} className="text-rose-400" />}>
+          <Section title="Video" sectionId="video" icon={<Film size={16} className="text-rose-400" />}>
             <SettingRow label="Layout" value={job.layout || '—'} />
             <SettingRow label="Output" value={job.output_filename || '—'} />
           </Section>
 
           {/* Generated Content (only if available) */}
           {(job.generated_title || job.generated_hashtags || job.script_text) && (
-            <Section title="Generated Content" icon={<FileText size={16} className="text-emerald-400" />}>
+            <Section title="Generated Content" sectionId="content" icon={<FileText size={16} className="text-emerald-400" />}>
               {job.generated_title && <SettingRow label="Title" value={job.generated_title} />}
               {job.generated_hashtags && <SettingRow label="Hashtags" value={job.generated_hashtags} />}
               {job.script_text && (
@@ -174,14 +204,14 @@ const JobDetailModal = ({ job, onClose, progress }) => {
 
           {/* Prompt (system prompt) */}
           {job.system_prompt && (
-            <Section title="System Prompt" icon={<MessageSquare size={16} className="text-indigo-400" />}>
+            <Section title="System Prompt" sectionId="system_prompt" icon={<MessageSquare size={16} className="text-indigo-400" />}>
               <pre className="text-xs text-foreground whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-40 overflow-y-auto font-mono leading-relaxed">{job.system_prompt}</pre>
             </Section>
           )}
 
           {/* Raw Prompt */}
           {job.prompt && (
-            <Section title="Generation Prompt" icon={<Terminal size={16} className="text-cyan-400" />}>
+            <Section title="Generation Prompt" sectionId="prompt" icon={<Terminal size={16} className="text-cyan-400" />}>
               <pre className="text-xs text-foreground whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-32 overflow-y-auto font-mono leading-relaxed">{job.prompt}</pre>
             </Section>
           )}

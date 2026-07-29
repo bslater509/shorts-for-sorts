@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Square, Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Download, Layers, Ban } from 'lucide-react'
+import { Square, Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Download, Layers, Ban, Zap, Sparkles, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
+import { toast } from 'sonner'
 import BatchHeader from '@/components/batch/BatchHeader'
 import JobCard from '@/components/batch/JobCard'
 import JobDetailModal from '@/components/batch/JobDetailModal'
@@ -96,15 +97,19 @@ export default function Batch() {
 
   const handleStart = async () => {
     if (numShorts < 1) return
-    if (selectedPrompts.length === 0) return alert("Please select at least one prompt template.")
+    if (selectedPrompts.length === 0) {
+      toast.error("No prompts selected", { description: "Please select at least one prompt template." })
+      return
+    }
     setIsStarting(true)
     try {
       await api.startBatch(numShorts, selectedPrompts, enableEmojis,
           enableEmojiAnimation, emojiScaleFactor, emojiHoldDuration,
           emojiThrowMaxCount)
+      toast.success("Batch started", { description: `Generating ${numShorts} videos across ${selectedPrompts.length} prompt sets.` })
       fetchStatus()
     } catch (err) {
-      alert(`Failed to start batch: ${err.message}`)
+      toast.error("Failed to start batch", { description: err.message })
     } finally {
       setIsStarting(false)
     }
@@ -113,9 +118,9 @@ export default function Batch() {
   const handleCancel = async () => {
     try {
       await api.cancelBatch()
-      alert("Cancellation requested")
+      toast.info("Cancellation requested", { description: "The batch will stop once current jobs finish." })
     } catch (err) {
-      alert(`Cancel failed: ${err.message}`)
+      toast.error("Cancel failed", { description: err.message })
     }
   }
 
@@ -123,9 +128,10 @@ export default function Batch() {
     setIsRetrying(true)
     try {
       await api.retryFailedBatch()
+      toast.success("Retrying failed jobs", { description: `${failedCount} job(s) will be re-generated.` })
       setIsRetrying(false)
     } catch (err) {
-      alert(`Retry failed: ${err.message}`)
+      toast.error("Retry failed", { description: err.message })
       setIsRetrying(false)
     }
   }
@@ -134,9 +140,10 @@ export default function Batch() {
     setIsRetryingJob(jobId)
     try {
       await api.retryBatchJob(jobId)
+      toast.success(`Job #${jobId} queued for retry`, { description: "It will be re-generated shortly." })
       setIsRetryingJob(null)
     } catch (err) {
-      alert(`Retry job #${jobId} failed: ${err.message}`)
+      toast.error(`Retry job #${jobId} failed`, { description: err.message })
       setIsRetryingJob(null)
     }
   }
@@ -145,8 +152,9 @@ export default function Batch() {
     setIsRetryingCancelled(true)
     try {
       await api.retryCancelledBatch()
+      toast.success("Retrying cancelled jobs", { description: `${cancelledCount} job(s) will be re-generated.` })
     } catch (err) {
-      alert(`Retry cancelled failed: ${err.message}`)
+      toast.error("Retry cancelled failed", { description: err.message })
     } finally {
       setIsRetryingCancelled(false)
     }
@@ -155,9 +163,10 @@ export default function Batch() {
   const handleCancelQueued = async (jobId) => {
     try {
       await api.cancelJob(jobId)
+      toast.info(`Job #${jobId} cancelled`, { description: "The queued job has been removed." })
       fetchStatus()
     } catch (err) {
-      alert(`Cancel job #${jobId} failed: ${err.message}`)
+      toast.error(`Cancel job #${jobId} failed`, { description: err.message })
     }
   }
 
@@ -180,8 +189,9 @@ export default function Batch() {
       a.download = `batch-report-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
+      toast.success("Report downloaded", { description: "Batch report saved as JSON." })
     } catch (err) {
-      alert(`Failed to download report: ${err.message}`)
+      toast.error("Failed to download report", { description: err.message })
     }
   }
 
@@ -308,8 +318,12 @@ export default function Batch() {
         </div>
 
         {connectionError && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-2 py-1.5 text-red-400 text-xs font-medium mx-3 mt-2 mb-0">
-            Lost connection to server — progress may be stale
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-xs font-medium mx-3 mt-2 mb-0 flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+            </span>
+            <span>Lost connection to server —&nbsp;progress may be stale. Reconnecting...</span>
           </div>
         )}
 
@@ -330,10 +344,11 @@ export default function Batch() {
                 if (a.status === 'Done' && b.status !== 'Done') return 1;
                 if (b.status === 'Done' && a.status !== 'Done') return -1;
                 return (b.progress || 0) - (a.progress || 0);
-              }).map((job) => (
+              }).map((job, index) => (
                 <JobCard
                   key={job.id}
                   job={job}
+                  index={index}
                   onClick={() => setSelectedJobId(job.id)}
                   progressSegments={batchData?.progress_segments}
                   onRetry={!inProgress ? handleRetryJob : null}
@@ -343,10 +358,31 @@ export default function Batch() {
               ))}
             </div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground space-y-2">
-              <Layers size={32} className="opacity-20" />
-              <p className="text-sm">No batch jobs running or completed in this session.</p>
-              <p className="text-xs">Set a quantity and click Start Batch to generate videos automatically.</p>
+            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground space-y-3 py-16">
+              <div className="relative">
+                <Layers size={48} className="opacity-10" />
+                <Sparkles size={20} className="absolute -top-1 -right-1 text-blue-400/30 animate-pulse" />
+                <Zap size={16} className="absolute -bottom-1 -left-1 text-purple-400/30 animate-pulse delay-500" />
+              </div>
+              <div className="space-y-1 max-w-xs">
+                <p className="text-sm font-medium text-foreground/60">No batch jobs yet</p>
+                <p className="text-xs text-muted-foreground/60 leading-relaxed">
+                  Configure your settings above, choose your prompt templates, then hit <span className="text-blue-400 font-semibold">Start Batch</span> to generate multiple videos autonomously.
+                </p>
+              </div>
+              {!inProgress && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    const header = document.querySelector('header')
+                    header?.scrollIntoView({ behavior: 'smooth' })
+                  }}
+                  className="text-xs gap-1.5 mt-2 bg-blue-500/5 border-blue-500/20 text-blue-400 hover:bg-blue-500/10"
+                >
+                  <Play size={12} />
+                  Get Started
+                </Button>
+              )}
             </div>
           )}
         </div>

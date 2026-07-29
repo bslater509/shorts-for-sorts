@@ -107,22 +107,24 @@ const BatchHeader = ({
         </Button>
 
         {enableEmojis && (
-          <div className="flex items-center gap-1.5 bg-secondary/30 border border-border rounded-lg p-1.5 animate-in fade-in slide-in-from-top-2 duration-200 flex-wrap">
+          <div
+            className="flex items-center gap-1.5 bg-secondary/30 border border-border rounded-lg p-1.5 animate-in fade-in slide-in-from-top-2 zoom-in-95 duration-200 flex-wrap origin-top-right"
+          >
             <div className="flex items-center gap-1">
               <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Anim</Label>
               <Button
                 variant="outline"
                 onClick={() => setEnableEmojiAnimation(!enableEmojiAnimation)}
-                className={`text-[10px] px-1.5 py-1 md:py-0.5 rounded font-medium border h-auto ${
+                className={`text-[10px] px-1.5 py-1 md:py-0.5 rounded font-medium border h-auto transition-all duration-200 ${
                   enableEmojiAnimation
-                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 shadow-[0_0_6px_rgba(59,130,246,0.15)]'
                     : 'bg-muted/50 text-muted-foreground/60 border-border/30'
                 }`}
               >
                 {enableEmojiAnimation ? 'On' : 'Off'}
               </Button>
             </div>
-            <div className="w-px h-4 bg-border" />
+            <div className="w-px h-4 bg-border/50" />
             <div className="flex items-center gap-1">
               <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Scale</Label>
               <Select value={String(emojiScaleFactor)} onValueChange={(v) => { updateAppState({ emoji_scale_factor: parseFloat(v) }); saveCurrentState() }}>
@@ -136,7 +138,7 @@ const BatchHeader = ({
                 </SelectContent>
               </Select>
             </div>
-            <div className="w-px h-4 bg-border" />
+            <div className="w-px h-4 bg-border/50" />
             <div className="flex items-center gap-1">
               <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Hold</Label>
               <Select value={String(emojiHoldDuration)} onValueChange={(v) => { updateAppState({ emoji_hold_duration: parseFloat(v) }); saveCurrentState() }}>
@@ -150,7 +152,7 @@ const BatchHeader = ({
                 </SelectContent>
               </Select>
             </div>
-            <div className="w-px h-4 bg-border" />
+            <div className="w-px h-4 bg-border/50" />
             <div className="flex items-center gap-1">
               <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Max/Word</Label>
               <Select value={String(emojiThrowMaxCount)} onValueChange={(v) => { updateAppState({ emoji_throw_max_count: parseInt(v) }); saveCurrentState() }}>
@@ -171,10 +173,14 @@ const BatchHeader = ({
           variant="default"
           onClick={handleStart}
           disabled={inProgress || isStarting || selectedPrompts.length === 0}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-lg font-medium text-xs bg-blue-500 hover:bg-blue-600 text-white shadow-md disabled:opacity-50 h-auto"
+          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg font-medium text-xs bg-blue-500 hover:bg-blue-600 text-white shadow-md disabled:opacity-50 h-auto transition-all duration-200 ${
+            !inProgress && !isStarting && selectedPrompts.length > 0
+              ? 'shadow-blue-500/25 hover:shadow-blue-500/40'
+              : ''
+          }`}
         >
-          {isStarting ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-          Start Batch
+          {isStarting ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} className={!inProgress && selectedPrompts.length > 0 ? 'animate-pulse' : ''} style={{ animationDuration: '2s' }} />}
+          {isStarting ? 'Starting...' : 'Start Batch'}
         </Button>
       </div>
     </header>
