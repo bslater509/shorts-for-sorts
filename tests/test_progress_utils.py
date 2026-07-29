@@ -48,17 +48,17 @@ class TestGetProgressPercentage(unittest.TestCase):
         self.assertEqual(result, 5)
 
     def test_llm_script_no_match_returns_10(self):
-        """'LLM Script' without word count should return 10."""
+        """'LLM Script' without word count should return 5."""
         result = get_progress_percentage("LLM Script (no match)")
-        self.assertEqual(result, 10)
+        self.assertEqual(result, 5)
 
     def test_llm_metadata_returns_15(self):
         """'LLM Metadata' should return 15."""
         self.assertEqual(get_progress_percentage("LLM Metadata"), 15)
 
     def test_waiting_for_compilation_returns_20(self):
-        """'Waiting for Compilation' should return 20."""
-        self.assertEqual(get_progress_percentage("Waiting for Compilation"), 20)
+        """'Waiting for Compilation' should return 18."""
+        self.assertEqual(get_progress_percentage("Waiting for Compilation"), 18)
 
     def test_voice_generation_3_of_5(self):
         """'Voice Generation (3/5)' -> 20 + int((3/5)*25) = 35."""
@@ -76,17 +76,17 @@ class TestGetProgressPercentage(unittest.TestCase):
         self.assertEqual(result, 20)
 
     def test_voice_generation_no_match_returns_30(self):
-        """'Voice Generation' without fraction should return 30."""
+        """'Voice Generation' without fraction should return 20."""
         result = get_progress_percentage("Voice Generation")
-        self.assertEqual(result, 30)
+        self.assertEqual(result, 20)
 
     def test_reusing_cache_voice_returns_45(self):
         """'Reusing Cache (Voice)' should return 45."""
         self.assertEqual(get_progress_percentage("Reusing Cache (Voice)"), 45)
 
     def test_compiling_returns_28(self):
-        """'Compiling' should return 28."""
-        self.assertEqual(get_progress_percentage("Compiling"), 28)
+        """'Compiling' should return 20."""
+        self.assertEqual(get_progress_percentage("Compiling"), 20)
 
     def test_transcription_50_percent(self):
         """'Transcription (50%)' -> 45 + int((50/100)*10) = 50."""
@@ -104,9 +104,9 @@ class TestGetProgressPercentage(unittest.TestCase):
         self.assertEqual(result, 45)
 
     def test_transcription_no_match_returns_48(self):
-        """'Transcription' without percentage should return 48."""
+        """'Transcription' without percentage should return 45."""
         result = get_progress_percentage("Transcription")
-        self.assertEqual(result, 48)
+        self.assertEqual(result, 45)
 
     def test_subtitles_returns_55(self):
         """'Subtitles' should return 55."""
@@ -133,9 +133,9 @@ class TestGetProgressPercentage(unittest.TestCase):
         self.assertEqual(result, 55 + int((75 / 100) * 45))
 
     def test_ffmpeg_rendering_no_match_returns_75(self):
-        """'FFmpeg Rendering' without percentage should return 75."""
+        """'FFmpeg Rendering' without percentage should return 55."""
         result = get_progress_percentage("FFmpeg Rendering")
-        self.assertEqual(result, 75)
+        self.assertEqual(result, 55)
 
     def test_done_returns_100(self):
         """'Done' should return 100."""

@@ -32,10 +32,12 @@ def get_progress_percentage(status):
             word_count = int(match.group(1))
             pct = min(14, 5 + int((word_count / 400) * 9))
             return pct
-        return 10
+        return 5
     elif status == "LLM Metadata":
         return 15
     elif status == "Waiting for Compilation":
+        return 18
+    elif status == "Compiling":
         return 20
     elif status.startswith("Voice Generation"):
         match = re.search(r"\((\d+)/(\d+)\)", status)
@@ -44,17 +46,15 @@ def get_progress_percentage(status):
             total = int(match.group(2))
             if total > 0:
                 return 20 + int((s_idx / total) * 25)
-        return 30
+        return 20
     elif status == "Reusing Cache (Voice)":
         return 45
-    elif status == "Compiling":
-        return 28
     elif status.startswith("Transcription"):
         match = re.search(r"\((\d+)%\)", status)
         if match:
             pct = int(match.group(1))
             return 45 + int((pct / 100) * 10)
-        return 48
+        return 45
     elif status == "Subtitles":
         return 55
     elif status.startswith("FFmpeg Rendering"):
@@ -62,7 +62,7 @@ def get_progress_percentage(status):
         if match:
             pct = float(match.group(1))
             return 55 + int((pct / 100) * 45)
-        return 75
+        return 55
     elif status == "Done":
         return 100
     elif status == "Cancelled":
