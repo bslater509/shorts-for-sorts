@@ -1,15 +1,38 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/batch.png">
-  <img alt="Shorts for Sorts" src="docs/screenshots/batch.png" width="100%">
-</picture>
-
-# Shorts for Sorts
-
-**AI-powered short-form video generator.** Create TikTok and YouTube Shorts at scale with LLM-written scripts, AI voiceovers, background videos, music, and animated subtitles.
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/batch.png">
+    <img alt="Shorts for Sorts Batch Job Dashboard" src="docs/screenshots/batch.png" width="100%" style="border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);">
+  </picture>
+  <br/>
+  <h1>Shorts for Sorts</h1>
+  <p><b>AI-powered short-form video generator.</b><br/> Create TikTok and YouTube Shorts at scale with LLM-written scripts, AI voiceovers, background videos, music, and animated subtitles.</p>
+  
+  <p>
+    <img alt="Python" src="https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white">
+    <img alt="React" src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=white">
+    <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.100%2B-009688?logo=fastapi&logoColor=white">
+    <img alt="License" src="https://img.shields.io/badge/License-MIT-green.svg">
+  </p>
+</div>
 
 ---
 
-## Features
+## 📑 Table of Contents
+
+- [🚀 Features](#-features)
+- [📸 Screenshots](#-screenshots)
+- [⚡ Quick Start](#-quick-start)
+- [🛠 Manual Setup](#-manual-setup)
+- [📖 Usage](#-usage)
+- [⚙️ Configuration](#-configuration)
+- [🏗 Project Structure](#-project-structure)
+- [🌐 API Overview](#-api-overview)
+- [💻 Tech Stack](#-tech-stack)
+- [📜 License](#-license)
+
+---
+
+## 🚀 Features
 
 - **Batch video generation** — Generate 1–50 shorts in a single run with automatic retry, timeout, and failure mode controls
 - **LLM script writing** — Uses OpenAI-compatible APIs (GPT-4o, DeepSeek, etc.) including free Zen models. Supports custom system prompts, temperature, and prompt templates
@@ -26,26 +49,34 @@
 
 ---
 
-## Screenshots
+## 📸 Screenshots
 
-| Batch Generation | Settings Configuration | Gallery |
-|---|---|---|
-| <img src="docs/screenshots/batch.png" width="250" alt="Batch page"> | <img src="docs/screenshots/settings.png" width="250" alt="Settings page"> | <img src="docs/screenshots/gallery.png" width="250" alt="Gallery page"> |
+Here is a closer look at the different parts of the Shorts for Sorts interface:
+
+| Batch Generation | Analytics Dashboard |
+|:---:|:---:|
+| <img src="docs/screenshots/batch.png" width="100%" alt="Batch page"> | <img src="docs/screenshots/analytics.png" width="100%" alt="Analytics page"> |
+| **Media Management** | **Presets Configuration** |
+| <img src="docs/screenshots/media.png" width="100%" alt="Media page"> | <img src="docs/screenshots/presets.png" width="100%" alt="Presets page"> |
+| **Settings Panel** | **Generated Video Gallery** |
+| <img src="docs/screenshots/settings.png" width="100%" alt="Settings page"> | <img src="docs/screenshots/gallery.png" width="100%" alt="Gallery page"> |
 
 ---
 
-## Quick Start
+## ⚡ Quick Start
+
+The fastest way to get started:
 
 ```bash
 bash run-gui.sh
 ```
 
-This single command:
-1. Creates a Python virtual environment (if missing)
-2. Installs Python dependencies
-3. Installs frontend Node.js dependencies and builds the SPA
-4. Generates a self-signed SSL certificate (for HTTPS)
-5. Starts the server on `https://0.0.0.0:5000`
+This single command will:
+1. Create a Python virtual environment (if missing).
+2. Install Python dependencies.
+3. Install frontend Node.js dependencies and build the SPA.
+4. Generate a self-signed SSL certificate (for HTTPS).
+5. Start the server on `https://0.0.0.0:5000`.
 
 Open your browser to `http://localhost:5000` (or `https://localhost:5000`).
 
@@ -53,7 +84,7 @@ Open your browser to `http://localhost:5000` (or `https://localhost:5000`).
 
 ---
 
-## Manual Setup
+## 🛠 Manual Setup
 
 ### 1. Backend
 
@@ -87,9 +118,9 @@ python gui/server.py --https
 
 ---
 
-## Usage
+## 📖 Usage
 
-### Pages
+### Pages Overview
 
 | Page | Route | Purpose |
 |---|---|---|
@@ -120,11 +151,11 @@ python gui/server.py --https
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 ### LLM Profiles
 
-Configured in Settings → LLM Providers. Supports any OpenAI-compatible API:
+Configured in **Settings → LLM Providers**. Supports any OpenAI-compatible API:
 
 - **OpenAI** — GPT-4o, GPT-4o-mini, etc.
 - **Zen Free Models** — Auto-populated free models (DeepSeek V4 Flash, MiMo-V2.5, etc.)
@@ -136,7 +167,22 @@ Prompt templates define the topics for batch video scripts. Located in `config/p
 
 ---
 
-## Project Structure
+## 🏗 Project Structure & Architecture
+
+### High-level Architecture
+
+```mermaid
+graph TD
+    UI[React SPA UI] -->|WebSockets / REST| API[FastAPI Backend]
+    API --> LLM[LLM Script Gen <br/> GPT-4o / DeepSeek]
+    API --> TTS[Kokoro ONNX TTS]
+    API --> ASR[Faster-Whisper <br/> Subtitle Alignment]
+    API --> FFMPEG[FFmpeg <br/> Video Composition]
+    API --> PEXELS[Pexels / YouTube <br/> Background Assets]
+    FFMPEG --> OUT[Final Video Output]
+```
+
+### Directory Tree
 
 ```
 shorts-for-sorts/
@@ -175,7 +221,7 @@ shorts-for-sorts/
 
 ---
 
-## API Overview
+## 🌐 API Overview
 
 ### REST Endpoints
 
@@ -209,7 +255,7 @@ shorts-for-sorts/
 
 ---
 
-## Tech Stack
+## 💻 Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -226,6 +272,17 @@ shorts-for-sorts/
 
 ---
 
-## License
+## 🤝 Acknowledgments
 
-MIT
+This project is built upon several incredible open-source projects:
+
+- **[Kokoro ONNX](https://github.com/thewh1teagle/kokoro-onnx)** for local, high-quality Text-to-Speech.
+- **[Faster-Whisper](https://github.com/SYSTRAN/faster-whisper)** for rapid local speech recognition.
+- **[FFmpeg](https://ffmpeg.org/)** for the heavy lifting of video composition.
+- **[FastAPI](https://fastapi.tiangolo.com/)** & **[React](https://react.dev/)** for providing a robust modern stack.
+
+---
+
+## 📜 License
+
+MIT License.
