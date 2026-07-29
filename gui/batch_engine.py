@@ -1123,6 +1123,7 @@ def _process_llm_futures(
                         batch_state["_job_features"][i] = features
                     batch_state["shared_progress"][i] = "Waiting for Compilation"
                     batch_state["shared_progress"][f"{i}_phase_llm_end"] = time.time()
+                    from gui.batch import video_job_worker
                     vf = batch_state["executor"].submit(
                         video_job_worker, job_configs[i], batch_state["shared_progress"]
                     )
