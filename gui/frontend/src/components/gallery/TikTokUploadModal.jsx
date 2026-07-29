@@ -19,7 +19,7 @@ export default function TikTokUploadModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200 p-4">
-      <div className="bg-card border border-border w-full max-w-md rounded-xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="bg-card border border-border w-full max-w-md rounded-xl shadow-2xl max-h-[90dvh] overflow-y-auto flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-border bg-secondary/30">
           <h3 className="font-semibold flex items-center gap-2">
             <TikTokIcon size={18} className="text-pink-500" />

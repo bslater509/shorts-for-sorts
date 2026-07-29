@@ -33,7 +33,7 @@ const BatchHeader = ({
         <p className="text-xs md:text-sm text-muted-foreground mt-0.5">Generate multiple videos autonomously.</p>
       </div>
 
-      <div className="flex items-center gap-2 bg-secondary/50 border border-border rounded-xl p-1.5 shrink-0 shadow-sm flex-wrap">
+      <div className="flex items-center gap-1.5 bg-secondary/50 border border-border rounded-xl p-1.5 shrink-0 shadow-sm flex-wrap">
         <div className="flex items-center gap-1 px-1.5">
           <Label className="text-[11px] font-medium whitespace-nowrap">Qty</Label>
           <Select value={String(numShorts)} onValueChange={(v) => { updateAppState({ batch_num_shorts: parseInt(v) }); saveCurrentState() }} disabled={inProgress}>
@@ -109,11 +109,11 @@ const BatchHeader = ({
         {enableEmojis && (
           <div className="flex items-center gap-1.5 bg-secondary/30 border border-border rounded-lg p-1.5 animate-in fade-in slide-in-from-top-2 duration-200 flex-wrap">
             <div className="flex items-center gap-1">
-              <Label className="text-[9px] font-medium text-muted-foreground whitespace-nowrap">Anim</Label>
+              <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Anim</Label>
               <Button
                 variant="outline"
                 onClick={() => setEnableEmojiAnimation(!enableEmojiAnimation)}
-                className={`text-[10px] px-1.5 py-0.5 rounded font-medium border h-auto ${
+                className={`text-[10px] px-1.5 py-1 md:py-0.5 rounded font-medium border h-auto ${
                   enableEmojiAnimation
                     ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
                     : 'bg-muted/50 text-muted-foreground/60 border-border/30'
@@ -124,7 +124,7 @@ const BatchHeader = ({
             </div>
             <div className="w-px h-4 bg-border" />
             <div className="flex items-center gap-1">
-              <Label className="text-[9px] font-medium text-muted-foreground whitespace-nowrap">Scale</Label>
+              <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Scale</Label>
               <Select value={String(emojiScaleFactor)} onValueChange={(v) => { updateAppState({ emoji_scale_factor: parseFloat(v) }); saveCurrentState() }}>
                 <SelectTrigger className="w-12 bg-background border border-border rounded-md px-1 py-0.5 text-[10px] text-center h-auto">
                   <SelectValue />
@@ -138,7 +138,7 @@ const BatchHeader = ({
             </div>
             <div className="w-px h-4 bg-border" />
             <div className="flex items-center gap-1">
-              <Label className="text-[9px] font-medium text-muted-foreground whitespace-nowrap">Hold</Label>
+              <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Hold</Label>
               <Select value={String(emojiHoldDuration)} onValueChange={(v) => { updateAppState({ emoji_hold_duration: parseFloat(v) }); saveCurrentState() }}>
                 <SelectTrigger className="w-12 bg-background border border-border rounded-md px-1 py-0.5 text-[10px] text-center h-auto">
                   <SelectValue />
@@ -152,7 +152,7 @@ const BatchHeader = ({
             </div>
             <div className="w-px h-4 bg-border" />
             <div className="flex items-center gap-1">
-              <Label className="text-[9px] font-medium text-muted-foreground whitespace-nowrap">Max/Word</Label>
+              <Label className="text-[10px] md:text-[9px] font-medium text-muted-foreground whitespace-nowrap">Max/Word</Label>
               <Select value={String(emojiThrowMaxCount)} onValueChange={(v) => { updateAppState({ emoji_throw_max_count: parseInt(v) }); saveCurrentState() }}>
                 <SelectTrigger className="w-12 bg-background border border-border rounded-md px-1 py-0.5 text-[10px] text-center h-auto">
                   <SelectValue />

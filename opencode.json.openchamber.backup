@@ -1,0 +1,27 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "plan": {
+      "model": "google/antigravity-gemini-3.1-pro",
+      "mode": "all",
+      "description": "Plan mode. Disallows all edit tools.",
+      "variant": "high"
+    },
+    "build": {
+      "model": "google/antigravity-gemini-3-flash",
+      "mode": "subagent",
+      "description": "The default agent. Executes tools based on configured permissions."
+    }
+  },
+  "command": {
+    "test": {
+      "description": "Run backend tests",
+      "template": "python -m pytest tests/ -x -q"
+    },
+    "lint": {
+      "description": "Lint frontend code",
+      "template": "cd gui/frontend && npm run lint"
+    }
+  },
+  "permission": "allow"
+}

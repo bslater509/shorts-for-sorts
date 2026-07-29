@@ -66,7 +66,7 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
               <Button
                 variant="outline"
                 onClick={(e) => { e.stopPropagation(); onRetry(job.id); }}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-all bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 border border-orange-500/20 h-auto"
+                className="flex items-center gap-1 px-1.5 py-1 md:py-0.5 rounded-md text-[10px] font-medium transition-all bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 border border-orange-500/20 h-auto"
                 title="Retry this job"
               >
                 <RefreshCw size={10} />
@@ -78,7 +78,7 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
                 variant="ghost"
                 size="icon"
                 onClick={(e) => { e.stopPropagation(); onDismiss(job.id); }}
-                className="p-0.5 rounded-md text-muted-foreground hover:text-foreground transition-colors h-auto w-auto"
+                className="p-1.5 md:p-0.5 rounded-md text-muted-foreground hover:text-foreground transition-colors h-auto w-auto"
                 title="Dismiss"
               >
                 <X size={12} />
@@ -98,7 +98,7 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
               <Button
                 variant="outline"
                 onClick={(e) => { e.stopPropagation(); onRetry(job.id); }}
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-all bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20 h-auto"
+                className="flex items-center gap-1 px-1.5 py-1 md:py-0.5 rounded-md text-[10px] font-medium transition-all bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20 h-auto"
                 title="Retry this job"
               >
                 <RefreshCw size={10} />
@@ -110,7 +110,7 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
                 variant="ghost"
                 size="icon"
                 onClick={(e) => { e.stopPropagation(); onDismiss(job.id); }}
-                className="p-0.5 rounded-md text-muted-foreground hover:text-foreground transition-colors h-auto w-auto"
+                className="p-1.5 md:p-0.5 rounded-md text-muted-foreground hover:text-foreground transition-colors h-auto w-auto"
                 title="Dismiss"
               >
                 <X size={12} />
@@ -129,7 +129,7 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
             <Button
               variant="outline"
               onClick={(e) => { e.stopPropagation(); onCancelQueued(job.id); }}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-all bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 h-auto"
+              className="flex items-center gap-1 px-1.5 py-1 md:py-0.5 rounded-md text-[10px] font-medium transition-all bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 h-auto"
               title="Cancel this queued job"
             >
               <Square size={10} />

@@ -141,39 +141,41 @@ export default function Gallery() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto flex flex-col md:h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)]">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto flex flex-col min-h-0 md:min-h-[calc(100dvh-6rem)]">
       <header className="shrink-0 flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
             <Film className="text-blue-500" />
             Rendered Videos Library
           </h1>
           <p className="text-muted-foreground mt-1">Browse, preview, and download completed vertical TikTok shorts</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button
             onClick={handleDeleteAll}
             disabled={isLoading || videos.length === 0}
             variant="outline"
-            className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border-red-500/20"
+            className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border-red-500/20 text-xs md:text-sm px-2 md:px-4 py-1 md:py-2 h-auto"
           >
-            <Trash2 size={16} />
-            Delete All
+            <Trash2 size={14} />
+            <span className="hidden xs:inline md:inline">Delete All</span>
+            <span className="inline xs:hidden md:hidden">All</span>
           </Button>
           <Button
             onClick={loadGallery}
             disabled={isLoading}
             variant="secondary"
-            className="border border-border"
+            className="border border-border text-xs md:text-sm px-2 md:px-4 py-1 md:py-2 h-auto"
           >
-            <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
-            Refresh Library
+            <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+            <span className="hidden xs:inline md:inline">Refresh Library</span>
+            <span className="inline xs:hidden md:hidden">Refresh</span>
           </Button>
         </div>
       </header>
 
-      <div className="flex-1 md:overflow-y-auto">
+      <div className="flex-1 md:overflow-y-auto overscroll-contain touch-pan-y">
         {isLoading ? (
           <GallerySkeleton count={4} />
         ) : videos.length > 0 ? (

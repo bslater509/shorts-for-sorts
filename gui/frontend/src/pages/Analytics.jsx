@@ -166,11 +166,11 @@ export default function Analytics() {
         <header className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
                 <BarChart3 className="text-violet-500" />
                 Analytics
               </h1>
-              <p className="text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
+              <p className="text-xs md:text-sm text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
             </div>
           </div>
         </header>
@@ -207,11 +207,11 @@ export default function Analytics() {
     return (
       <div className="max-w-6xl mx-auto">
         <header className="animate-in fade-in slide-in-from-bottom-4 duration-500 mb-6">
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
             <BarChart3 className="text-violet-500" />
             Analytics
           </h1>
-          <p className="text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
         </header>
 
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-backwards [animation-delay:150ms]">
@@ -247,11 +247,11 @@ export default function Analytics() {
     return (
       <div className="max-w-6xl mx-auto">
         <header className="animate-in fade-in slide-in-from-bottom-4 duration-500 mb-6">
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
             <BarChart3 className="text-violet-500" />
             Analytics
           </h1>
-          <p className="text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
         </header>
 
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 fill-mode-backwards [animation-delay:150ms]">
@@ -305,11 +305,11 @@ export default function Analytics() {
       <header className="animate-in fade-in slide-in-from-bottom-4 duration-500">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
               <BarChart3 className="text-violet-500" />
               Analytics
             </h1>
-            <p className="text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
+            <p className="text-xs md:text-sm text-muted-foreground mt-1">Historical batch statistics and performance insights.</p>
           </div>
 
           {/* Refresh indicator */}

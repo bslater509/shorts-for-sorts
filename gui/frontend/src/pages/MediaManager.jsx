@@ -148,10 +148,10 @@ export default function MediaManager() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col md:h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)] max-w-7xl mx-auto">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col min-h-0 md:min-h-[calc(100dvh-6rem)] max-w-7xl mx-auto">
       <header className="shrink-0 pt-4">
-        <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-600 bg-clip-text text-transparent drop-shadow-sm">Media Manager</h1>
-        <p className="text-muted-foreground mt-2 text-lg">Curate your assets, search the web, and build your premium library.</p>
+        <h1 className="text-2xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-blue-400 to-indigo-600 bg-clip-text text-transparent drop-shadow-sm">Media Manager</h1>
+        <p className="text-muted-foreground mt-1 md:mt-2 text-sm md:text-lg">Curate your assets, search the web, and build your premium library.</p>
       </header>
 
       {/* Audio Element for preview */}

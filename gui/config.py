@@ -139,7 +139,6 @@ from gui.emoji_map import (  # noqa: E402, F401
 )
 from gui.prompts import (  # noqa: E402, F401
     DEFAULT_SCRIPT_SYSTEM_PROMPT,
-    DEFAULT_PROMPTS,
     load_prompt_templates,
 )
 from gui.settings_manager import (  # noqa: E402, F401

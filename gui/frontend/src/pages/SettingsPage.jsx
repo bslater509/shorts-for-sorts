@@ -171,21 +171,21 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex h-[calc(100vh-6rem)] items-center justify-center text-muted-foreground">
+      <div className="flex h-[calc(100dvh-6rem)] items-center justify-center text-muted-foreground">
         <Loader2 size={32} className="animate-spin" />
       </div>
     )
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto flex flex-col md:h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)]">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto flex flex-col min-h-0 md:min-h-[calc(100dvh-6rem)]">
       <header className="shrink-0 flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
             <SettingsIcon className="text-blue-500" />
             System Configuration
           </h1>
-          <p className="text-muted-foreground mt-1">Configure models, API keys, Whisper transcription, FFmpeg render settings, and AI generation defaults.</p>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">Configure models, API keys, Whisper transcription, FFmpeg render settings, and AI generation defaults.</p>
         </div>
         
         <Button 
@@ -207,7 +207,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="flex-1 md:overflow-y-auto pr-2 space-y-6 pb-6">
+      <div className="flex-1 md:overflow-y-auto pr-2 space-y-6 pb-6 overscroll-contain touch-pan-y">
         <LLMProfilesSection
           profiles={settings.llm_profiles || []}
           activeProfileId={settings.active_llm_profile_id}
@@ -259,6 +259,19 @@ export default function SettingsPage() {
           notificationStatus={notificationStatus}
           onRequestNotification={requestNotificationPermission}
         />
+
+        {/* Bottom Save button for mobile */}
+        <div className="md:hidden pt-2">
+          <Button
+            onClick={handleSave}
+            disabled={isSaving}
+            variant="default"
+            className="w-full bg-blue-500 hover:bg-blue-600 shadow-md shadow-blue-500/20"
+          >
+            {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            Save Settings
+          </Button>
+        </div>
       </div>
     </div>
   )

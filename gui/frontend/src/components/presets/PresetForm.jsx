@@ -15,7 +15,7 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
         </h2>
       </div>
 
-      <div className="flex-1 md:overflow-y-auto p-6">
+      <div className="flex-1 md:overflow-y-auto p-6 overscroll-contain touch-pan-y">
         <form id="preset-form" onSubmit={onSave} className="space-y-8">
           <div className="space-y-4">
             <div className="flex flex-col gap-2">

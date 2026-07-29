@@ -42,7 +42,7 @@ const JobDetailModal = ({ job, onClose, progress }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-border bg-secondary/20 shrink-0">
+        <div className="flex items-center justify-between p-3 md:p-5 border-b border-border bg-secondary/20 shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-bold">Job #{job.id}</h2>
             {isDone && statusBadge('Done', <CheckCircle2 size={14} />, 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10')}
@@ -57,7 +57,7 @@ const JobDetailModal = ({ job, onClose, progress }) => {
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-3 md:p-5 space-y-4">
           {/* Topic */}
           <div>
             <p className="text-sm text-muted-foreground font-medium mb-1">Topic</p>

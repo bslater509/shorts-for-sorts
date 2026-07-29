@@ -135,13 +135,13 @@ export default function Presets() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-6xl mx-auto flex flex-col md:h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)]">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-6xl mx-auto flex flex-col min-h-0 md:min-h-[calc(100dvh-6rem)]">
       <header className="shrink-0">
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
           <Sliders className="text-blue-500" />
           Preset Templates Manager
         </h1>
-        <p className="text-muted-foreground mt-1">Configure and save visual typography subtitles, layouts, and sound presets</p>
+        <p className="text-xs md:text-sm text-muted-foreground mt-1">Configure and save visual typography subtitles, layouts, and sound presets</p>
       </header>
 
       <div className="flex-1 md:overflow-hidden flex flex-col lg:flex-row gap-6">
@@ -159,7 +159,7 @@ export default function Presets() {
           <div className="p-4 border-b border-border bg-secondary/30">
             <h2 className="font-semibold">Saved Presets</h2>
           </div>
-          <div className="flex-1 md:overflow-y-auto p-4 space-y-3">
+          <div className="flex-1 md:overflow-y-auto p-4 space-y-3 overscroll-contain touch-pan-y">
             {isLoading ? (
               <div className="flex justify-center p-4"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>
             ) : Object.keys(presets).length > 0 ? (
