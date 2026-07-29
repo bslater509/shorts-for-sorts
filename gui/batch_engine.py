@@ -981,10 +981,6 @@ def _run_pipeline(
                         )
             break
 
-        _check_timeouts(
-            job_configs, num_shorts, failure_mode, llm_futures, video_futures
-        )
-
         _sync_progress(batch_state, num_shorts)
 
         # Process completed LLM futures
@@ -1007,91 +1003,6 @@ def _run_pipeline(
             continue
 
         time.sleep(PIPELINE_POLL_INTERVAL)
-
-
-def _check_timeouts(
-    job_configs: dict[int, dict[str, Any]],
-    num_shorts: int,
-    failure_mode: str,
-    llm_futures: list[tuple[int, Any]],
-    video_futures: list[tuple[int, Any]],
-) -> None:
-    """Check and cancel any timed-out jobs.
-
-    Mutates ``llm_futures`` and ``video_futures`` in-place via slice assignment.
-    """
-    timeout: int = shared_state.settings.get("batch_job_timeout", 0)
-    if not timeout or timeout <= 0:
-        return
-    now: float = time.time()
-
-    remaining_llm: list[tuple[int, Any]] = []
-    for i, f in llm_futures:
-        if f.done():
-            remaining_llm.append((i, f))
-            continue
-        start = (
-            batch_state["shared_progress"].get(f"{i}_llm_worker_start")
-            or batch_state["shared_progress"].get(f"{i}_start")
-        )
-        if start and (now - start) > timeout:
-            logger.warning(
-                "[Batch] Job #%d — LLM timed out after %ds (limit: %ds)",
-                i,
-                int(now - start),
-                timeout,
-            )
-            f.cancel()
-            batch_state["shared_progress"][i] = f"Failed: Timed out ({int(now - start)}s)"
-            batch_state["failed_job_configs"].append(job_configs.get(i))
-            notify_clients(
-                "batch",
-                "job_failed",
-                f"Job #{i} timed out (LLM)",
-                "error",
-                {"job_id": i},
-            )
-            if failure_mode == "stop_all":
-                batch_state["should_cancel"] = True
-                break
-        else:
-            remaining_llm.append((i, f))
-    llm_futures[:] = remaining_llm
-    if batch_state["should_cancel"]:
-        return
-
-    remaining_video: list[tuple[int, Any]] = []
-    for i, f in video_futures:
-        if f.done():
-            remaining_video.append((i, f))
-            continue
-        v_start = (
-            batch_state["shared_progress"].get(f"{i}_phase_llm_end")
-            or batch_state["shared_progress"].get(f"{i}_start")
-        )
-        if v_start and (now - v_start) > timeout:
-            logger.warning(
-                "[Batch] Job #%d — Video timed out after %ds (limit: %ds)",
-                i,
-                int(now - v_start),
-                timeout,
-            )
-            f.cancel()
-            batch_state["shared_progress"][i] = f"Failed: Timed out ({int(now - v_start)}s)"
-            batch_state["failed_job_configs"].append(job_configs.get(i))
-            notify_clients(
-                "batch",
-                "job_failed",
-                f"Job #{i} timed out (Video)",
-                "error",
-                {"job_id": i},
-            )
-            if failure_mode == "stop_all":
-                batch_state["should_cancel"] = True
-                break
-        else:
-            remaining_video.append((i, f))
-    video_futures[:] = remaining_video
 
 
 def _process_llm_futures(
