@@ -16,7 +16,7 @@ class SettingsModel(BaseModel):
     whisper_api_key: str | None = ""
     whisper_base_url: str | None = ""
     render_resolution: str | None = "720p"
-    render_preset: str | None = "fast"
+    render_preset: str | None = "ultrafast"
     video_encoder: str | None = "libx264"
     max_workers: int | None = 1
     llm_max_workers: int | None = 5

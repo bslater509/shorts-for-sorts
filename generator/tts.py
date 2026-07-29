@@ -47,8 +47,11 @@ def init_tts_session():
 
         logger.info("Loading Kokoro TTS model (CPU ONNX)...")
         try:
-            _TTS_INSTANCE = Kokoro(MODEL_PATH, VOICES_PATH)
-            logger.info("Kokoro model loaded successfully.")
+            import onnxruntime as ort
+            providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if 'CUDAExecutionProvider' in ort.get_available_providers() else ['CPUExecutionProvider']
+            session = ort.InferenceSession(MODEL_PATH, providers=providers)
+            _TTS_INSTANCE = Kokoro.from_session(session, VOICES_PATH)
+            logger.info(f"Kokoro model loaded successfully with providers: {providers}")
         except Exception as e:
             logger.error(f"Failed to initialize Kokoro model: {e}", exc_info=True)
             raise RuntimeError(f"Failed to initialize Kokoro model: {e}") from e

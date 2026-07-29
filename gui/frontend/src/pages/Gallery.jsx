@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Film, RefreshCw, Trash2, PlayCircle } from 'lucide-react'
+import { Film, RefreshCw, Trash2, Clapperboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import TikTokIcon from '@/components/gallery/TikTokIcon'
@@ -142,13 +142,20 @@ export default function Gallery() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto flex flex-col min-h-0 md:min-h-[calc(100dvh-6rem)]">
+      {/* ── Header ── */}
       <header className="shrink-0 flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-tight flex items-center gap-2">
-            <Film className="text-blue-500" />
-            Rendered Videos Library
-          </h1>
-          <p className="text-muted-foreground mt-1">Browse, preview, and download completed vertical TikTok shorts</p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-accent/10 flex items-center justify-center ring-1 ring-primary/15 shadow-sm">
+            <Film className="text-primary/80" size={20} />
+          </div>
+          <div>
+            <h1 className="text-xl md:text-2xl font-bold tracking-tight">
+              Rendered Videos
+            </h1>
+            <p className="text-sm text-muted-foreground/70 mt-0.5">
+              Browse, preview, and download completed vertical shorts
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -156,46 +163,63 @@ export default function Gallery() {
             onClick={handleDeleteAll}
             disabled={isLoading || videos.length === 0}
             variant="outline"
-            className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border-red-500/20 text-xs md:text-sm px-2 md:px-4 py-1 md:py-2 h-auto"
+            className="h-8 gap-1.5 px-3 rounded-lg text-xs border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/30 disabled:opacity-40 transition-all"
           >
-            <Trash2 size={14} />
-            <span className="hidden xs:inline md:inline">Delete All</span>
-            <span className="inline xs:hidden md:hidden">All</span>
+            <Trash2 size={13} />
+            <span>Delete All</span>
           </Button>
           <Button
             onClick={loadGallery}
             disabled={isLoading}
-            variant="secondary"
-            className="border border-border text-xs md:text-sm px-2 md:px-4 py-1 md:py-2 h-auto"
+            variant="outline"
+            className="h-8 gap-1.5 px-3 rounded-lg text-xs border-border/50 bg-transparent text-muted-foreground hover:bg-secondary/30 hover:text-foreground transition-all"
           >
-            <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
-            <span className="hidden xs:inline md:inline">Refresh Library</span>
-            <span className="inline xs:hidden md:hidden">Refresh</span>
+            <RefreshCw size={13} className={isLoading ? "animate-spin" : ""} />
+            <span>Refresh</span>
           </Button>
         </div>
       </header>
 
+      {/* ── Content ── */}
       <div className="flex-1 md:overflow-y-auto overscroll-contain touch-pan-y">
         {isLoading ? (
           <GallerySkeleton count={4} />
         ) : videos.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 pb-6">
-            {videos.map((v) => (
-              <VideoCard
+            {videos.map((v, i) => (
+              <div
                 key={v.filename}
-                video={v}
-                onCopyHashtags={handleCopyHashtags}
-                onShare={handleShare}
-                onTikTokUpload={openUploadModal}
-                onDelete={handleDelete}
-              />
+                className="animate-in fade-in slide-in-from-bottom-3 duration-500"
+                style={{ animationDelay: `${i * 80}ms`, animationFillMode: 'both' }}
+              >
+                <VideoCard
+                  video={v}
+                  onCopyHashtags={handleCopyHashtags}
+                  onShare={handleShare}
+                  onTikTokUpload={openUploadModal}
+                  onDelete={handleDelete}
+                />
+              </div>
             ))}
           </div>
         ) : (
-          <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground space-y-3 bg-card border border-dashed border-border rounded-xl p-12">
-            <PlayCircle size={48} className="opacity-20 mb-2" />
-            <p className="font-medium text-lg text-foreground">No compiled vertical shorts found.</p>
-            <p className="text-sm max-w-sm">Head over to the Content Studio, generate a script, configure media, and compile your first video!</p>
+          /* ── Empty State ── */
+          <div className="h-full flex flex-col items-center justify-center text-center py-16 md:py-24">
+            <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-primary/10 to-accent/5 flex items-center justify-center ring-1 ring-primary/10 mb-6 shadow-lg shadow-primary/5">
+              <Clapperboard size={40} className="text-primary/40" />
+            </div>
+            <h2 className="text-xl font-semibold text-foreground mb-2">
+              No videos yet
+            </h2>
+            <p className="text-sm text-muted-foreground/70 max-w-md leading-relaxed">
+              Head over to the <span className="text-primary/80 font-medium">Content Studio</span>, generate a script,
+              configure your media, and compile your first vertical short.
+            </p>
+            <div className="mt-8 flex items-center gap-2 text-[11px] text-muted-foreground/40 uppercase tracking-widest font-medium">
+              <span className="w-8 h-px bg-border/30" />
+              <span>Your creations will appear here</span>
+              <span className="w-8 h-px bg-border/30" />
+            </div>
           </div>
         )}
       </div>

@@ -447,7 +447,7 @@ def compile_video_flow(
 
                 if _WHISPER_MODEL is None or local_model_name != _WHISPER_MODEL_NAME:
                     _WHISPER_MODEL = WhisperModel(
-                        local_model_name, device="cpu", compute_type="int8"
+                        local_model_name, device="auto", compute_type="default"
                     )
                     _WHISPER_MODEL_NAME = local_model_name
                 segments, info = _WHISPER_MODEL.transcribe(audio_path, word_timestamps=True)
@@ -495,7 +495,7 @@ def compile_video_flow(
 
                 if _WHISPER_MODEL is None or local_model_name != _WHISPER_MODEL_NAME:
                     _WHISPER_MODEL = WhisperModel(
-                        local_model_name, device="cpu", compute_type="int8"
+                        local_model_name, device="auto", compute_type="default"
                     )
                     _WHISPER_MODEL_NAME = local_model_name
                 segments, info = _WHISPER_MODEL.transcribe(audio_path, word_timestamps=True)
@@ -540,7 +540,7 @@ def compile_video_flow(
         console.print(
             "[yellow][4/4] Rendering vertical video using FFmpeg (cropping 9:16, mixing audio, burning subtitles)...[/]"
         )
-        render_preset = settings.get("render_preset", "fast")
+        render_preset = settings.get("render_preset", "ultrafast")
         render_res = settings.get("render_resolution", "1080p")
         video_encoder = settings.get("video_encoder", "libx264")
         logger.info(
