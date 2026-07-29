@@ -19,10 +19,55 @@ from gui.batch_engine import (
     batch_worker_thread,
     DEFAULT_PHASE_WEIGHTS,
 )
-from gui.config import BATCH_STATS_FILE, FAILED_CONFIGS_FILE, logger
+from gui.config import (
+    BATCH_STATS_FILE,
+    CANCELLED_CONFIGS_FILE,
+    DISMISSED_JOBS_FILE,
+    FAILED_CONFIGS_FILE,
+    logger,
+)
 from gui.models import BatchStartRequest
 
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# Persistence helpers for dismissed jobs
+# ---------------------------------------------------------------------------
+
+
+def _load_dismissed_jobs() -> set:
+    """Load dismissed job IDs from disk. Returns an empty set on any failure."""
+    try:
+        if os.path.exists(DISMISSED_JOBS_FILE):
+            with open(DISMISSED_JOBS_FILE) as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return set(data)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to load dismissed jobs: %s", e)
+    return set()
+
+
+def _save_dismissed_jobs(job_ids: set):
+    """Persist dismissed job IDs to disk as a JSON array of ints."""
+    try:
+        os.makedirs(os.path.dirname(DISMISSED_JOBS_FILE), exist_ok=True)
+        with open(DISMISSED_JOBS_FILE, "w") as f:
+            json.dump(sorted(job_ids), f, indent=2)
+    except OSError as e:
+        logger.warning("Failed to save dismissed jobs: %s", e)
+
+
+def _load_cancelled_configs() -> list:
+    """Load cancelled job configs from disk. Returns an empty list on any failure."""
+    try:
+        if os.path.exists(CANCELLED_CONFIGS_FILE):
+            with open(CANCELLED_CONFIGS_FILE) as f:
+                return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to load cancelled configs: %s", e)
+    return []
 
 
 @router.get("/api/prompts")
@@ -77,6 +122,11 @@ def get_batch_status():
     from gui.batch import get_progress_percentage
 
     with _batch_state_lock:
+        # Load dismissed jobs from disk on first read if not already loaded
+        if "_dismissed_jobs" not in batch_state:
+            batch_state["_dismissed_jobs"] = _load_dismissed_jobs()
+        dismissed = batch_state.get("_dismissed_jobs", set())
+
         # Compute stats from completed jobs
         completed_durations = []
         for i in range(1, batch_state["num_shorts"] + 1):
@@ -92,6 +142,8 @@ def get_batch_status():
         smoothed_etas = batch_state.get("_smoothed_eta", {})
         phase_weights = batch_state.get("_phase_weights")
 
+        cancelled_count = 0
+        failed_count = 0
         jobs = []
         for i in range(1, batch_state["num_shorts"] + 1):
             status = batch_state["progress_dict"].get(i, "Queued")
@@ -99,6 +151,25 @@ def get_batch_status():
 
             start_time = batch_state["progress_dict"].get(f"{i}_start")
             end_time = batch_state["progress_dict"].get(f"{i}_end")
+
+            # Count cancelled/failed separately
+            is_cancelled = status == "Cancelled"
+            is_failed = status.startswith("Failed") and not is_cancelled
+            if is_cancelled:
+                cancelled_count += 1
+            elif is_failed:
+                failed_count += 1
+
+            # Build error_detail
+            if is_cancelled:
+                error_detail = "Cancelled by user"
+            elif is_failed:
+                error_detail = status
+            else:
+                error_detail = None
+
+            # Dismissed flag
+            is_dismissed = i in dismissed
 
             # Gather phase entry timestamps for this job
             job_phase_times = {}
@@ -127,7 +198,10 @@ def get_batch_status():
                     "enable_emojis": detail.get("enable_emojis", False),
                     "status": status,
                     "progress": pct if pct is not None else 0,
-                    "failed": pct is None,
+                    "failed": is_failed,
+                    "cancelled": is_cancelled,
+                    "error_detail": error_detail,
+                    "dismissed": is_dismissed,
                     "elapsed": elapsed_str,
                     "eta": eta_str,
                     "eta_seconds": eta_seconds,
@@ -150,7 +224,8 @@ def get_batch_status():
         total_video = 0.0
         for j in jobs:
             s = j["status"]
-            if s == "Done" or s.startswith("Failed"):
+            # Skip done, failed, cancelled, and dismissed jobs
+            if s == "Done" or s.startswith("Failed") or s == "Cancelled" or j.get("dismissed", False):
                 continue
             if s != "Queued" and j.get("eta_llm") is not None:
                 total_llm += j["eta_llm"]
@@ -168,6 +243,8 @@ def get_batch_status():
         "global_eta_seconds": round(global_eta_seconds, 1),
         "cpu_percent": psutil.cpu_percent(interval=None),
         "memory_percent": psutil.virtual_memory().percent,
+        "cancelledCount": cancelled_count,
+        "failedCount": failed_count,
         "progress_segments": [
             {"name": "LLM", "start": 0, "end": 20},
             {"name": "Voice", "start": 20, "end": 45},
@@ -229,6 +306,22 @@ def get_batch_job_detail(job_id: int):
         config = batch_state.get("job_configs", {}).get(job_id, {})
 
     # Build response with ALL job settings
+    is_cancelled = status == "Cancelled"
+    is_failed = status.startswith("Failed") and not is_cancelled
+
+    # Load dismissed jobs if not already
+    if "_dismissed_jobs" not in batch_state:
+        batch_state["_dismissed_jobs"] = _load_dismissed_jobs()
+    is_dismissed = job_id in batch_state.get("_dismissed_jobs", set())
+
+    # Build error_detail
+    if is_cancelled:
+        error_detail = "Cancelled by user"
+    elif is_failed:
+        error_detail = status
+    else:
+        error_detail = None
+
     return {
         "id": job_id,
         "topic": detail.get("topic", ""),
@@ -237,7 +330,10 @@ def get_batch_job_detail(job_id: int):
         "enable_emojis": detail.get("enable_emojis", False),
         "status": status,
         "progress": pct if pct is not None else 0,
-        "failed": pct is None,
+        "failed": is_failed,
+        "cancelled": is_cancelled,
+        "error_detail": error_detail,
+        "dismissed": is_dismissed,
         "elapsed": elapsed_str,
         "eta": eta_str,
         "eta_seconds": eta_seconds,
@@ -298,6 +394,80 @@ def cancel_batch():
             "message": "Cancellation requested. Waiting for active workers to terminate.",
         }
     return {"status": "ignored", "message": "No active batch to cancel."}
+
+
+@router.post("/api/batch/cancel-job/{job_id}")
+def cancel_single_job(job_id: int):
+    """Cancel a single queued or waiting job. Only works when batch is in progress."""
+    with _batch_state_lock:
+        if not batch_state["in_progress"]:
+            raise HTTPException(status_code=400, detail="No active batch in progress.")
+
+        status = batch_state["progress_dict"].get(job_id)
+        if status not in ("Queued", "Waiting for LLM"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Job #{job_id} is in status '{status}' and cannot be cancelled. Only 'Queued' or 'Waiting for LLM' jobs can be cancelled.",
+            )
+
+        # Set status to Cancelled
+        batch_state["progress_dict"][job_id] = "Cancelled"
+
+        # Store config for potential retry
+        config = batch_state.get("job_configs", {}).get(job_id)
+        if config is not None:
+            if "_cancelled_job_configs" not in batch_state:
+                batch_state["_cancelled_job_configs"] = []
+            batch_state["_cancelled_job_configs"].append(config)
+
+        return {
+            "status": "success",
+            "message": f"Job #{job_id} cancelled.",
+        }
+
+
+@router.post("/api/batch/retry-cancelled")
+def retry_cancelled_batch():
+    """Retry all cancelled jobs. Same pattern as retry_failed_batch."""
+    if batch_state["in_progress"]:
+        raise HTTPException(status_code=400, detail="A batch is currently running.")
+
+    cancelled_configs = batch_state.get("_cancelled_job_configs", [])
+    if not cancelled_configs:
+        # Fall back to persisted configs from disk
+        cancelled_configs = _load_cancelled_configs()
+    if not cancelled_configs:
+        raise HTTPException(status_code=400, detail="No cancelled jobs to retry.")
+
+    num_cancelled = len(cancelled_configs)
+
+    new_manager = multiprocessing.Manager()
+    new_shared = new_manager.dict()
+
+    with _batch_lock:
+        batch_state["in_progress"] = True
+        batch_state["num_shorts"] = num_cancelled
+        batch_state["progress_dict"].clear()
+        batch_state["manager"] = new_manager
+        batch_state["shared_progress"] = new_shared
+        batch_state["_cancelled_job_configs"] = []
+        batch_state["_retry_configs"] = cancelled_configs
+
+    t = threading.Thread(target=batch_worker_thread, args=(num_cancelled, None), daemon=True)
+    t.start()
+    return {"status": "started", "message": f"Retrying {num_cancelled} cancelled jobs."}
+
+
+@router.post("/api/batch/dismiss-job/{job_id}")
+def dismiss_job(job_id: int):
+    """Dismiss a job so it is hidden from the active job list."""
+    with _batch_state_lock:
+        if "_dismissed_jobs" not in batch_state:
+            batch_state["_dismissed_jobs"] = _load_dismissed_jobs()
+        batch_state["_dismissed_jobs"].add(job_id)
+        _save_dismissed_jobs(batch_state["_dismissed_jobs"])
+
+    return {"status": "success", "message": f"Job #{job_id} dismissed."}
 
 
 @router.post("/api/batch/retry-failed")
@@ -386,12 +556,14 @@ def get_batch_report():
 
     total = len(results)
     succeeded = sum(1 for r in results if r["status"] == "Done")
-    failed = sum(1 for r in results if r["status"].startswith("Failed"))
+    cancelled = sum(1 for r in results if r["status"] == "Cancelled")
+    failed = sum(1 for r in results if r["status"].startswith("Failed") and r["status"] != "Cancelled")
 
     return {
         "summary": {
             "total": total,
             "succeeded": succeeded,
+            "cancelled": cancelled,
             "failed": failed,
         },
         "jobs": results,

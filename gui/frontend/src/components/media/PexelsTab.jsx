@@ -1,4 +1,6 @@
 import { Search, Download, Loader2, Globe } from 'lucide-react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 
 export default function PexelsTab({
   pexelsQuery,
@@ -14,7 +16,7 @@ export default function PexelsTab({
       <div className="flex gap-4 shrink-0 bg-white/5 p-2 rounded-2xl border border-white/10 shadow-inner">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-500/70" size={20} />
-          <input
+          <Input
             type="text"
             placeholder="Search premium stock footage (e.g. 'cyberpunk neon city')"
             className="w-full bg-transparent border-none pl-12 pr-4 py-3 text-sm font-medium focus:outline-none focus:ring-0 text-foreground placeholder:text-muted-foreground"
@@ -23,14 +25,15 @@ export default function PexelsTab({
             onKeyDown={e => e.key === 'Enter' && onSearch()}
           />
         </div>
-        <button
+        <Button
+          variant="default"
           onClick={onSearch}
           disabled={isSearching || !pexelsQuery.trim()}
           className="px-8 py-3 rounded-xl font-bold text-sm transition-all bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 disabled:opacity-50 flex items-center gap-2"
         >
           {isSearching ? <Loader2 size={18} className="animate-spin" /> : null}
           Search
-        </button>
+        </Button>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
@@ -41,14 +44,15 @@ export default function PexelsTab({
               <img src={video.thumbnail} alt="Pexels Thumbnail" className="absolute inset-0 w-full h-full object-cover opacity-70 group-hover:opacity-100 group-hover:scale-105 transition-all duration-700" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent pointer-events-none flex flex-col justify-end p-4">
                 <p className="text-white text-xs font-bold truncate mb-3 drop-shadow-md">by {video.user?.name || 'Unknown'}</p>
-                <button
+                <Button
+                  variant="outline"
                   onClick={() => onDownload(video)}
                   disabled={isDownloading}
                   className="w-full py-2.5 bg-white/20 hover:bg-emerald-500 backdrop-blur-md text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 pointer-events-auto border border-white/10"
                 >
                   {isDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
                   {isDownloading ? 'Saving...' : 'Get Asset'}
-                </button>
+                </Button>
               </div>
             </div>
           )

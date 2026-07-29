@@ -1,4 +1,7 @@
 import { Search, Download, Loader2, PlaySquare } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 export default function YouTubeTab({
   youtubeQuery,
@@ -19,7 +22,7 @@ export default function YouTubeTab({
       <div className="flex gap-4 shrink-0 bg-white/5 p-2 rounded-2xl border border-white/10 shadow-inner flex-col sm:flex-row">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-red-500/70" size={20} />
-          <input
+          <Input
             type="text"
             placeholder="Search YouTube (e.g. 'satisfying kinetic sand loop') or paste URL below..."
             className="w-full bg-transparent border-none pl-12 pr-4 py-3 text-sm font-medium focus:outline-none focus:ring-0 text-foreground placeholder:text-muted-foreground"
@@ -28,37 +31,39 @@ export default function YouTubeTab({
             onKeyDown={e => e.key === 'Enter' && onSearch()}
           />
         </div>
-        <button
+        <Button
+          variant="default"
           onClick={onSearch}
           disabled={isYoutubeSearching || !youtubeQuery.trim()}
-          className="px-8 py-3 rounded-xl font-bold text-sm transition-all bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20 hover:shadow-red-500/40 disabled:opacity-50 flex items-center justify-center gap-2"
+          className="px-8 py-3 rounded-xl font-bold text-sm bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20 hover:shadow-red-500/40 disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {isYoutubeSearching ? <Loader2 size={18} className="animate-spin" /> : null}
           Search
-        </button>
+        </Button>
       </div>
 
       {/* Direct URL Download Option */}
       <div className="flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/10">
-        <input
+        <Input
           type="text"
           placeholder="Or paste direct YouTube URL..."
           className="flex-1 w-full bg-black/20 border border-white/5 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-red-500/50"
           value={youtubeUrl}
           onChange={e => setYoutubeUrl(e.target.value)}
         />
-        <label className="flex items-center gap-2 text-sm font-medium text-muted-foreground cursor-pointer shrink-0">
+        <Label className="flex items-center gap-2 text-sm font-medium text-muted-foreground cursor-pointer shrink-0">
           <input type="checkbox" checked={youtubeDownscale} onChange={e => setYoutubeDownscale(e.target.checked)} className="rounded text-red-500 focus:ring-red-500/50 bg-black/20 border-white/10" />
           Downscale 720p
-        </label>
-        <button
+        </Label>
+        <Button
+          variant="outline"
           onClick={() => onDownload()}
           disabled={isYoutubeDownloading || !youtubeUrl.trim()}
-          className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm transition-all bg-white/10 hover:bg-red-500 text-white disabled:opacity-50 flex items-center justify-center gap-2"
+          className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm bg-white/10 hover:bg-red-500 text-white disabled:opacity-50 flex items-center justify-center gap-2"
         >
           {isYoutubeDownloading ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
           Download URL
-        </button>
+        </Button>
       </div>
 
       {/* Search Results Grid */}
@@ -82,13 +87,14 @@ export default function YouTubeTab({
               <p className="text-xs text-muted-foreground font-medium mb-4">{video.uploader}</p>
 
               <div className="mt-auto">
-                <button
+                <Button
+                  variant="outline"
                   onClick={() => onDownload(video.url)}
                   disabled={isYoutubeDownloading}
-                  className="w-full py-2.5 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 border border-red-500/20 hover:border-red-500"
+                  className="w-full py-2.5 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 border border-red-500/20 hover:border-red-500"
                 >
                   <Download size={14} /> Download
-                </button>
+                </Button>
               </div>
             </div>
           </div>

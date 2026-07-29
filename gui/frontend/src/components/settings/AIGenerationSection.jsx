@@ -1,4 +1,7 @@
 import { FileText } from 'lucide-react'
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function AIGenerationSection({ settings, onChange }) {
   return (
@@ -9,7 +12,7 @@ export default function AIGenerationSection({ settings, onChange }) {
       </h3>
 
       <div className="flex flex-col gap-2">
-        <label className="text-sm font-medium">System Prompt</label>
+        <Label className="text-sm font-medium">System Prompt</Label>
         <textarea
           name="system_prompt"
           value={settings.system_prompt || ''}
@@ -25,8 +28,8 @@ export default function AIGenerationSection({ settings, onChange }) {
 
       <div className="grid sm:grid-cols-3 gap-4">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Script Temperature</label>
-          <input
+          <Label className="text-sm font-medium">Script Temperature</Label>
+          <Input
             type="number"
             min="0"
             max="2"
@@ -38,8 +41,8 @@ export default function AIGenerationSection({ settings, onChange }) {
           />
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Metadata Temperature</label>
-          <input
+          <Label className="text-sm font-medium">Metadata Temperature</Label>
+          <Input
             type="number"
             min="0"
             max="2"
@@ -51,8 +54,8 @@ export default function AIGenerationSection({ settings, onChange }) {
           />
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Keywords Temperature</label>
-          <input
+          <Label className="text-sm font-medium">Keywords Temperature</Label>
+          <Input
             type="number"
             min="0"
             max="2"
@@ -67,8 +70,8 @@ export default function AIGenerationSection({ settings, onChange }) {
 
       <div className="grid sm:grid-cols-3 gap-4">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Max Script Words</label>
-          <input
+          <Label className="text-sm font-medium">Max Script Words</Label>
+          <Input
             type="number"
             min="50"
             max="2000"
@@ -81,8 +84,8 @@ export default function AIGenerationSection({ settings, onChange }) {
           <p className="text-xs text-muted-foreground">Target word count for generated scripts.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Default Batch Size</label>
-          <input
+          <Label className="text-sm font-medium">Default Batch Size</Label>
+          <Input
             type="number"
             min="1"
             max="100"
@@ -94,45 +97,51 @@ export default function AIGenerationSection({ settings, onChange }) {
           <p className="text-xs text-muted-foreground">Default number of shorts in a batch.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">On Batch Failure</label>
-          <select
-            name="batch_failure_mode"
-            value={settings.batch_failure_mode || 'stop_all'}
-            onChange={onChange}
-            className="input-base"
+          <Label className="text-sm font-medium">On Batch Failure</Label>
+          <Select
+            value={String(settings.batch_failure_mode || 'stop_all')}
+            onValueChange={(v) => onChange({ target: { name: 'batch_failure_mode', value: v } })}
           >
-            <option value="stop_all">Stop all jobs</option>
-            <option value="continue">Continue remaining jobs</option>
-          </select>
+            <SelectTrigger className="input-base">
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="stop_all">Stop all jobs</SelectItem>
+              <SelectItem value="continue">Continue remaining jobs</SelectItem>
+            </SelectContent>
+          </Select>
           <p className="text-xs text-muted-foreground">Stop entire batch on any failure, or continue with remaining jobs.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Job Timeout (seconds)</label>
-          <input
+          <Label className="text-sm font-medium">Job Timeout (seconds)</Label>
+          <Input
             type="number"
             min="60"
             max="3600"
             step="30"
             name="batch_job_timeout"
-            value={settings.batch_job_timeout ?? 600}
+            value={settings.batch_job_timeout ?? 0}
             onChange={onChange}
             className="input-base"
           />
           <p className="text-xs text-muted-foreground">Max seconds per job before it's timed out and marked as failed. 0 = no timeout.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Words Per Screen</label>
-          <select
-            name="words_per_screen"
-            value={settings.words_per_screen || '3'}
-            onChange={onChange}
-            className="input-base"
+          <Label className="text-sm font-medium">Words Per Screen</Label>
+          <Select
+            value={String(settings.words_per_screen || '3')}
+            onValueChange={(v) => onChange({ target: { name: 'words_per_screen', value: v } })}
           >
-            <option value="1">1 word</option>
-            <option value="3">3 words</option>
-            <option value="sentence">Full sentence</option>
-            <option value="random">Random</option>
-          </select>
+            <SelectTrigger className="input-base">
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">1 word</SelectItem>
+              <SelectItem value="3">3 words</SelectItem>
+              <SelectItem value="sentence">Full sentence</SelectItem>
+              <SelectItem value="random">Random</SelectItem>
+            </SelectContent>
+          </Select>
           <p className="text-xs text-muted-foreground">How many words appear per subtitle screen.</p>
         </div>
       </div>

@@ -1,4 +1,8 @@
 import { Cpu, Plus, Trash, CheckCircle, RefreshCw, Loader2 } from 'lucide-react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function LLMProfilesSection({
   profiles,
@@ -18,12 +22,13 @@ export default function LLMProfilesSection({
           <Cpu className="text-blue-500" size={20} />
           LLM Profiles
         </h3>
-        <button
+        <Button
           onClick={onAddProfile}
+          variant="default"
           className="flex items-center gap-1 px-3 py-1.5 bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 rounded-lg text-sm font-medium transition-colors"
         >
           <Plus size={16} /> Add Profile
-        </button>
+        </Button>
       </div>
 
       <div className="space-y-4">
@@ -37,7 +42,7 @@ export default function LLMProfilesSection({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <input
+                  <Input
                     type="text"
                     value={profile.name}
                     onChange={(e) => onChange(profile.id, 'name', e.target.value)}
@@ -52,27 +57,29 @@ export default function LLMProfilesSection({
                 </div>
                 <div className="flex items-center gap-2">
                   {activeProfileId !== profile.id && (
-                    <button
+                    <Button
                       onClick={() => onSetActive(profile.id)}
+                      variant="outline"
                       className="text-xs px-3 py-1.5 border border-border hover:bg-accent rounded-md"
                     >
                       Set Active
-                    </button>
+                    </Button>
                   )}
-                  <button
+                  <Button
                     onClick={() => onDelete(profile.id)}
+                    variant="destructive"
                     className="text-red-500 hover:bg-red-500/10 p-1.5 rounded-md"
                     title="Delete Profile"
                   >
                     <Trash size={16} />
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs font-medium text-muted-foreground">API Key (Optional if env set)</label>
-                  <input
+                  <Label className="text-xs font-medium text-muted-foreground">API Key (Optional if env set)</Label>
+                  <Input
                     type="password"
                     value={profile.api_key}
                     onChange={(e) => onChange(profile.id, 'api_key', e.target.value)}
@@ -81,8 +88,8 @@ export default function LLMProfilesSection({
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs font-medium text-muted-foreground">API Base URL</label>
-                  <input
+                  <Label className="text-xs font-medium text-muted-foreground">API Base URL</Label>
+                  <Input
                     type="text"
                     value={profile.base_url}
                     onChange={(e) => onChange(profile.id, 'base_url', e.target.value)}
@@ -91,30 +98,35 @@ export default function LLMProfilesSection({
                   />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-xs font-medium text-muted-foreground flex justify-between items-center">
+                  <Label className="text-xs font-medium text-muted-foreground flex justify-between items-center">
                     Model Name
-                    <button
+                    <Button
                       onClick={() => onFetchModels(profile)}
                       disabled={isFetchingModels?.[profile.id]}
+                      variant="link"
                       className="text-blue-500 hover:underline flex items-center gap-1 disabled:opacity-50"
                     >
                       {isFetchingModels?.[profile.id] ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
                       Fetch Models
-                    </button>
-                  </label>
+                    </Button>
+                  </Label>
                   {availableModels?.[profile.id] && availableModels[profile.id].length > 0 ? (
-                    <select
+                    <Select
                       value={profile.model}
-                      onChange={(e) => onChange(profile.id, 'model', e.target.value)}
-                      className="input-base text-sm py-1.5"
+                      onValueChange={(v) => onChange(profile.id, 'model', v)}
                     >
-                      <option value="">-- Select a Model --</option>
-                      {availableModels[profile.id].map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+                      <SelectTrigger className="input-base text-sm py-1.5">
+                        <SelectValue placeholder="-- Select a Model --" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">-- Select a Model --</SelectItem>
+                        {availableModels[profile.id].map((m) => (
+                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : (
-                    <input
+                    <Input
                       type="text"
                       value={profile.model}
                       onChange={(e) => onChange(profile.id, 'model', e.target.value)}

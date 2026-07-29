@@ -65,6 +65,8 @@ def get_progress_percentage(status):
         return 75
     elif status == "Done":
         return 100
+    elif status == "Cancelled":
+        return None
     elif status.startswith("Failed"):
         return None
     return 0

@@ -16,6 +16,7 @@ import gui.state as shared_state
 from gui.config import (
     BASE_DIR,
     BATCH_STATS_FILE,
+    CANCELLED_CONFIGS_FILE,
     FAILED_CONFIGS_FILE,
     MUSIC_DIR,
     console,
@@ -42,6 +43,8 @@ batch_state = {
     "shared_progress": None,
     "batch_results": [],
     "failed_job_configs": [],
+    "_cancelled_job_configs": [],
+    "_dismissed_jobs": set(),
     "max_workers": 1,
     "llm_max_workers": 5,
     "_smoothed_eta": {},
@@ -787,15 +790,19 @@ def batch_worker_thread(
                     f.cancel()
                 for _, f in video_futures:
                     f.cancel()
-                # Mark remaining queued jobs
+                # Mark remaining queued jobs as Cancelled and persist configs
+                if "_cancelled_job_configs" not in batch_state:
+                    batch_state["_cancelled_job_configs"] = []
                 for i in range(1, num_shorts + 1):
                     status = batch_state["shared_progress"].get(i)
                     if status in ("Queued", "Waiting for LLM"):
-                        batch_state["shared_progress"][i] = "Failed: Batch cancelled"
+                        batch_state["shared_progress"][i] = "Cancelled"
+                        if i in job_configs:
+                            batch_state["_cancelled_job_configs"].append(job_configs[i])
                 break
 
             # --- Check for timed-out jobs ---
-            timeout = shared_state.settings.get("batch_job_timeout", 600)
+            timeout = shared_state.settings.get("batch_job_timeout", 0)
             if timeout and timeout > 0:
                 now = time.time()
                 # Check LLM futures
@@ -804,7 +811,8 @@ def batch_worker_thread(
                     if f.done():
                         still_llm_timeout.append((i, f))
                         continue
-                    start = batch_state["shared_progress"].get(f"{i}_start")
+                    start = batch_state["shared_progress"].get(f"{i}_llm_worker_start") \
+                            or batch_state["shared_progress"].get(f"{i}_start")
                     if start and (now - start) > timeout:
                         logger.warning("[Batch] Job #%d — LLM timed out after %ds (limit: %ds)", i, int(now - start), timeout)
                         f.cancel()
@@ -943,9 +951,11 @@ def batch_worker_thread(
             config = job_configs.get(i, {})
             start = batch_state["shared_progress"].get(f"{i}_start")
             end = batch_state["shared_progress"].get(f"{i}_end")
-            # Extract error message from status if it's a failure
+            # Extract error message from status if it's a failure or cancellation
             error = ""
-            if str(status).startswith("Failed:"):
+            if str(status) == "Cancelled":
+                error = "Cancelled by user"
+            elif str(status).startswith("Failed:"):
                 error = str(status)[len("Failed: "):] if len(status) > 7 else status
             batch_state["batch_results"].append(
                 {
@@ -1116,6 +1126,17 @@ def batch_worker_thread(
                 logger.info("[Batch Thread] Persisted %d failed configs to %s", len(failed), FAILED_CONFIGS_FILE)
         except Exception as e:
             logger.warning("[Batch Thread] Failed to persist failed configs: %s", e)
+
+        # Persist cancelled job configs to disk for retry across restarts
+        try:
+            cancelled = batch_state.get("_cancelled_job_configs", [])
+            if cancelled:
+                os.makedirs(os.path.dirname(CANCELLED_CONFIGS_FILE), exist_ok=True)
+                with open(CANCELLED_CONFIGS_FILE, "w") as f:
+                    json.dump(cancelled, f, default=str, indent=2)
+                logger.info("[Batch Thread] Persisted %d cancelled configs to %s", len(cancelled), CANCELLED_CONFIGS_FILE)
+        except Exception as e:
+            logger.warning("[Batch Thread] Failed to persist cancelled configs: %s", e)
 
     except Exception as e:
         logger.error(f"[Batch Thread] Crash: {e}")

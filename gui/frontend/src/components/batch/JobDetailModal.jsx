@@ -1,13 +1,18 @@
-import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal } from 'lucide-react'
+import { useState } from 'react'
+import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal, Ban, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
+import { Button } from "@/components/ui/button"
 
 const JobDetailModal = ({ job, onClose, progress }) => {
+  const [errorExpanded, setErrorExpanded] = useState(false)
+
   if (!job) return null
 
   const isDone = job.status === 'Done'
-  const isFailed = job.failed || job.status?.startsWith('Failed')
+  const isCancelled = job.cancelled || job.status === 'Cancelled'
+  const isFailed = (job.failed || job.status?.startsWith('Failed')) && !isCancelled
   const isQueued = job.status === 'Queued'
-  const isRunning = !isDone && !isFailed && !isQueued
+  const isRunning = !isDone && !isFailed && !isQueued && !isCancelled
 
   const p = job.progress || 0
 
@@ -41,13 +46,14 @@ const JobDetailModal = ({ job, onClose, progress }) => {
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-bold">Job #{job.id}</h2>
             {isDone && statusBadge('Done', <CheckCircle2 size={14} />, 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10')}
+            {isCancelled && statusBadge('Cancelled', <Ban size={14} />, 'text-orange-400 border-orange-500/30 bg-orange-500/10')}
             {isFailed && statusBadge('Failed', <XCircle size={14} />, 'text-red-400 border-red-500/30 bg-red-500/10')}
             {isQueued && statusBadge('Queued', <Clock size={14} />, 'text-muted-foreground border-border bg-muted/30')}
             {isRunning && statusBadge('Running', <Loader2 size={14} className="animate-spin" />, 'text-blue-400 border-blue-500/30 bg-blue-500/10')}
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-secondary/50 transition-colors">
+          <Button variant="ghost" size="icon" onClick={onClose} className="p-2 rounded-lg hover:bg-secondary/50 transition-colors">
             <X size={18} />
-          </button>
+          </Button>
         </div>
 
         {/* Scrollable content */}
@@ -73,6 +79,30 @@ const JobDetailModal = ({ job, onClose, progress }) => {
               </div>
             </div>
           </Section>
+
+          {/* Error Details */}
+          {(isFailed || isCancelled) && (
+            <Section title="Error Details" icon={<AlertTriangle size={16} className={isFailed ? 'text-red-400' : 'text-orange-400'} />}>
+              <div>
+                <div
+                  onClick={() => setErrorExpanded(!errorExpanded)}
+                  className="flex items-center justify-between cursor-pointer py-1.5"
+                >
+                  <span className="text-xs text-muted-foreground font-medium">
+                    {isFailed ? 'Failure reason' : 'Cancellation reason'}
+                  </span>
+                  {errorExpanded ? <ChevronDown size={14} className="text-muted-foreground" /> : <ChevronRight size={14} className="text-muted-foreground" />}
+                </div>
+                {errorExpanded && (
+                  <pre className={`text-xs text-foreground mt-2 whitespace-pre-wrap bg-background border rounded-lg p-3 font-mono leading-relaxed overflow-x-auto ${
+                    isFailed ? 'border-red-500/30' : 'border-orange-500/30'
+                  }`}>
+                    {job.error_detail || (isFailed ? 'An unknown error occurred.' : 'No cancellation details provided.')}
+                  </pre>
+                )}
+              </div>
+            </Section>
+          )}
 
           {/* AI Settings */}
           <Section title="AI Settings" icon={<Sparkles size={16} className="text-purple-400" />}>

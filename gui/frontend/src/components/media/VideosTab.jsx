@@ -1,4 +1,5 @@
 import { Upload, Trash2, Video, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 export default function VideosTab({ videos, onUpload, onDelete, isUploading }) {
   return (
@@ -42,12 +43,14 @@ export default function VideosTab({ videos, onUpload, onDelete, isUploading }) {
               </div>
             </div>
 
-            <button
+            <Button
+              variant="destructive"
+              size="icon"
               onClick={() => onDelete(v.filename, 'video')}
               className="absolute top-3 right-3 bg-red-500/80 hover:bg-red-600 text-white p-2 rounded-xl opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-md shadow-lg z-20 hover:scale-110"
             >
               <Trash2 size={16} />
-            </button>
+            </Button>
           </div>
         ))}
       </div>

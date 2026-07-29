@@ -1,4 +1,6 @@
 import { Video } from 'lucide-react'
+import { Label } from "@/components/ui/label"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function FFmpegSection({ settings, onChange }) {
   return (
@@ -9,51 +11,60 @@ export default function FFmpegSection({ settings, onChange }) {
       </h3>
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Vertical Resolution</label>
-          <select
-            name="render_resolution"
-            value={settings.render_resolution}
-            onChange={onChange}
-            className="input-base"
+          <Label className="text-sm font-medium">Vertical Resolution</Label>
+          <Select
+            value={String(settings.render_resolution)}
+            onValueChange={(v) => onChange({ target: { name: 'render_resolution', value: v } })}
           >
-            <option value="720p">720p (720x1280)</option>
-            <option value="1080p">1080p (1080x1920) - Standard</option>
-            <option value="1440p">1440p (1440x2560)</option>
-            <option value="4k">4K (2160x3840)</option>
-          </select>
+            <SelectTrigger className="input-base">
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="720p">720p (720x1280)</SelectItem>
+              <SelectItem value="1080p">1080p (1080x1920) - Standard</SelectItem>
+              <SelectItem value="1440p">1440p (1440x2560)</SelectItem>
+              <SelectItem value="4k">4K (2160x3840)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">FFmpeg Preset (Speed vs Size)</label>
-          <select
-            name="render_preset"
-            value={settings.render_preset}
-            onChange={onChange}
-            className="input-base"
+          <Label className="text-sm font-medium">FFmpeg Preset (Speed vs Size)</Label>
+          <Select
+            value={String(settings.render_preset)}
+            onValueChange={(v) => onChange({ target: { name: 'render_preset', value: v } })}
           >
-            <option value="ultrafast">ultrafast</option>
-            <option value="superfast">superfast</option>
-            <option value="veryfast">veryfast (recommended)</option>
-            <option value="faster">faster</option>
-            <option value="fast">fast</option>
-            <option value="medium">medium</option>
-            <option value="slow">slow</option>
-          </select>
+            <SelectTrigger className="input-base">
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ultrafast">ultrafast</SelectItem>
+              <SelectItem value="superfast">superfast</SelectItem>
+              <SelectItem value="veryfast">veryfast (recommended)</SelectItem>
+              <SelectItem value="faster">faster</SelectItem>
+              <SelectItem value="fast">fast</SelectItem>
+              <SelectItem value="medium">medium</SelectItem>
+              <SelectItem value="slow">slow</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Video Encoder</label>
-          <select
-            name="video_encoder"
-            value={settings.video_encoder}
-            onChange={onChange}
-            className="input-base"
+          <Label className="text-sm font-medium">Video Encoder</Label>
+          <Select
+            value={String(settings.video_encoder)}
+            onValueChange={(v) => onChange({ target: { name: 'video_encoder', value: v } })}
           >
-            <option value="libx265">libx265 (HEVC CPU - Default)</option>
-            <option value="libx264">libx264 (CPU)</option>
-            <option value="h264_nvenc">h264_nvenc (NVIDIA GPU)</option>
-            <option value="hevc_nvenc">hevc_nvenc (NVIDIA GPU H.265)</option>
-            <option value="h264_amf">h264_amf (AMD GPU)</option>
-            <option value="h264_qsv">h264_qsv (Intel QuickSync)</option>
-          </select>
+            <SelectTrigger className="input-base">
+              <SelectValue placeholder="Select..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="libx265">libx265 (HEVC CPU - Default)</SelectItem>
+              <SelectItem value="libx264">libx264 (CPU)</SelectItem>
+              <SelectItem value="h264_nvenc">h264_nvenc (NVIDIA GPU)</SelectItem>
+              <SelectItem value="hevc_nvenc">hevc_nvenc (NVIDIA GPU H.265)</SelectItem>
+              <SelectItem value="h264_amf">h264_amf (AMD GPU)</SelectItem>
+              <SelectItem value="h264_qsv">h264_qsv (Intel QuickSync)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
     </div>

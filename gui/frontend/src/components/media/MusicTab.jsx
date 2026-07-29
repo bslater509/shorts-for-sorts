@@ -1,5 +1,6 @@
 import { Music, Upload, Trash2, Loader2, Play, Pause } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from "@/components/ui/button"
 
 export default function MusicTab({ music, onUpload, onDelete, isUploading, playingAudio, onToggleAudio }) {
   return (
@@ -28,22 +29,25 @@ export default function MusicTab({ music, onUpload, onDelete, isUploading, playi
           const isPlaying = playingAudio === m.url;
           return (
             <div key={m.filename} className="group flex items-center gap-4 bg-white/5 border border-white/10 hover:border-purple-500/50 rounded-2xl p-4 transition-all hover:bg-purple-500/5 shadow-sm hover:shadow-purple-500/10">
-              <button
+              <Button
+                variant="ghost"
                 onClick={() => onToggleAudio(m.url)}
                 className={cn("w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md shrink-0", isPlaying ? "bg-purple-500 text-white shadow-purple-500/40" : "bg-purple-500/20 text-purple-400 group-hover:bg-purple-500 group-hover:text-white")}
               >
                 {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
-              </button>
+              </Button>
               <div className="flex-1 min-w-0">
                 <h4 className="font-semibold text-sm truncate">{m.filename}</h4>
                 <p className="text-xs text-muted-foreground mt-1 font-medium">{(m.size / (1024 * 1024)).toFixed(1)} MB</p>
               </div>
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => onDelete(m.filename, 'music')}
                 className="text-muted-foreground hover:text-red-400 transition-colors p-3 hover:bg-red-500/10 rounded-full"
               >
                 <Trash2 size={18} />
-              </button>
+              </Button>
             </div>
           )
         })}

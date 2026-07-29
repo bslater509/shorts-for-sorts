@@ -1,4 +1,7 @@
 import { Mic } from 'lucide-react'
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 
 export default function WhisperSection({ settings, onChange }) {
   return (
@@ -9,42 +12,48 @@ export default function WhisperSection({ settings, onChange }) {
       </h3>
       <div className="grid sm:grid-cols-2 gap-4 mb-4">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Transcription Engine</label>
-          <select
-            name="local_whisper"
+          <Label className="text-sm font-medium">Transcription Engine</Label>
+          <Select
             value={String(settings.local_whisper)}
-            onChange={onChange}
-            className="input-base max-w-xs"
+            onValueChange={(v) => onChange({ target: { name: 'local_whisper', value: v } })}
           >
-            <option value="true">Local CPU/GPU (faster-whisper)</option>
-            <option value="false">OpenAI API (Cloud)</option>
-          </select>
+            <SelectTrigger className="input-base max-w-xs">
+              <SelectValue placeholder="Select engine..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="true">Local CPU/GPU (faster-whisper)</SelectItem>
+              <SelectItem value="false">OpenAI API (Cloud)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
       {settings.local_whisper ? (
         <div className="grid sm:grid-cols-2 gap-4 animate-in fade-in duration-300">
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Local Model Size</label>
-            <select
-              name="local_whisper_model"
+            <Label className="text-sm font-medium">Local Model Size</Label>
+            <Select
               value={settings.local_whisper_model}
-              onChange={onChange}
-              className="input-base"
+              onValueChange={(v) => onChange({ target: { name: 'local_whisper_model', value: v } })}
             >
-              <option value="tiny">tiny (fastest, lowest accuracy)</option>
-              <option value="base">base</option>
-              <option value="small">small (recommended)</option>
-              <option value="medium">medium</option>
-              <option value="large-v3">large-v3 (slowest, highest accuracy)</option>
-            </select>
+              <SelectTrigger className="input-base">
+                <SelectValue placeholder="Select model..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tiny">tiny (fastest, lowest accuracy)</SelectItem>
+                <SelectItem value="base">base</SelectItem>
+                <SelectItem value="small">small (recommended)</SelectItem>
+                <SelectItem value="medium">medium</SelectItem>
+                <SelectItem value="large-v3">large-v3 (slowest, highest accuracy)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 gap-4 animate-in fade-in duration-300">
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Whisper API Key</label>
-            <input
+            <Label className="text-sm font-medium">Whisper API Key</Label>
+            <Input
               type="password"
               name="whisper_api_key"
               value={settings.whisper_api_key}
@@ -53,8 +62,8 @@ export default function WhisperSection({ settings, onChange }) {
             />
           </div>
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-medium">Whisper API URL</label>
-            <input
+            <Label className="text-sm font-medium">Whisper API URL</Label>
+            <Input
               type="text"
               name="whisper_base_url"
               value={settings.whisper_base_url}

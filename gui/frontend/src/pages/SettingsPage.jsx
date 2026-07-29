@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Settings as SettingsIcon, Save, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import LLMProfilesSection from '../components/settings/LLMProfilesSection'
 import AIGenerationSection from '../components/settings/AIGenerationSection'
@@ -29,7 +30,7 @@ export default function SettingsPage() {
     max_words: 400,
     default_batch_size: 1,
     batch_failure_mode: 'stop_all',
-    batch_job_timeout: 600,
+    batch_job_timeout: 0,
     words_per_screen: '3',
     llm_temp_script: 0.7,
     llm_temp_metadata: 0.7,
@@ -187,14 +188,15 @@ export default function SettingsPage() {
           <p className="text-muted-foreground mt-1">Configure models, API keys, Whisper transcription, FFmpeg render settings, and AI generation defaults.</p>
         </div>
         
-        <button 
+        <Button 
           onClick={handleSave}
           disabled={isSaving}
-          className="flex items-center gap-2 px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium shadow-md shadow-blue-500/20 transition-all disabled:opacity-50"
+          variant="default"
+          className="bg-blue-500 hover:bg-blue-600 shadow-md shadow-blue-500/20"
         >
           {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
           Save Settings
-        </button>
+        </Button>
       </header>
 
       {loadError && (

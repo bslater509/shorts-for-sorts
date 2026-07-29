@@ -1,3 +1,5 @@
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+
 export const ANIMATIONS = [
   { value: "tiktok_pop", label: "TikTok Classic (WordPop)" },
   { value: "karaoke_sweep", label: "Karaoke Sweep (Smooth)" },
@@ -12,16 +14,15 @@ export const ANIMATIONS = [
 
 export default function AnimationSelector({ value, onChange }) {
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="input-base"
-    >
-      {ANIMATIONS.map((a) => (
-        <option key={a.value} value={a.value}>
-          {a.label}
-        </option>
-      ))}
-    </select>
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="input-base">
+        <SelectValue placeholder="Select animation..." />
+      </SelectTrigger>
+      <SelectContent>
+        {ANIMATIONS.map((a) => (
+          <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }

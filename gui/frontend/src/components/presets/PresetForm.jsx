@@ -1,4 +1,8 @@
 import { PaintBucket, Save, Loader2 } from 'lucide-react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
 import AnimationSelector from './AnimationSelector'
 
 export default function PresetForm({ form, onChange, animations, voices, onSave, isSaving }) {
@@ -15,8 +19,8 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
         <form id="preset-form" onSubmit={onSave} className="space-y-8">
           <div className="space-y-4">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold">Preset Name</label>
-              <input
+              <Label className="text-sm font-semibold">Preset Name</Label>
+              <Input
                 type="text"
                 name="name"
                 value={form.name}
@@ -34,30 +38,45 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
             </h3>
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Font Family</label>
-                <select name="sub_font" value={form.sub_font} onChange={onChange} className="input-base">
-                  {['Arial', 'Impact', 'Georgia', 'Times New Roman', 'Courier New', 'Trebuchet MS', 'Verdana', 'Montserrat', 'Roboto', 'Open Sans', 'Inter', 'Bebas Neue', 'Anton', 'Bangers', 'Poppins', 'Raleway'].map((f) => (
-                    <option key={f} value={f}>{f}</option>
-                  ))}
-                </select>
+                <Label className="text-sm font-medium">Font Family</Label>
+                <Select value={form.sub_font} onValueChange={(v) => onChange({ target: { name: 'sub_font', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select font..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {['Arial', 'Impact', 'Georgia', 'Times New Roman', 'Courier New', 'Trebuchet MS', 'Verdana', 'Montserrat', 'Roboto', 'Open Sans', 'Inter', 'Bebas Neue', 'Anton', 'Bangers', 'Poppins', 'Raleway'].map((f) => (
+                      <SelectItem key={f} value={f}>{f}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Font Size (px)</label>
-                <input type="number" name="sub_size" value={form.sub_size} onChange={onChange} className="input-base" />
+                <Label className="text-sm font-medium">Font Size (px)</Label>
+                <Input type="number" name="sub_size" value={form.sub_size} onChange={onChange} className="input-base" />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Font Weight</label>
-                <select name="sub_bold" value={form.sub_bold.toString()} onChange={onChange} className="input-base">
-                  <option value="true">Bold</option>
-                  <option value="false">Normal</option>
-                </select>
+                <Label className="text-sm font-medium">Font Weight</Label>
+                <Select value={form.sub_bold.toString()} onValueChange={(v) => onChange({ target: { name: 'sub_bold', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select weight..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Bold</SelectItem>
+                    <SelectItem value="false">Normal</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Text Case</label>
-                <select name="sub_uppercase" value={form.sub_uppercase.toString()} onChange={onChange} className="input-base">
-                  <option value="true">ALL CAPS</option>
-                  <option value="false">Normal Case</option>
-                </select>
+                <Label className="text-sm font-medium">Text Case</Label>
+                <Select value={form.sub_uppercase.toString()} onValueChange={(v) => onChange({ target: { name: 'sub_uppercase', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select case..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">ALL CAPS</SelectItem>
+                    <SelectItem value="false">Normal Case</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
@@ -73,7 +92,7 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
                 { label: 'Outline Color', name: 'sub_outline' },
               ].map((colorField) => (
                 <div key={colorField.name} className="flex flex-col gap-2">
-                  <label className="text-sm font-medium">{colorField.label}</label>
+                  <Label className="text-sm font-medium">{colorField.label}</Label>
                   <div className="flex items-center gap-2">
                     <input
                       type="color"
@@ -82,7 +101,7 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
                       onChange={onChange}
                       className="w-10 h-10 rounded cursor-pointer bg-transparent border-0 p-0"
                     />
-                    <input
+                    <Input
                       type="text"
                       name={colorField.name}
                       value={form[colorField.name]}
@@ -93,8 +112,8 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
                 </div>
               ))}
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Outline Border Width</label>
-                <input
+                <Label className="text-sm font-medium">Outline Border Width</Label>
+                <Input
                   type="number"
                   name="sub_outline_width"
                   value={form.sub_outline_width}
@@ -111,40 +130,40 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
             </h3>
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Animation Scheme</label>
+                <Label className="text-sm font-medium">Animation Scheme</Label>
                 <AnimationSelector
                   value={form.sub_animation_style}
                   onChange={(val) => onChange({ target: { name: 'sub_animation_style', value: val } })}
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Dynamic Emojis Position</label>
-                <select
-                  name="emoji_position"
-                  value={form.emoji_position}
-                  onChange={onChange}
-                  className="input-base"
-                >
-                  <option value="above">Above Text Line</option>
-                  <option value="same_line">Next to Word</option>
-                  <option value="none">Disabled (No emojis)</option>
-                </select>
+                <Label className="text-sm font-medium">Dynamic Emojis Position</Label>
+                <Select value={form.emoji_position} onValueChange={(v) => onChange({ target: { name: 'emoji_position', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select position..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="above">Above Text Line</SelectItem>
+                    <SelectItem value="same_line">Next to Word</SelectItem>
+                    <SelectItem value="none">Disabled (No emojis)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Emoji Animation</label>
-                <select
-                  name="enable_emoji_animation"
-                  value={form.enable_emoji_animation.toString()}
-                  onChange={onChange}
-                  className="input-base"
-                >
-                  <option value="true">Enabled (pop/bounce/float/fade/shake)</option>
-                  <option value="false">Disabled (static emojis)</option>
-                </select>
+                <Label className="text-sm font-medium">Emoji Animation</Label>
+                <Select value={form.enable_emoji_animation.toString()} onValueChange={(v) => onChange({ target: { name: 'enable_emoji_animation', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Enabled (pop/bounce/float/fade/shake)</SelectItem>
+                    <SelectItem value="false">Disabled (static emojis)</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Emoji Size Scale</label>
-                <input
+                <Label className="text-sm font-medium">Emoji Size Scale</Label>
+                <Input
                   type="number"
                   name="emoji_scale_factor"
                   value={form.emoji_scale_factor}
@@ -156,8 +175,8 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Emoji Hold (seconds)</label>
-                <input
+                <Label className="text-sm font-medium">Emoji Hold (seconds)</Label>
+                <Input
                   type="number"
                   name="emoji_hold_duration"
                   value={form.emoji_hold_duration}
@@ -169,38 +188,43 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
                 />
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Emoji Style</label>
-                <select name="emoji_style" value={form.emoji_style} onChange={onChange} className="input-base">
-                  <option value="apple">Apple</option>
-                  <option value="twemoji">Twemoji (Twitter)</option>
-                  <option value="google">Google</option>
-                  <option value="facebook">Facebook</option>
-                  <option value="openmoji">OpenMoji</option>
-                </select>
+                <Label className="text-sm font-medium">Emoji Style</Label>
+                <Select value={form.emoji_style} onValueChange={(v) => onChange({ target: { name: 'emoji_style', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select style..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="apple">Apple</SelectItem>
+                    <SelectItem value="twemoji">Twemoji (Twitter)</SelectItem>
+                    <SelectItem value="google">Google</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                    <SelectItem value="openmoji">OpenMoji</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Word Scale Pop-up</label>
-                <select
-                  name="word_pop"
-                  value={form.word_pop.toString()}
-                  onChange={onChange}
-                  className="input-base"
-                >
-                  <option value="true">Enabled (1.15x scale)</option>
-                  <option value="false">Disabled</option>
-                </select>
+                <Label className="text-sm font-medium">Word Scale Pop-up</Label>
+                <Select value={form.word_pop.toString()} onValueChange={(v) => onChange({ target: { name: 'word_pop', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Enabled (1.15x scale)</SelectItem>
+                    <SelectItem value="false">Disabled</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Dim Inactive Words</label>
-                <select
-                  name="inactive_dim"
-                  value={form.inactive_dim.toString()}
-                  onChange={onChange}
-                  className="input-base"
-                >
-                  <option value="true">Dim (opacity: 50%)</option>
-                  <option value="false">No dimming</option>
-                </select>
+                <Label className="text-sm font-medium">Dim Inactive Words</Label>
+                <Select value={form.inactive_dim.toString()} onValueChange={(v) => onChange({ target: { name: 'inactive_dim', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="true">Dim (opacity: 50%)</SelectItem>
+                    <SelectItem value="false">No dimming</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
@@ -211,22 +235,22 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
             </h3>
             <div className="grid sm:grid-cols-2 gap-4">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Default Speaker Voice</label>
-                <select
-                  name="selected_voice"
-                  value={form.selected_voice}
-                  onChange={onChange}
-                  className="input-base"
-                >
-                  <option value="">(None)</option>
-                  {voices.map((v) => (
-                    <option key={v.value} value={v.value}>{v.name}</option>
-                  ))}
-                </select>
+                <Label className="text-sm font-medium">Default Speaker Voice</Label>
+                <Select value={form.selected_voice} onValueChange={(v) => onChange({ target: { name: 'selected_voice', value: v } })}>
+                  <SelectTrigger className="input-base">
+                    <SelectValue placeholder="Select voice..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">(None)</SelectItem>
+                    {voices.map((v) => (
+                      <SelectItem key={v.value} value={v.value}>{v.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">Voice Speed Factor</label>
-                <input
+                <Label className="text-sm font-medium">Voice Speed Factor</Label>
+                <Input
                   type="number"
                   step="0.05"
                   name="voice_speed"
@@ -241,7 +265,7 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
       </div>
 
       <div className="p-4 border-t border-border bg-secondary/30">
-        <button
+        <Button
           type="submit"
           form="preset-form"
           disabled={isSaving}
@@ -249,7 +273,7 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
         >
           {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
           Save Preset Template
-        </button>
+        </Button>
       </div>
     </div>
   )

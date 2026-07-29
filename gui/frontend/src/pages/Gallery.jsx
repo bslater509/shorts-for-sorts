@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Film, RefreshCw, Trash2, PlayCircle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import TikTokIcon from '@/components/gallery/TikTokIcon'
 import GallerySkeleton from '@/components/gallery/GallerySkeleton'
@@ -151,22 +152,24 @@ export default function Gallery() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={handleDeleteAll}
             disabled={isLoading || videos.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border border-red-500/20 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            variant="outline"
+            className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white border-red-500/20"
           >
             <Trash2 size={16} />
             Delete All
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={loadGallery}
             disabled={isLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-secondary hover:bg-secondary/80 border border-border rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            variant="secondary"
+            className="border border-border"
           >
             <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
             Refresh Library
-          </button>
+          </Button>
         </div>
       </header>
 

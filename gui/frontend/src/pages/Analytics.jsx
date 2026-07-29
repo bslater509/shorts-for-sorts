@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { BarChart3, RefreshCw, RotateCcw, Download } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import SummaryCards from '@/components/analytics/SummaryCards'
 import PhaseDistributionChart from '@/components/analytics/PhaseDistributionChart'
@@ -227,13 +228,14 @@ export default function Analytics() {
             <p className="text-xs text-destructive/70 bg-destructive/5 rounded-md px-3 py-1.5 font-mono max-w-lg truncate">
               {error}
             </p>
-            <button
+            <Button
               onClick={() => fetchStats()}
-              className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:text-primary/80 transition-colors bg-primary/10 hover:bg-primary/15 rounded-lg px-4 py-2 border border-primary/20"
+              variant="outline"
+              className="text-primary hover:text-primary/80 bg-primary/10 hover:bg-primary/15 border-primary/20"
             >
               <RotateCcw size={14} />
               Retry
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -317,21 +319,25 @@ export default function Analytics() {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 animate-pulse" />
                 Updated {timeAgoLabel}
               </span>
-              <button
+              <Button
                 onClick={() => fetchStats(true)}
                 disabled={refreshing}
-                className="text-muted-foreground/40 hover:text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground/40 hover:text-primary"
                 title="Refresh data"
               >
                 <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-              </button>
-              <button
+              </Button>
+              <Button
                 onClick={handleDownloadCsv}
-                className="text-muted-foreground/40 hover:text-primary transition-colors"
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground/40 hover:text-primary"
                 title="Download CSV"
               >
                 <Download size={14} />
-              </button>
+              </Button>
             </div>
           )}
         </div>

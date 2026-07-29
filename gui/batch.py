@@ -174,6 +174,7 @@ def orchestrate_batch_job(job_config, progress_dict, llm_executor, video_executo
 
 def llm_job_worker(job_config, progress_dict):
     idx = job_config["index"]
+    progress_dict[f"{idx}_llm_worker_start"] = time.time()
     progress_dict[idx] = "LLM Script"
     logger.info(
         "[Batch LLM #%d] Starting script generation (model=%s, temp=%.2f)",

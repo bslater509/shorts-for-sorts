@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Square, Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Download, Layers } from 'lucide-react'
+import { Square, Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Download, Layers, Ban } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/useAppStore'
@@ -27,11 +28,11 @@ export default function Batch() {
   const [showPromptDropdown, setShowPromptDropdown] = useState(false)
   const [isRetrying, setIsRetrying] = useState(false)
   const [isRetryingJob, setIsRetryingJob] = useState(null)
+  const [isRetryingCancelled, setIsRetryingCancelled] = useState(false)
   const [connectionError, setConnectionError] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
   const [enableEmojis, setEnableEmojis] = useState(true)
   const [enableEmojiAnimation, setEnableEmojiAnimation] = useState(true)
-  const [emojiStyles, setEmojiStyles] = useState(['apple', 'twemoji'])
 
   // Fetch prompts on mount
   useEffect(() => {
@@ -100,7 +101,7 @@ export default function Batch() {
     try {
       await api.startBatch(numShorts, selectedPrompts, enableEmojis,
           enableEmojiAnimation, emojiScaleFactor, emojiHoldDuration,
-          emojiThrowMaxCount, emojiStyles)
+          emojiThrowMaxCount)
       fetchStatus()
     } catch (err) {
       alert(`Failed to start batch: ${err.message}`)
@@ -140,6 +141,35 @@ export default function Batch() {
     }
   }
 
+  const handleRetryCancelled = async () => {
+    setIsRetryingCancelled(true)
+    try {
+      await api.retryCancelledBatch()
+    } catch (err) {
+      alert(`Retry cancelled failed: ${err.message}`)
+    } finally {
+      setIsRetryingCancelled(false)
+    }
+  }
+
+  const handleCancelQueued = async (jobId) => {
+    try {
+      await api.cancelJob(jobId)
+      fetchStatus()
+    } catch (err) {
+      alert(`Cancel job #${jobId} failed: ${err.message}`)
+    }
+  }
+
+  const handleDismiss = async (jobId) => {
+    try {
+      await api.dismissJob(jobId)
+      fetchStatus()
+    } catch (err) {
+      console.error(`Dismiss job #${jobId} failed:`, err)
+    }
+  }
+
   const handleDownloadReport = async () => {
     try {
       const report = await api.getBatchReport()
@@ -164,9 +194,11 @@ export default function Batch() {
   let runningCount = 0
   let failedCount = 0
   let queuedCount = 0
+  let cancelledCount = 0
   
   jobs.forEach(job => {
     if (job.status === 'Done') doneCount++
+    else if (job.cancelled || job.status === 'Cancelled') cancelledCount++
     else if (job.failed || job.status?.startsWith('Failed')) failedCount++
     else if (job.status === 'Queued') queuedCount++
     else runningCount++
@@ -181,7 +213,7 @@ export default function Batch() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-6xl mx-auto flex flex-col md:h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)]">
+    <div className="space-y-3 md:space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-6xl mx-auto flex flex-col md:h-[calc(100vh-6rem)] min-h-[calc(100vh-6rem)]">
       <BatchHeader
         availablePrompts={availablePrompts}
         selectedPrompts={selectedPrompts}
@@ -199,30 +231,29 @@ export default function Batch() {
         emojiScaleFactor={emojiScaleFactor}
         emojiHoldDuration={emojiHoldDuration}
         emojiThrowMaxCount={emojiThrowMaxCount}
-        emojiStyles={emojiStyles}
-        setEmojiStyles={setEmojiStyles}
         handleStart={handleStart}
         isStarting={isStarting}
       />
 
       <div className="flex-1 bg-card border border-border rounded-xl shadow-sm md:overflow-hidden flex flex-col">
         {/* Status Header */}
-        <div className="bg-secondary/30 border-b border-border p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2 font-medium">
-              <span className={cn("flex h-3 w-3 rounded-full", inProgress ? "bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]" : "bg-muted-foreground")} />
+        <div className="bg-secondary/30 border-b border-border px-3 py-2 md:px-4 md:py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 text-sm font-medium">
+              <span className={cn("flex h-2.5 w-2.5 rounded-full", inProgress ? "bg-blue-500 animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]" : "bg-muted-foreground")} />
               {inProgress ? 'Batch Running...' : 'Idle'}
             </div>
             
             {batchData && (
-              <div className="flex flex-wrap items-center gap-3 text-sm font-medium sm:border-l border-border sm:pl-4">
-                <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 size={14}/> {doneCount} Done</span>
-                <span className="text-blue-500 flex items-center gap-1"><Loader2 size={14} className={cn(runningCount > 0 && "animate-spin")}/> {runningCount} Running</span>
-                <span className="text-red-500 flex items-center gap-1"><XCircle size={14}/> {failedCount} Failed</span>
-                <span className="text-muted-foreground flex items-center gap-1"><Clock size={14}/> {queuedCount} Queued</span>
-                <span className="text-foreground font-bold">{doneCount}/{totalJobs} completed</span>
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs md:text-sm font-medium">
+                <span className="text-emerald-500 flex items-center gap-0.5"><CheckCircle2 size={12}/> {doneCount}</span>
+                <span className="text-blue-500 flex items-center gap-0.5"><Loader2 size={12} className={cn(runningCount > 0 && "animate-spin")}/> {runningCount}</span>
+                <span className="text-orange-500 flex items-center gap-0.5"><Ban size={12}/> {cancelledCount}</span>
+                <span className="text-red-500 flex items-center gap-0.5"><XCircle size={12}/> {failedCount}</span>
+                <span className="text-muted-foreground flex items-center gap-0.5"><Clock size={12}/> {queuedCount}</span>
+                <span className="text-foreground font-semibold">{doneCount}/{totalJobs}</span>
                 {inProgress && (
-                  <span className="text-purple-400 flex items-center gap-1 font-bold bg-purple-500/10 px-2 py-0.5 rounded-md border border-purple-500/20 shadow-[0_0_10px_rgba(168,85,247,0.2)] animate-in fade-in">
+                  <span className="text-purple-400 flex items-center gap-1 font-bold bg-purple-500/10 px-1.5 py-0.5 rounded-md border border-purple-500/20 shadow-[0_0_10px_rgba(168,85,247,0.2)] animate-in fade-in text-[10px] md:text-xs">
                     ETA: {globalEtaStr}
                   </span>
                 )}
@@ -230,40 +261,54 @@ export default function Batch() {
             )}
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {!inProgress && failedCount > 0 && (
-              <button 
+              <Button 
                 onClick={handleRetryFailed}
                 disabled={isRetrying}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-xs transition-all bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border border-amber-500/20 disabled:opacity-50"
+                variant="outline"
+                className="bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 border-amber-500/20 text-[10px] md:text-xs px-2 py-1 h-auto"
               >
-                <RefreshCw size={14} className={isRetrying ? "animate-spin" : ""} />
+                <RefreshCw size={10} className={isRetrying ? "animate-spin" : ""} />
                 {isRetrying ? "Retrying..." : `Retry Failed (${failedCount})`}
-              </button>
+              </Button>
+            )}
+            {!inProgress && cancelledCount > 0 && (
+              <Button 
+                onClick={handleRetryCancelled}
+                disabled={isRetryingCancelled}
+                variant="outline"
+                className="bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 border-orange-500/20 text-[10px] md:text-xs px-2 py-1 h-auto"
+              >
+                <RefreshCw size={10} className={isRetryingCancelled ? "animate-spin" : ""} />
+                {isRetryingCancelled ? "Retrying..." : `Retry Cancelled (${cancelledCount})`}
+              </Button>
             )}
             {!inProgress && jobs.length > 0 && (
-              <button 
+              <Button 
                 onClick={handleDownloadReport}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-xs transition-all bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border border-emerald-500/20"
+                variant="outline"
+                className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 border-emerald-500/20 text-[10px] md:text-xs px-2 py-1 h-auto"
               >
-                <Download size={14} />
+                <Download size={10} />
                 Download Report
-              </button>
+              </Button>
             )}
             {inProgress && (
-              <button 
+              <Button 
                 onClick={handleCancel}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md font-medium text-xs transition-all bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20"
+                variant="outline"
+                className="bg-red-500/10 text-red-500 hover:bg-red-500/20 border-red-500/20 text-[10px] md:text-xs px-2 py-1 h-auto"
               >
-                <Square size={14} />
+                <Square size={10} />
                 Cancel Batch
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
         {connectionError && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-red-400 text-sm font-medium mx-4 mt-4 mb-0">
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-2 py-1.5 text-red-400 text-xs font-medium mx-3 mt-2 mb-0">
             Lost connection to server — progress may be stale
           </div>
         )}
@@ -272,15 +317,15 @@ export default function Batch() {
         <SystemStatsCharts systemStats={systemStats} />
 
         {/* Jobs Grid */}
-        <div className="flex-1 md:overflow-y-auto p-6 bg-secondary/10">
+        <div className="flex-1 md:overflow-y-auto p-3 md:p-4 bg-secondary/10">
           {initialLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="animate-pulse bg-secondary/40 rounded-xl h-32" />
+                <div key={i} className="animate-pulse bg-secondary/40 rounded-xl h-28" />
               ))}
             </div>
           ) : jobs.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {[...jobs].sort((a, b) => {
                 if (a.status === 'Done' && b.status !== 'Done') return 1;
                 if (b.status === 'Done' && a.status !== 'Done') return -1;
@@ -292,14 +337,16 @@ export default function Batch() {
                   onClick={() => setSelectedJobId(job.id)}
                   progressSegments={batchData?.progress_segments}
                   onRetry={!inProgress ? handleRetryJob : null}
+                  onDismiss={!inProgress ? handleDismiss : null}
+                  onCancelQueued={inProgress ? handleCancelQueued : null}
                 />
               ))}
             </div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground space-y-3">
-              <Layers size={48} className="opacity-20" />
-              <p>No batch jobs running or completed in this session.</p>
-              <p className="text-sm">Set a quantity and click Start Batch to generate videos automatically.</p>
+            <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground space-y-2">
+              <Layers size={32} className="opacity-20" />
+              <p className="text-sm">No batch jobs running or completed in this session.</p>
+              <p className="text-xs">Set a quantity and click Start Batch to generate videos automatically.</p>
             </div>
           )}
         </div>

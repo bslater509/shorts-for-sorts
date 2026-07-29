@@ -1,4 +1,6 @@
 import { Volume2 } from 'lucide-react'
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 export default function AudioDefaultsSection({ settings, onChange }) {
   return (
@@ -9,8 +11,8 @@ export default function AudioDefaultsSection({ settings, onChange }) {
       </h3>
       <div className="grid sm:grid-cols-3 gap-4">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Voice Speed</label>
-          <input
+          <Label className="text-sm font-medium">Voice Speed</Label>
+          <Input
             type="number"
             min="0.5"
             max="2"
@@ -23,8 +25,8 @@ export default function AudioDefaultsSection({ settings, onChange }) {
           <p className="text-xs text-muted-foreground">TTS playback speed (1.0 = normal).</p>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Voice Volume</label>
-          <input
+          <Label className="text-sm font-medium">Voice Volume</Label>
+          <Input
             type="number"
             min="0"
             max="5"
@@ -37,8 +39,8 @@ export default function AudioDefaultsSection({ settings, onChange }) {
           <p className="text-xs text-muted-foreground">Voice audio gain multiplier.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Music Volume</label>
-          <input
+          <Label className="text-sm font-medium">Music Volume</Label>
+          <Input
             type="number"
             min="0"
             max="1"

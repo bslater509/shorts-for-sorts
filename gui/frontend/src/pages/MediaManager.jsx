@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Video, Music, Globe, PlaySquare } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
 import VideosTab from '@/components/media/VideosTab'
@@ -164,18 +165,19 @@ export default function MediaManager() {
           { id: 'pexels', icon: Globe, label: 'Pexels Stock', color: 'emerald' },
           { id: 'youtube', icon: PlaySquare, label: 'YouTube Fetch', color: 'red' },
         ].map(tab => (
-          <button
+          <Button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
+            variant="ghost"
             className={cn(
-              "px-5 py-3 text-sm font-semibold rounded-t-xl transition-all flex items-center gap-2",
+              "px-5 py-3 text-sm font-semibold rounded-t-xl flex items-center gap-2",
               activeTab === tab.id
                 ? `bg-${tab.color}-500/10 text-${tab.color}-500 border-b-2 border-${tab.color}-500 shadow-[inset_0_-2px_10px_rgba(0,0,0,0.05)]`
                 : "border-transparent text-muted-foreground hover:bg-white/5 hover:text-foreground"
             )}
           >
             <tab.icon size={18} /> {tab.label}
-          </button>
+          </Button>
         ))}
       </div>
 

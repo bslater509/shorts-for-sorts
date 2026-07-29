@@ -202,6 +202,18 @@ export async function retryBatchJob(jobId) {
   });
 }
 
+export async function cancelJob(jobId) {
+  return await apiFetch(`/api/batch/cancel-job/${jobId}`, { method: 'POST' });
+}
+
+export async function retryCancelledBatch() {
+  return await apiFetch('/api/batch/retry-cancelled', { method: 'POST' });
+}
+
+export async function dismissJob(jobId) {
+  return await apiFetch(`/api/batch/dismiss-job/${jobId}`, { method: 'POST' });
+}
+
 export async function getBatchReport() {
   return await apiFetch('/api/batch/report');
 }

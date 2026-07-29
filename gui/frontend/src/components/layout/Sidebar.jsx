@@ -4,6 +4,7 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { useAppStore } from "@/store/useAppStore"
 import SystemStats from "./SystemStats"
+import { Button } from "@/components/ui/button"
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -54,9 +55,9 @@ export default function Sidebar() {
         <span className="font-bold text-lg bg-gradient-to-r from-blue-500 to-blue-400 bg-clip-text text-transparent">
           ShortsCreator
         </span>
-        <button onClick={() => setIsOpen(!isOpen)} className="p-2 text-foreground">
+        <Button variant="ghost" size="icon" onClick={() => setIsOpen(!isOpen)} className="p-2 text-foreground">
           {isOpen ? <X size={24} /> : <Menu size={24} />}
-        </button>
+        </Button>
       </div>
 
       {/* Sidebar Overlay */}
@@ -103,14 +104,15 @@ export default function Sidebar() {
             <p className="font-medium truncate">{loadedPreset}</p>
           </div>
           <SystemStats />
-          <button
+          <Button
+            variant="outline"
             onClick={handleRestart}
             disabled={restarting}
             className="w-full mt-4 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 text-red-400 hover:bg-red-500/10 hover:text-red-500 border border-border hover:border-red-500/50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {restarting ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
             {restarting ? "Restarting..." : "Restart Server"}
-          </button>
+          </Button>
         </div>
       </aside>
     </>

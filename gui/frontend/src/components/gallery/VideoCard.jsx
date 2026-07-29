@@ -1,6 +1,7 @@
 import { Hash, Share2, Download, Trash2 } from 'lucide-react'
 import LazyVideo from '@/components/LazyVideo'
 import TikTokIcon from './TikTokIcon'
+import { Button } from "@/components/ui/button"
 
 const formatSize = (bytes) => {
   if (!bytes) return '0 MB'
@@ -35,28 +36,31 @@ export default function VideoCard({ video, onCopyHashtags, onShare, onTikTokUplo
 
         <div className="flex items-center gap-2 mt-auto pt-2">
           {video.hashtags && (
-            <button
+            <Button
+              variant="default"
               onClick={() => onCopyHashtags(video)}
-              className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white rounded-md text-xs font-semibold transition-colors"
+              className="flex-1 items-center justify-center gap-2 px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white rounded-md text-xs font-semibold transition-colors"
               title="Copy Hashtags"
             >
               <Hash size={14} />
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            variant="default"
             onClick={() => onShare(video)}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-xs font-semibold transition-colors"
+            className="flex-1 items-center justify-center gap-2 px-3 py-1.5 bg-green-500 hover:bg-green-600 text-white rounded-md text-xs font-semibold transition-colors"
             title="Share Video"
           >
             <Share2 size={14} />
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="default"
             onClick={() => onTikTokUpload(video)}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-md text-xs font-semibold transition-colors"
+            className="flex-1 items-center justify-center gap-2 px-3 py-1.5 bg-pink-500 hover:bg-pink-600 text-white rounded-md text-xs font-semibold transition-colors"
             title="Upload to TikTok"
           >
             <TikTokIcon size={14} />
-          </button>
+          </Button>
           <a
             href={video.url}
             download={video.filename}
@@ -65,13 +69,14 @@ export default function VideoCard({ video, onCopyHashtags, onShare, onTikTokUplo
           >
             <Download size={14} />
           </a>
-          <button
+          <Button
+            variant="destructive"
             onClick={() => onDelete(video.filename)}
-            className="flex-1 flex items-center justify-center gap-2 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md text-xs font-semibold transition-colors"
+            className="flex-1 items-center justify-center gap-2 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md text-xs font-semibold transition-colors"
             title="Delete Video"
           >
             <Trash2 size={14} />
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -1,4 +1,7 @@
 import { Activity } from 'lucide-react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 export default function SystemPerformanceSection({ settings, onChange, notificationStatus, onRequestNotification }) {
   return (
@@ -9,8 +12,8 @@ export default function SystemPerformanceSection({ settings, onChange, notificat
       </h3>
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Max Parallel Operations (CPU/Rendering)</label>
-          <input
+          <Label className="text-sm font-medium">Max Parallel Operations (CPU/Rendering)</Label>
+          <Input
             type="number"
             min="1"
             max="64"
@@ -23,8 +26,8 @@ export default function SystemPerformanceSection({ settings, onChange, notificat
           <p className="text-xs text-muted-foreground">Controls how many videos render/process at once.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <label className="text-sm font-medium">Max Parallel LLM API Requests</label>
-          <input
+          <Label className="text-sm font-medium">Max Parallel LLM API Requests</Label>
+          <Input
             type="number"
             min="1"
             max="64"
@@ -47,12 +50,13 @@ export default function SystemPerformanceSection({ settings, onChange, notificat
             Status: <strong>{notificationStatus}</strong>
           </p>
           {notificationStatus !== 'granted' && notificationStatus !== 'unsupported' && (
-            <button
+            <Button
               onClick={onRequestNotification}
+              variant="default"
               className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium text-sm transition-colors whitespace-nowrap shadow-sm"
             >
               Enable Notifications
-            </button>
+            </Button>
           )}
         </div>
       </div>
