@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import contextlib
+import functools
 import os
 import re
 from typing import Any
@@ -10,6 +13,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 import gui.state as shared_state
+from generator import get_video_info
 from gui.assets_utils import list_music_files, list_video_files
 from gui.config import MUSIC_DIR, OUTPUT_DIR, THUMBNAIL_DIR, VIDEOS_DIR
 from gui.media import generate_video_thumbnail
@@ -20,6 +24,9 @@ router: APIRouter = APIRouter()
 
 TEXT_FILE_HASHTAG_RE: re.Pattern = re.compile(r"^hashtags?\s*:\s*(.*)", re.I)
 """Regex for parsing hashtag lines in metadata text files."""
+
+DURATION_RE: re.Pattern = re.compile(r"^Duration\s*:\s*([\d.]+)", re.I)
+"""Regex for parsing ``Duration: <seconds>`` lines in metadata text files."""
 
 VALID_FILENAME_CHARS: str = "._-"
 """Characters (besides alphanumeric) allowed in uploaded filenames."""
@@ -90,7 +97,7 @@ def upload_assets_video(file: UploadFile = File(...)) -> dict[str, str]:
             "url": f"/videos/{filename}",
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload video: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload video: {e}") from e
 
 
 @router.delete("/api/assets/videos/{filename}")
@@ -121,7 +128,7 @@ def delete_assets_video(filename: str) -> dict[str, str]:
             shared_state.state["bg_video_bottom_path"] = None
         return {"status": "success", "message": "Video deleted successfully."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete video: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete video: {e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -176,7 +183,7 @@ def upload_assets_music(file: UploadFile = File(...)) -> dict[str, str]:
             "url": f"/music/{filename}",
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload music: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload music: {e}") from e
 
 
 @router.delete("/api/assets/music/{filename}")
@@ -200,7 +207,7 @@ def delete_assets_music(filename: str) -> dict[str, str]:
             shared_state.state["bg_music_path"] = None
         return {"status": "success", "message": "Music deleted successfully."}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete music: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete music: {e}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -208,31 +215,97 @@ def delete_assets_music(filename: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+@functools.lru_cache(maxsize=256)
+def _probe_duration_cached(path: str, size: int, mtime: float) -> float | None:
+    """Probe a video file's duration via ffprobe, cached on ``(path, size, mtime)``.
+
+    The ``size``/``mtime`` cache keys ensure a modified file is re-probed even
+    when the path is unchanged.
+
+    Args:
+        path: Full path to the video file.
+        size: File size in bytes (cache key).
+        mtime: File modification time in seconds (cache key).
+
+    Returns:
+        The video duration in seconds, or ``None`` if it cannot be determined.
+    """
+    try:
+        info: dict[str, Any] | None = get_video_info(path, suppress_errors=True)
+        duration: Any = info.get("duration") if info else None
+    except Exception:
+        return None
+    if isinstance(duration, (int, float)) and duration > 0:
+        return float(duration)
+    return None
+
+
+def _backfill_duration(filename: str, duration: float) -> None:
+    """Append a ``Duration:`` line to a video's metadata sidecar file.
+
+    Used when a duration was obtained via ffprobe because the sidecar was
+    missing one, so future gallery loads are served instantly from the ``.txt``.
+
+    Args:
+        filename: The video filename; ``output/<basename>.txt`` is updated.
+        duration: The video duration in seconds.
+    """
+    txt_file: str = os.path.join(OUTPUT_DIR, os.path.splitext(filename)[0] + ".txt")
+    if not os.path.exists(txt_file):
+        return
+    try:
+        with open(txt_file, "a", encoding="utf-8") as f:
+            f.write(f"Duration: {duration:.2f}\n")
+    except OSError:
+        pass
+
+
+def _prune_stale_thumbnails() -> None:
+    """Remove thumbnail ``.jpg`` files whose source video no longer exists.
+
+    A thumbnail in :data:`THUMBNAIL_DIR` is stale when no video file in
+    :data:`OUTPUT_DIR` shares its base filename.  Failures are ignored —
+    pruning is best-effort housekeeping.
+    """
+    if not os.path.isdir(THUMBNAIL_DIR) or not os.path.isdir(OUTPUT_DIR):
+        return
+    video_basenames: set[str] = {
+        os.path.splitext(f)[0]
+        for f in os.listdir(OUTPUT_DIR)
+        if f.lower().endswith(VIDEO_EXTENSIONS)
+    }
+    for f in os.listdir(THUMBNAIL_DIR):
+        if not f.lower().endswith(".jpg"):
+            continue
+        if os.path.splitext(f)[0] not in video_basenames:
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(THUMBNAIL_DIR, f))
+
+
 @router.get("/api/gallery")
 def list_gallery_videos() -> list[dict[str, Any]]:
     """List all rendered output videos with optional metadata from sidecar files.
 
+    Durations are read from ``Duration:`` sidecar lines when available;
+    otherwise they are probed concurrently via ffprobe (and backfilled into the
+    sidecar so subsequent loads skip the probe).
+
     Returns:
         List of video info dicts sorted by modification time (newest first).
     """
+    _prune_stale_thumbnails()
+
     videos: list[dict[str, Any]] = []
+    pending_probe: list[tuple[dict[str, Any], str]] = []
+
     for fp in list_video_files(OUTPUT_DIR, exclude_sfx=False):
         f = os.path.basename(fp)
         size = os.path.getsize(fp)
         modified = os.path.getmtime(fp)
 
-        # Read duration
-        duration: float | None = None
-        try:
-            from generator import get_video_info
-
-            info = get_video_info(fp, suppress_errors=True)
-            duration = info.get("duration")
-        except Exception:
-            pass
-
         title: str = ""
         hashtags: str = ""
+        duration: float | None = None
         txt_file: str = os.path.splitext(fp)[0] + ".txt"
         if os.path.exists(txt_file):
             try:
@@ -253,24 +326,57 @@ def list_gallery_videos() -> list[dict[str, Any]]:
                             if len(lines) >= 2:
                                 title = lines[0].strip()
                                 hashtags = lines[1].strip()
+                        # Duration line (any format)
+                        for line in lines:
+                            m = DURATION_RE.match(line.strip())
+                            if m:
+                                try:
+                                    duration = float(m.group(1))
+                                except ValueError:
+                                    duration = None
+                                break
             except Exception:
                 pass
 
         thumb_filename: str = os.path.splitext(f)[0] + ".jpg"
         thumbnail: str = f"/api/gallery/thumbnail/{thumb_filename}"
 
-        videos.append(
-            {
-                "filename": f,
-                "url": f"/output/{f}",
-                "size": size,
-                "modified": modified,
-                "duration": duration,
-                "title": title,
-                "hashtags": hashtags,
-                "thumbnail": thumbnail,
+        video_entry: dict[str, Any] = {
+            "filename": f,
+            "url": f"/output/{f}",
+            "size": size,
+            "modified": modified,
+            "duration": duration,
+            "title": title,
+            "hashtags": hashtags,
+            "thumbnail": thumbnail,
+        }
+        videos.append(video_entry)
+        if duration is None:
+            pending_probe.append((video_entry, fp))
+
+    # Probe missing durations concurrently so many videos don't serialize ffprobe.
+    if pending_probe:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_entry = {
+                executor.submit(
+                    _probe_duration_cached,
+                    fp,
+                    os.path.getsize(fp),
+                    os.path.getmtime(fp),
+                ): (entry, fp)
+                for entry, fp in pending_probe
             }
-        )
+            for future in concurrent.futures.as_completed(future_to_entry):
+                entry, fp = future_to_entry[future]
+                try:
+                    probed: float | None = future.result()
+                except Exception:
+                    probed = None
+                if probed is not None and probed > 0:
+                    entry["duration"] = probed
+                    _backfill_duration(entry["filename"], probed)
+
     videos.sort(key=lambda x: x["modified"], reverse=True)
     return videos
 
@@ -304,12 +410,12 @@ def delete_gallery_video(filename: str) -> dict[str, str]:
             "message": "Compiled video deleted successfully.",
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete video: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete video: {e}") from e
 
 
 @router.delete("/api/gallery")
 def delete_all_gallery_videos() -> dict[str, str]:
-    """Delete all rendered output videos.
+    """Delete all rendered output videos and their thumbnails.
 
     Returns:
         Status message on success.
@@ -322,6 +428,11 @@ def delete_all_gallery_videos() -> dict[str, str]:
             fp = os.path.join(OUTPUT_DIR, f)
             if os.path.isfile(fp):
                 os.remove(fp)
+        if os.path.isdir(THUMBNAIL_DIR):
+            for f in os.listdir(THUMBNAIL_DIR):
+                fp = os.path.join(THUMBNAIL_DIR, f)
+                if os.path.isfile(fp):
+                    os.remove(fp)
         return {
             "status": "success",
             "message": "All generated videos deleted successfully.",
@@ -329,7 +440,7 @@ def delete_all_gallery_videos() -> dict[str, str]:
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to delete all videos: {e}"
-        )
+        ) from e
 
 
 @router.get("/api/gallery/thumbnail/{filename}")

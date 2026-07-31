@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
-import time
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
@@ -40,27 +38,10 @@ def restart_server(
             raise HTTPException(status_code=403, detail="Invalid admin token")
 
     def _restart() -> None:
-        """Rebuild frontend (if source exists) and exec the current process."""
-        frontend_dir: str = os.path.join(BASE_DIR, "gui/frontend")
-        package_json: str = os.path.join(frontend_dir, "package.json")
-        if os.path.exists(package_json):
-            logger.info("Rebuilding frontend...")
-            npm: str = "npm.cmd" if sys.platform == "win32" else "npm"
-            result = subprocess.run(
-                [npm, "run", "build"],
-                cwd=frontend_dir,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            if result.returncode != 0:
-                logger.error("Frontend rebuild failed: %s", result.stderr.strip())
-                return
-            logger.info("Frontend rebuilt successfully.")
-        else:
-            logger.info("No frontend source found — skipping rebuild.")
-        time.sleep(1)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        """Exec run-gui.sh to fully bootstrap and restart the server."""
+        logger.info("Restarting server via run-gui.sh...")
+        script: str = os.path.join(BASE_DIR, "run-gui.sh")
+        os.execv("/bin/bash", ["bash", script] + sys.argv[1:])
 
     background_tasks.add_task(_restart)
     return {"status": "restarting"}
@@ -68,11 +49,12 @@ def restart_server(
 
 @router.get("/api/batch/stats")
 def get_batch_stats() -> dict[str, Any]:
-    """Return learned batch phase weights, duration averages, and per-job stats.
+    """Return learned batch phase weights, duration averages, per-job stats, and rates.
 
     Returns:
         Dictionary with ``phase_ratios``, ``sample_count``,
-        ``avg_llm_duration``, ``avg_video_duration``, and ``per_job_stats``.
+        ``avg_llm_duration``, ``avg_video_duration``, ``per_job_stats``,
+        and ``phase_rates``.
     """
     try:
         if os.path.exists(BATCH_STATS_FILE):
@@ -91,6 +73,7 @@ def get_batch_stats() -> dict[str, Any]:
         "avg_llm_duration": None,
         "avg_video_duration": None,
         "per_job_stats": [],
+        "phase_rates": {},
     }
 
 

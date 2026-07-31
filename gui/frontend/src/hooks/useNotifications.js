@@ -20,6 +20,12 @@ export function useNotifications() {
           const data = JSON.parse(event.data)
           const { status, message, level, metadata } = data
 
+          // Handle LLM streaming events (before the toast logic)
+          if (data.event_type === "llm_started" || data.event_type === "llm_token" || data.event_type === "llm_completed") {
+            window.dispatchEvent(new CustomEvent("llm-stream", { detail: data }))
+            return // Don't show toasts for these
+          }
+
           // Determine toast title and action based on event type
           let toastTitle = "Notification"
           let action = undefined

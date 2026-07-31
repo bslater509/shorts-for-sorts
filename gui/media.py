@@ -6,7 +6,7 @@ import mimetypes
 import os
 import subprocess
 import traceback
-from typing import Any, Generator
+from collections.abc import Generator
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse

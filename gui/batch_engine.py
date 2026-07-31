@@ -12,9 +12,10 @@ import json
 import os
 import random
 import re
+import statistics
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 import gui.state as shared_state
 from gui.assets_utils import list_music_files
@@ -88,7 +89,10 @@ PHASE_WEIGHT_MAX_BLEND: float = 0.8
 _PER_JOB_STATS_MAX: int = 500
 
 # Poll interval for the pipeline loop
-PIPELINE_POLL_INTERVAL: float = 0.5
+PIPELINE_POLL_INTERVAL: float = 0.1
+
+# Blend factor for rate-based prediction vs similarity-based prediction
+RATE_BLEND_ALPHA: float = 0.7
 
 # Default duration estimates for ETA prediction
 DEFAULT_LLM_DURATION: float = 30.0
@@ -128,6 +132,7 @@ batch_state: dict[str, Any] = {
     "llm_max_workers": 5,
     "_smoothed_eta": {},
     "_phase_weights": None,
+    "_phase_rates": {},
 }
 """Thread-safe batch state shared across modules."""
 
@@ -163,7 +168,7 @@ def _resolve_worker_count(key: str, default: int, min_val: int = 1) -> int:
 
 
 def compute_video_progress(
-    pct: float | None, weights: Optional[dict[str, float]] = None
+    pct: float | None, weights: dict[str, float] | None = None
 ) -> float:
     """Convert a raw progress percentage to a time-weighted fraction of the video pipeline.
 
@@ -192,19 +197,19 @@ def compute_video_progress(
 
 
 def _compute_eta(
-    start_time: Optional[float],
-    end_time: Optional[float],
-    pct: Optional[int],
+    start_time: float | None,
+    end_time: float | None,
+    pct: int | None,
     status: str,
     job_phase_times: dict[str, float],
-    avg_completion_time: Optional[float],
-    smoothed_etas: Optional[dict[int, float]],
-    job_id: Optional[int],
-    phase_weights: Optional[dict[str, float]] = None,
-    avg_llm_duration: Optional[float] = None,
-    avg_video_duration: Optional[float] = None,
-    job_features: Optional[dict[str, Any]] = None,
-    per_job_stats: Optional[list[dict[str, Any]]] = None,
+    avg_completion_time: float | None,
+    smoothed_etas: dict[int, float] | None,
+    job_id: int | None,
+    phase_weights: dict[str, float] | None = None,
+    avg_llm_duration: float | None = None,
+    avg_video_duration: float | None = None,
+    job_features: dict[str, Any] | None = None,
+    per_job_stats: list[dict[str, Any]] | None = None,
 ) -> tuple[str, float, str, float, float]:
     """Compute ETA with phase weighting, blending, and smoothing.
 
@@ -230,8 +235,8 @@ def _compute_eta(
         return "--", 0.0, elapsed_str, 0.0, 0.0
 
     # Determine effective duration estimates
-    effective_llm_dur: Optional[float] = avg_llm_duration
-    effective_video_dur: Optional[float] = avg_video_duration
+    effective_llm_dur: float | None = avg_llm_duration
+    effective_video_dur: float | None = avg_video_duration
     if job_features and job_features.get("word_count") and per_job_stats:
         pred_llm, pred_video = _predict_phase_duration(job_features, per_job_stats)
         if pred_llm is not None:
@@ -322,7 +327,7 @@ def _sync_progress(batch_state: dict[str, Any], num_shorts: int) -> None:
 
 
 def _extract_job_features(
-    script_text: Optional[str], job_config: dict[str, Any]
+    script_text: str | None, job_config: dict[str, Any]
 ) -> dict[str, Any]:
     """Extract job characteristics from script text and config for ETA prediction.
 
@@ -375,15 +380,109 @@ def _extract_job_features(
     }
 
 
+def _compute_phase_rates(
+    per_job_stats: list[dict[str, Any]],
+) -> dict[str, float]:
+    """Compute median processing rates (words/sec) per phase from historical stats.
+
+    Uses median to avoid outlier influence.  Entries without ``word_count``
+    or a particular phase duration are silently skipped.
+
+    Args:
+        per_job_stats: List of historical per-job stat dicts.
+
+    Returns:
+        Dict with keys ``llm_rate``, ``voice_rate``, ``transcribe_rate``,
+        ``render_rate`` (only for phases with at least one valid entry),
+        or empty dict if no valid data exists.
+    """
+    rate_lists: dict[str, list[float]] = {
+        "llm": [],
+        "voice": [],
+        "transcribe": [],
+        "render": [],
+    }
+    for s in per_job_stats:
+        wc: float = s.get("word_count", 0)
+        if not wc:
+            continue
+        llm_dur = s.get("llm_duration")
+        if llm_dur and llm_dur > 0:
+            rate_lists["llm"].append(wc / llm_dur)
+        voice_dur = s.get("voice_duration")
+        if voice_dur and voice_dur > 0:
+            rate_lists["voice"].append(wc / voice_dur)
+        transcribe_dur = s.get("transcribe_duration")
+        if transcribe_dur and transcribe_dur > 0:
+            rate_lists["transcribe"].append(wc / transcribe_dur)
+        render_dur = s.get("render_duration")
+        if render_dur and render_dur > 0:
+            rate_lists["render"].append(wc / render_dur)
+
+    result: dict[str, float] = {}
+    for phase, values in rate_lists.items():
+        if values:
+            result[f"{phase}_rate"] = statistics.median(values)
+    return result
+
+
+def _predict_by_rates(
+    features: dict[str, Any],
+    rates: dict[str, float],
+) -> tuple[float | None, float | None]:
+    """Predict LLM and video durations from word count and median processing rates.
+
+    Args:
+        features: Feature dict from :func:`_extract_job_features`.
+        rates: Rate dict from :func:`_compute_phase_rates`.
+
+    Returns:
+        Tuple of ``(predicted_llm_duration, predicted_video_duration)``
+        in seconds, or ``(None, None)`` if rates are insufficient.
+    """
+    word_count = features.get("word_count", 0)
+    if not word_count or not rates:
+        return None, None
+
+    llm_rate = rates.get("llm_rate")
+    voice_rate = rates.get("voice_rate")
+    transcribe_rate = rates.get("transcribe_rate")
+    render_rate = rates.get("render_rate")
+
+    pred_llm: float | None = (
+        word_count / llm_rate if (llm_rate and llm_rate > 0) else None
+    )
+    pred_voice: float | None = (
+        word_count / voice_rate if (voice_rate and voice_rate > 0) else None
+    )
+    pred_transcribe: float | None = (
+        word_count / transcribe_rate if (transcribe_rate and transcribe_rate > 0) else None
+    )
+    pred_render: float | None = (
+        word_count / render_rate if (render_rate and render_rate > 0) else None
+    )
+
+    pred_video: float | None = None
+    if (
+        pred_voice is not None
+        and pred_transcribe is not None
+        and pred_render is not None
+    ):
+        pred_video = pred_voice + pred_transcribe + pred_render
+
+    return pred_llm, pred_video
+
+
 def _predict_phase_duration(
     features: dict[str, Any],
     per_job_stats: list[dict[str, Any]],
-) -> tuple[Optional[float], Optional[float]]:
-    """Predict LLM and video duration using similarity-weighted averages.
+) -> tuple[float | None, float | None]:
+    """Predict LLM and video duration using similarity-weighted averages and rates.
 
-    Uses normalised Euclidean distance on ``word_count`` and ``chunk_count``
-    to find similar historical jobs.  Blends with global averages when few
-    matching jobs exist.
+    Uses normalised Euclidean distance on ``word_count``, ``chunk_count``,
+    and ``sentence_count`` to find similar historical jobs.
+    Blends with global averages when few matching jobs exist, and blends
+    with rate-based prediction from :func:`_predict_by_rates`.
 
     Args:
         features: Feature dict from :func:`_extract_job_features`.
@@ -395,6 +494,7 @@ def _predict_phase_duration(
     """
     word_count: int = features.get("word_count", 0)
     chunk_count: int = features.get("chunk_count", 0)
+    sentence_count: int = features.get("sentence_count", 0)
     if not word_count or not per_job_stats:
         return None, None
 
@@ -404,6 +504,12 @@ def _predict_phase_duration(
     cc_values: list[float] = [
         s.get("chunk_count", 0) for s in per_job_stats if s.get("chunk_count")
     ]
+    # Extract sentence_count from historical entries that have it
+    sc_values: list[float] = [
+        float(s["sentence_count"]) for s in per_job_stats
+        if isinstance(s.get("sentence_count"), (int, float)) and s["sentence_count"]
+    ]
+    has_sc: bool = bool(sc_values)
 
     if not wc_values:
         return None, None
@@ -420,6 +526,15 @@ def _predict_phase_duration(
     )
     cc_std: float = cc_var ** 0.5 or 1.0
 
+    sc_mean: float = 0.0
+    sc_std: float = 1.0
+    target_sc_norm: float = 0.0
+    if has_sc:
+        sc_mean = sum(sc_values) / len(sc_values)
+        sc_var: float = sum((v - sc_mean) ** 2 for v in sc_values) / len(sc_values)
+        sc_std = sc_var ** 0.5 or 1.0
+        target_sc_norm = (sentence_count - sc_mean) / sc_std
+
     target_wc_norm: float = (word_count - wc_mean) / wc_std
     target_cc_norm: float = (chunk_count - cc_mean) / cc_std if cc_values else 0.0
 
@@ -432,8 +547,16 @@ def _predict_phase_duration(
 
         wc_norm: float = (wc - wc_mean) / wc_std
         cc_norm: float = (cc - cc_mean) / cc_std if cc_values else 0.0
+        # sentence_count contribution — neutral (norm=0) for entries lacking it
+        sc_norm: float = (
+            ((s.get("sentence_count") or sc_mean) - sc_mean) / sc_std
+            if has_sc
+            else 0.0
+        )
         dist: float = (
-            (target_wc_norm - wc_norm) ** 2 + (target_cc_norm - cc_norm) ** 2
+            (target_wc_norm - wc_norm) ** 2
+            + (target_cc_norm - cc_norm) ** 2
+            + ((target_sc_norm - sc_norm) ** 2 if has_sc else 0.0)
         ) ** 0.5
         same_voice: bool = (
             s.get("voice_id", "") == features.get("voice_id", "")
@@ -449,10 +572,10 @@ def _predict_phase_duration(
     ]
 
     total_weight: float = 0.0
-    pred_llm: float = 0.0
-    pred_voice: float = 0.0
-    pred_transcribe: float = 0.0
-    pred_render: float = 0.0
+    sim_llm: float = 0.0
+    sim_voice: float = 0.0
+    sim_transcribe: float = 0.0
+    sim_render: float = 0.0
 
     for s, dist, same_voice in candidates:
         weight: float = 1.0 / (1.0 + dist)
@@ -460,26 +583,26 @@ def _predict_phase_duration(
             weight *= SAME_VOICE_BONUS
         total_weight += weight
         if s.get("llm_duration"):
-            pred_llm += weight * s["llm_duration"]
+            sim_llm += weight * s["llm_duration"]
         if s.get("voice_duration"):
-            pred_voice += weight * s["voice_duration"]
+            sim_voice += weight * s["voice_duration"]
         if s.get("transcribe_duration"):
-            pred_transcribe += weight * s["transcribe_duration"]
+            sim_transcribe += weight * s["transcribe_duration"]
         if s.get("render_duration"):
-            pred_render += weight * s["render_duration"]
+            sim_render += weight * s["render_duration"]
 
     if total_weight <= 0:
         return None, None
 
-    pred_llm /= total_weight
-    pred_voice /= total_weight
-    pred_transcribe /= total_weight
-    pred_render /= total_weight
+    sim_llm /= total_weight
+    sim_voice /= total_weight
+    sim_transcribe /= total_weight
+    sim_render /= total_weight
 
     n: int = len(candidates)
     if n < SIMILARITY_MIN_CANDIDATES:
         all_llm: list[float] = [
-            s.get("llm_duration") for s in per_job_stats if s.get("llm_duration")
+            float(s["llm_duration"]) for s in per_job_stats if s.get("llm_duration") is not None
         ]
         all_video: list[float] = [
             (
@@ -490,25 +613,37 @@ def _predict_phase_duration(
             for s in per_job_stats
             if s.get("voice_duration")
         ]
-        global_avg_llm: Optional[float] = (
+        global_avg_llm: float | None = (
             sum(all_llm) / len(all_llm) if all_llm else None
         )
-        global_avg_video: Optional[float] = (
+        global_avg_video: float | None = (
             sum(all_video) / len(all_video) if all_video else None
         )
 
         blend: float = n / SIMILARITY_MIN_CANDIDATES
         if global_avg_llm:
-            pred_llm = blend * pred_llm + (1 - blend) * global_avg_llm
+            sim_llm = blend * sim_llm + (1 - blend) * global_avg_llm
         if global_avg_video:
-            pred_video: float = (
-                blend * (pred_voice + pred_transcribe + pred_render)
+            sim_video: float = (
+                blend * (sim_voice + sim_transcribe + sim_render)
                 + (1 - blend) * global_avg_video
             )
         else:
-            pred_video = pred_voice + pred_transcribe + pred_render
+            sim_video = sim_voice + sim_transcribe + sim_render
     else:
-        pred_video = pred_voice + pred_transcribe + pred_render
+        sim_video = sim_voice + sim_transcribe + sim_render
+
+    # Blend similarity prediction with rate-based prediction
+    rates: dict[str, float] = _compute_phase_rates(per_job_stats)
+    rate_llm, rate_video = _predict_by_rates(features, rates)
+
+    pred_llm: float | None = sim_llm
+    pred_video: float | None = sim_video
+
+    if rate_llm is not None and pred_llm is not None:
+        pred_llm = RATE_BLEND_ALPHA * pred_llm + (1.0 - RATE_BLEND_ALPHA) * rate_llm
+    if rate_video is not None and pred_video is not None:
+        pred_video = RATE_BLEND_ALPHA * pred_video + (1.0 - RATE_BLEND_ALPHA) * rate_video
 
     return pred_llm, pred_video
 
@@ -519,7 +654,7 @@ def _predict_phase_duration(
 
 
 def _load_phase_weights() -> dict[str, Any]:
-    """Load learned phase weights, absolute duration averages, and per-job stats.
+    """Load learned phase weights, absolute duration averages, per-job stats, and rates.
 
     Returns:
         Dict with keys:
@@ -527,12 +662,14 @@ def _load_phase_weights() -> dict[str, Any]:
             - ``avg_llm_duration``: float seconds or ``None``.
             - ``avg_video_duration``: float seconds or ``None``.
             - ``per_job_stats``: list of per-job feature+duration dicts.
+            - ``phase_rates``: dict of median processing rates (words/sec).
     """
     result: dict[str, Any] = {
         "phase_ratios": dict(DEFAULT_PHASE_WEIGHTS),
         "avg_llm_duration": None,
         "avg_video_duration": None,
         "per_job_stats": [],
+        "phase_rates": {},
     }
     try:
         if os.path.exists(BATCH_STATS_FILE):
@@ -554,6 +691,7 @@ def _load_phase_weights() -> dict[str, Any]:
             result["avg_llm_duration"] = data.get("avg_llm_duration")
             result["avg_video_duration"] = data.get("avg_video_duration")
             result["per_job_stats"] = data.get("per_job_stats", [])
+            result["phase_rates"] = data.get("phase_rates", {})
     except Exception as e:
         logger.warning("Failed to load batch stats: %s", e)
     return result
@@ -562,11 +700,12 @@ def _load_phase_weights() -> dict[str, Any]:
 def _save_phase_weights(
     phase_ratios: dict[str, float],
     sample_count: int,
-    avg_llm_duration: Optional[float] = None,
-    avg_video_duration: Optional[float] = None,
-    per_job_stats: Optional[list[dict[str, Any]]] = None,
+    avg_llm_duration: float | None = None,
+    avg_video_duration: float | None = None,
+    per_job_stats: list[dict[str, Any]] | None = None,
+    phase_rates: dict[str, float] | None = None,
 ) -> None:
-    """Persist learned phase weights and per-job stats to disk.
+    """Persist learned phase weights, per-job stats, and processing rates to disk.
 
     Args:
         phase_ratios: Phase weight dictionary.
@@ -574,6 +713,7 @@ def _save_phase_weights(
         avg_llm_duration: Average LLM phase duration.
         avg_video_duration: Average video pipeline duration.
         per_job_stats: Optional list of per-job feature+duration records.
+        phase_rates: Optional dict of median processing rates (words/sec).
     """
     try:
         os.makedirs(os.path.dirname(BATCH_STATS_FILE), exist_ok=True)
@@ -582,6 +722,7 @@ def _save_phase_weights(
             "sample_count": sample_count,
             "avg_llm_duration": avg_llm_duration,
             "avg_video_duration": avg_video_duration,
+            "phase_rates": phase_rates or {},
         }
         if per_job_stats is not None:
             if len(per_job_stats) > _PER_JOB_STATS_MAX:
@@ -627,13 +768,13 @@ def _log_memory_warning() -> None:
 
 def _build_job_configs(
     num_shorts: int,
-    selected_prompts: Optional[list[str]] = None,
-    enable_emojis: Optional[bool] = None,
-    enable_emoji_animation: Optional[bool] = None,
-    emoji_scale_factor: Optional[float] = None,
-    emoji_hold_duration: Optional[float] = None,
-    emoji_throw_max_count: Optional[int] = None,
-    emoji_styles: Optional[list[str]] = None,
+    selected_prompts: list[str] | None = None,
+    enable_emojis: bool | None = None,
+    enable_emoji_animation: bool | None = None,
+    emoji_scale_factor: float | None = None,
+    emoji_hold_duration: float | None = None,
+    emoji_throw_max_count: int | None = None,
+    emoji_styles: list[str] | None = None,
 ) -> tuple[dict[int, dict[str, Any]], str]:
     """Build job configuration dicts for a batch run.
 
@@ -688,7 +829,7 @@ def _build_job_configs(
     batch_state["job_details"] = {}
 
     # Check if we have retry configs
-    retry_configs: Optional[list[dict[str, Any]]] = batch_state.get("_retry_configs")
+    retry_configs: list[dict[str, Any]] | None = batch_state.get("_retry_configs")
     if retry_configs:
         job_configs = {i + 1: cfg for i, cfg in enumerate(retry_configs)}
         for idx, cfg in job_configs.items():
@@ -724,7 +865,7 @@ def _build_job_configs(
     )
     random.shuffle(prompt_items)
 
-    def _resolve_music(path: Optional[str]) -> Optional[str]:
+    def _resolve_music(path: str | None) -> str | None:
         if not path:
             return None
         if os.path.exists(path):
@@ -779,7 +920,7 @@ def _build_job_configs(
         music_files: list[str] = [
             os.path.basename(f) for f in list_music_files(MUSIC_DIR)
         ]
-        chosen_music: Optional[str] = (
+        chosen_music: str | None = (
             os.path.join(MUSIC_DIR, random.choice(music_files))
             if music_files
             else _resolve_music("music/default_music.mp3")
@@ -923,7 +1064,7 @@ def _run_pipeline(
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
-    from gui.batch import llm_job_worker, video_job_worker
+    from gui.batch import llm_job_worker
     from gui.progress_utils import log_memory_usage
 
     max_workers: int = _resolve_worker_count("max_workers", 1)
@@ -953,7 +1094,7 @@ def _run_pipeline(
     llm_futures: list[tuple[int, Any]] = []
     for i in range(1, num_shorts + 1):
         batch_state["shared_progress"][f"{i}_start"] = time.time()
-        batch_state["shared_progress"][i] = "Waiting for LLM"
+        batch_state["shared_progress"][i] = "Connecting to LLM..."
         f = batch_state["llm_executor"].submit(
             llm_job_worker, job_configs[i], batch_state["shared_progress"]
         )
@@ -1114,7 +1255,7 @@ def _process_video_futures(
 
 def _handle_job_failure(
     job_id: int,
-    err_msg: Optional[str],
+    err_msg: str | None,
     job_configs: dict[int, dict[str, Any]],
     failure_mode: str,
     phase: str,
@@ -1287,10 +1428,10 @@ def _persist_phase_data(
             job_count = len(durs)
             batch_ratios[phase] = sum(durs) / len(durs)
 
-    avg_llm_duration: Optional[float] = (
+    avg_llm_duration: float | None = (
         sum(llm_durations) / len(llm_durations) if llm_durations else None
     )
-    avg_video_duration: Optional[float] = (
+    avg_video_duration: float | None = (
         sum(video_durations) / len(video_durations) if video_durations else None
     )
 
@@ -1360,14 +1501,14 @@ def _persist_phase_data(
                     + blend * batch_ratios[phase]
                 )
 
-        merged_avg_llm: Optional[float] = None
+        merged_avg_llm: float | None = None
         if avg_llm_duration is not None:
             if prev_avg_llm is not None:
                 merged_avg_llm = (1 - blend) * prev_avg_llm + blend * avg_llm_duration
             else:
                 merged_avg_llm = avg_llm_duration
 
-        merged_avg_video: Optional[float] = None
+        merged_avg_video: float | None = None
         if avg_video_duration is not None:
             if prev_avg_video is not None:
                 merged_avg_video = (
@@ -1376,21 +1517,25 @@ def _persist_phase_data(
             else:
                 merged_avg_video = avg_video_duration
 
+        phase_rates: dict[str, float] = _compute_phase_rates(per_job_stats)
         _save_phase_weights(
             merged,
             sample_count,
             merged_avg_llm,
             merged_avg_video,
             per_job_stats=per_job_stats,
+            phase_rates=phase_rates,
         )
     elif new_job_stats:
         stored = _load_phase_weights()
+        phase_rates = _compute_phase_rates(per_job_stats)
         _save_phase_weights(
             stored.get("phase_ratios", dict(DEFAULT_PHASE_WEIGHTS)),
             sample_count,
             avg_llm_duration=stored.get("avg_llm_duration"),
             avg_video_duration=stored.get("avg_video_duration"),
             per_job_stats=per_job_stats,
+            phase_rates=phase_rates,
         )
 
     # Persist failed job configs
@@ -1431,13 +1576,13 @@ def _persist_phase_data(
 
 def batch_worker_thread(
     num_shorts: int,
-    selected_prompts: Optional[list[str]] = None,
-    enable_emojis: Optional[bool] = None,
-    enable_emoji_animation: Optional[bool] = None,
-    emoji_scale_factor: Optional[float] = None,
-    emoji_hold_duration: Optional[float] = None,
-    emoji_throw_max_count: Optional[int] = None,
-    emoji_styles: Optional[list[str]] = None,
+    selected_prompts: list[str] | None = None,
+    enable_emojis: bool | None = None,
+    enable_emoji_animation: bool | None = None,
+    emoji_scale_factor: float | None = None,
+    emoji_hold_duration: float | None = None,
+    emoji_throw_max_count: int | None = None,
+    emoji_styles: list[str] | None = None,
 ) -> None:
     """Entry point for the background batch worker thread.
 
@@ -1469,6 +1614,7 @@ def batch_worker_thread(
     batch_state["_phase_weights"] = loaded["phase_ratios"]
     batch_state["_avg_llm_duration"] = loaded["avg_llm_duration"]
     batch_state["_avg_video_duration"] = loaded["avg_video_duration"]
+    batch_state["_phase_rates"] = loaded.get("phase_rates", {})
     batch_state["_job_features"] = {}
     batch_state["_per_job_stats"] = loaded.get("per_job_stats", [])
     failure_mode: str = shared_state.settings.get("batch_failure_mode", "stop_all")

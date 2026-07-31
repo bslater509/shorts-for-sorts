@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal, Ban, ChevronRight, AlertTriangle } from 'lucide-react'
+import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal, Ban, ChevronRight, AlertTriangle, FolderOpen } from 'lucide-react'
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
 import { Button } from "@/components/ui/button"
+import { toast } from 'sonner'
+import * as api from '@/lib/api'
 
-const JobDetailModal = ({ job, onClose, progress }) => {
+const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
   const [errorExpanded, setErrorExpanded] = useState(false)
   const [visibleSections, setVisibleSections] = useState(new Set())
 
@@ -75,9 +77,28 @@ const JobDetailModal = ({ job, onClose, progress }) => {
             {isQueued && statusBadge('Queued', <Clock size={14} />, 'text-muted-foreground border-border bg-muted/30')}
             {isRunning && statusBadge('Running', <Loader2 size={14} className="animate-spin" />, 'text-blue-400 border-blue-500/30 bg-blue-500/10')}
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="p-2 rounded-lg hover:bg-secondary/50 transition-colors">
-            <X size={18} />
-          </Button>
+          <div className="flex items-center gap-2">
+            {isDone && (
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await api.openOutputFolder()
+                    toast.success("Output folder opened")
+                  } catch (err) {
+                    toast.error("Failed to open folder", { description: err.message })
+                  }
+                }}
+                className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 h-auto bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20"
+              >
+                <FolderOpen size={13} />
+                Open Folder
+              </Button>
+            )}
+            <Button variant="ghost" size="icon" onClick={onClose} className="p-2 rounded-lg hover:bg-secondary/50 transition-colors">
+              <X size={18} />
+            </Button>
+          </div>
         </div>
 
         {/* Scrollable content */}
@@ -193,10 +214,15 @@ const JobDetailModal = ({ job, onClose, progress }) => {
             <Section title="Generated Content" sectionId="content" icon={<FileText size={16} className="text-emerald-400" />}>
               {job.generated_title && <SettingRow label="Title" value={job.generated_title} />}
               {job.generated_hashtags && <SettingRow label="Hashtags" value={job.generated_hashtags} />}
-              {job.script_text && (
+              {(job.script_text || streamingScript?.text) && (
                 <div className="py-2">
-                  <span className="text-xs text-muted-foreground font-medium">Script</span>
-                  <pre className="text-xs text-foreground mt-1 whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-48 overflow-y-auto font-mono leading-relaxed">{job.script_text}</pre>
+                  <span className="text-xs text-muted-foreground font-medium">
+                    Script {streamingScript?.isActive && <span className="text-blue-400 ml-1">(streaming...)</span>}
+                  </span>
+                  <pre className="text-xs text-foreground mt-1 whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-48 overflow-y-auto font-mono leading-relaxed">
+                    {streamingScript?.text || job.script_text}
+                    {streamingScript?.isActive && <span className="inline-block w-2 h-3.5 bg-blue-400 animate-pulse ml-0.5 align-middle rounded-sm" />}
+                  </pre>
                 </div>
               )}
             </Section>

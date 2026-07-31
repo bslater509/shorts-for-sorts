@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
 
 from gui.config import PROMPTS_FILE, console, logger
 

@@ -116,6 +116,7 @@ PRESETS_FILE: str = os.path.join(CONFIG_DIR, "presets.json")
 PROMPTS_FILE: str = os.path.join(CONFIG_DIR, "prompts.json")
 EMOJIS_FILE: str = os.path.join(CONFIG_DIR, "emojis.json")
 
+BATCH_PROFILES_FILE: str = os.path.join(CONFIG_DIR, "batch_profiles.json")
 GUI_STATE_FILE: str = os.path.join(CONFIG_DIR, "gui_state.json")
 BATCH_STATS_FILE: str = os.path.join(CONFIG_DIR, "batch_stats.json")
 FAILED_CONFIGS_FILE: str = os.path.join(CONFIG_DIR, "failed_batch_configs.json")
@@ -154,6 +155,71 @@ def clear_cache() -> None:
 
 if multiprocessing.current_process().name == "MainProcess":
     atexit.register(clear_cache)
+
+# --- Batch Profiles ---
+
+
+def load_batch_profiles() -> list[dict[str, Any]]:
+    """Load batch config profiles from disk.
+
+    Returns:
+        List of profile dicts (each containing a ``name`` key and config fields),
+        or an empty list on any failure.
+    """
+    try:
+        if os.path.exists(BATCH_PROFILES_FILE):
+            with open(BATCH_PROFILES_FILE) as f:
+                data: Any = json.load(f)
+            if isinstance(data, list):
+                return data
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("Failed to load batch profiles: %s", e)
+    return []
+
+
+def save_batch_profile(name: str, profile_data: dict[str, Any]) -> None:
+    """Save (create or update) a batch config profile under the given name.
+
+    Args:
+        name: The profile name (used as the ``name`` field).
+        profile_data: The profile configuration dict (may already contain a
+                      ``name`` key; if not, it is added).
+    """
+    profile_data["name"] = name
+    profiles: list[dict[str, Any]] = load_batch_profiles()
+    # Replace existing profile with the same name
+    profiles = [p for p in profiles if p.get("name") != name]
+    profiles.append(profile_data)
+    try:
+        os.makedirs(os.path.dirname(BATCH_PROFILES_FILE), exist_ok=True)
+        with open(BATCH_PROFILES_FILE, "w") as f:
+            json.dump(profiles, f, indent=2)
+    except OSError as e:
+        logger.warning("Failed to save batch profile '%s': %s", name, e)
+        raise
+
+
+def delete_batch_profile(name: str) -> bool:
+    """Delete a batch config profile by name.
+
+    Args:
+        name: The profile name to remove.
+
+    Returns:
+        ``True`` if the profile was found and deleted, ``False`` otherwise.
+    """
+    profiles: list[dict[str, Any]] = load_batch_profiles()
+    filtered: list[dict[str, Any]] = [p for p in profiles if p.get("name") != name]
+    if len(filtered) == len(profiles):
+        return False  # No profile matched
+    try:
+        with open(BATCH_PROFILES_FILE, "w") as f:
+            json.dump(filtered, f, indent=2)
+        return True
+    except OSError as e:
+        logger.warning("Failed to delete batch profile '%s': %s", name, e)
+        return False
+
 
 # --- Module re-exports ---
 # These are imported lazily (at the bottom of the module) to break circular

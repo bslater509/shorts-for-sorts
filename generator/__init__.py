@@ -20,7 +20,7 @@ from generator.tts import (
     init_tts_session,
     unload_tts_model,
 )
-from generator.utils import _release_memory_to_os, download_file, format_time
+from generator.utils import download_file, format_time
 from generator.video import compile_video, get_video_info
 
 __all__ = [

@@ -196,7 +196,7 @@ class TestBatchJobConfig(unittest.TestCase):
         self.assertEqual(cfg.prompt, "Hello")
         # Confirm the unknown fields are simply absent on the dataclass
         with self.assertRaises(AttributeError):
-            _ = cfg.extra_spam
+            _ = cfg.extra_spam  # type: ignore
 
 
 class TestGetProgressPercentage(unittest.TestCase):
@@ -266,7 +266,7 @@ class TestProgressConsole(unittest.TestCase):
         """If the Manager dict is broken/readonly, .print() should not crash."""
 
         # Simulate a broken dict-like object that raises on __setitem__
-        class BrokenDict:
+        class BrokenDict(dict):
             def __setitem__(self, key, value):
                 raise RuntimeError("Cannot write to readonly dict")
 

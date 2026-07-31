@@ -12,7 +12,7 @@ import re
 import time
 import traceback
 from dataclasses import dataclass, fields
-from typing import Any, Optional
+from typing import Any
 
 from gui import state as shared_state
 from gui.config import console, logger
@@ -20,6 +20,7 @@ from gui.llm_utils import parse_title_hashtags, retry_with_backoff
 from gui.progress_utils import log_memory_usage
 from gui.utils import resolve_preset_path
 from gui.video_compiler import compile_video_flow
+from gui.ws_manager import stream_llm_token, stream_llm_event
 
 # --- Constants ---
 
@@ -72,6 +73,16 @@ TITLE_HASHTAGS_APPENDIX: str = (
     "Do not include these lines within the script body."
 )
 """Appendix appended to system prompts to request title/hashtags in the response."""
+
+# --- Cached LLM client ---
+
+_cached_llm_client: Any = None
+"""Module-level cached :class:`openai.OpenAI` client instance."""
+_cached_llm_api_key: str = ""
+"""Cached API key for client reuse verification."""
+_cached_llm_base_url: str = ""
+"""Cached base URL for client reuse verification."""
+
 
 # --- Dataclasses ---
 
@@ -163,7 +174,7 @@ class ProgressConsole:
     dictionary (typically a ``multiprocessing.Manager.dict``).
     """
 
-    def __init__(self, idx: int, p_dict: dict[str, Any]) -> None:
+    def __init__(self, idx: int, p_dict: dict[Any, Any]) -> None:
         """Initialise the console proxy.
 
         Args:
@@ -171,7 +182,7 @@ class ProgressConsole:
             p_dict: Shared progress dictionary to write status updates into.
         """
         self.idx: int = idx
-        self.p_dict: dict[str, Any] = p_dict
+        self.p_dict: dict[Any, Any] = p_dict
 
     def print(self, *args: Any, **kwargs: Any) -> None:
         """Intercept a print call and parse it for progress information.
@@ -242,7 +253,7 @@ class ProgressConsole:
 
 def orchestrate_batch_job(
     job_config: dict[str, Any],
-    progress_dict: dict[str, Any],
+    progress_dict: dict[Any, Any],
     llm_executor: Any,
     video_executor: Any,
 ) -> tuple[int, bool, str | None]:
@@ -295,8 +306,8 @@ def orchestrate_batch_job(
 
 
 def llm_job_worker(
-    job_config: dict[str, Any], progress_dict: dict[str, Any]
-) -> tuple[bool, Optional[str], Optional[str]]:
+    job_config: dict[str, Any], progress_dict: dict[Any, Any]
+) -> tuple[bool, str | None, str | None]:
     """Generate a script for a batch job via the LLM API.
 
     Args:
@@ -308,6 +319,15 @@ def llm_job_worker(
     """
     idx: int = job_config["index"]
     progress_dict[f"{idx}_llm_worker_start"] = time.time()
+
+    # If this is a retry and we already have a generated script, skip generation
+    if job_config.get("script_text"):
+        logger.info(
+            "[Batch LLM #%d] Found existing script_text, skipping generation.", idx
+        )
+        progress_dict[idx] = "Reusing Script"
+        return True, job_config["script_text"], None
+
     progress_dict[idx] = "LLM Script"
     logger.info(
         "[Batch LLM #%d] Starting script generation (model=%s, temp=%.2f)",
@@ -335,7 +355,15 @@ def llm_job_worker(
             "OPENAI_BASE_URL", ""
         )
 
-        client: OpenAI = OpenAI(api_key=api_key, base_url=base_url, timeout=300.0)
+        global _cached_llm_client, _cached_llm_api_key, _cached_llm_base_url
+
+        client_key: str = f"{api_key}|{base_url}"
+        if _cached_llm_client is None or client_key != f"{_cached_llm_api_key}|{_cached_llm_base_url}":
+            _cached_llm_client = OpenAI(api_key=api_key, base_url=base_url, timeout=300.0)
+            _cached_llm_api_key = api_key
+            _cached_llm_base_url = base_url
+
+        client: OpenAI = _cached_llm_client
 
         script_text: str = ""
         _last_ts: float = time.time()
@@ -343,6 +371,10 @@ def llm_job_worker(
 
         for attempt in range(LLM_RETRY_ATTEMPTS):
             try:
+                # Send started event at the top of each attempt so the
+                # frontend resets the stream on retry.
+                stream_llm_event(idx, "llm_started")
+                script_text = ""
                 response = client.chat.completions.create(
                     model=job_config["model"],
                     messages=[
@@ -358,15 +390,28 @@ def llm_job_worker(
                 script_text = ""
                 _last_ts = time.time()
                 _last_wc = 0
+                _token_buf: str = ""          # accumulate deltas for batched send
+                _token_buf_ts: float = time.time()
                 for chunk in response:
                     if (
                         chunk.choices
                         and chunk.choices[0].delta
                         and chunk.choices[0].delta.content is not None
                     ):
-                        script_text += chunk.choices[0].delta.content
+                        delta: str = chunk.choices[0].delta.content
+                        script_text += delta
+                        _token_buf += delta
                         word_count: int = len(script_text.split())
                         now: float = time.time()
+                        # Flush accumulated tokens every ~100ms to avoid
+                        # flooding the asyncio event-loop pipe from this thread.
+                        if (
+                            len(_token_buf) >= 40
+                            or now - _token_buf_ts >= 0.1
+                        ):
+                            stream_llm_token(idx, _token_buf, word_count)
+                            _token_buf = ""
+                            _token_buf_ts = now
                         if (
                             word_count - _last_wc >= STREAM_PROGRESS_WORD_INTERVAL
                             or now - _last_ts >= STREAM_PROGRESS_TIME_INTERVAL
@@ -374,6 +419,10 @@ def llm_job_worker(
                             progress_dict[idx] = f"LLM Script ({word_count} words)"
                             _last_ts = now
                             _last_wc = word_count
+                # Flush any remaining buffered tokens
+                if _token_buf:
+                    stream_llm_token(idx, _token_buf, len(script_text.split()))
+                stream_llm_event(idx, "llm_completed", len(script_text.split()))
                 break  # success — exit retry loop
             except Exception as e:
                 err_str: str = str(e).lower()
@@ -428,7 +477,7 @@ def llm_job_worker(
 
 def video_job_worker(
     job_config: dict[str, Any],
-    progress_dict: dict[str, Any],
+    progress_dict: dict[Any, Any],
 ) -> tuple[int, bool, str]:
     """Run video compilation for a batch job.
 

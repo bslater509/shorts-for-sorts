@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from typing import Any, Optional
+from typing import Any
 
 from gui.assets_utils import list_music_files, list_video_files
 from gui.config import BASE_DIR, MUSIC_DIR, VIDEOS_DIR, console, logger
@@ -43,7 +43,7 @@ def get_active_llm_profile() -> dict[str, Any]:
         The active profile dictionary (may be empty).
     """
     profiles: list[dict[str, Any]] = settings.get("llm_profiles", [])
-    active_id: Optional[str] = settings.get("active_llm_profile_id")
+    active_id: str | None = settings.get("active_llm_profile_id")
     for profile in profiles:
         if profile.get("id") == active_id:
             return profile
@@ -53,7 +53,7 @@ def get_active_llm_profile() -> dict[str, Any]:
     return {}
 
 
-def make_preset_path_relative(path: Optional[str]) -> Optional[str]:
+def make_preset_path_relative(path: str | None) -> str | None:
     """Convert an absolute path to a relative path rooted at :data:`BASE_DIR`.
 
     Special values ``None`` and ``"random"`` are returned unchanged.
@@ -71,7 +71,7 @@ def make_preset_path_relative(path: Optional[str]) -> Optional[str]:
     return path
 
 
-def resolve_preset_path(path: Optional[str]) -> Optional[str]:
+def resolve_preset_path(path: str | None) -> str | None:
     """Resolve a (possibly relative) preset path to an absolute filesystem path.
 
     Args:

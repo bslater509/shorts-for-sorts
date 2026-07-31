@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import Optional
 
 from playwright.async_api import async_playwright
 
@@ -43,7 +42,7 @@ USER_AGENT: str = (
 # --- Public API ---
 
 
-async def login_to_tiktok() -> Optional[str]:
+async def login_to_tiktok() -> str | None:
     """Open a browser for the user to log into TikTok interactively.
 
     Returns the ``sessionid`` cookie value after successful login,
@@ -73,7 +72,7 @@ async def login_to_tiktok() -> Optional[str]:
         cookies = await context.cookies()
         await browser.close()
 
-        sessionid: Optional[str] = None
+        sessionid: str | None = None
         for cookie in cookies:
             if cookie["name"] == "sessionid":
                 sessionid = cookie["value"]
@@ -170,7 +169,7 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) > 1 and sys.argv[1] == "login":
-        sid: Optional[str] = asyncio.run(login_to_tiktok())
+        sid: str | None = asyncio.run(login_to_tiktok())
         if sid:
             print(f"Login successful! Session ID: {sid}")
         else:

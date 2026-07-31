@@ -237,7 +237,7 @@ class TestRetryWithBackoff(unittest.TestCase):
 
         self.assertEqual(mock_sleep.call_count, 3)
         expected_calls = [0.5, 1.0, 2.0]
-        for call_args, expected in zip(mock_sleep.call_args_list, expected_calls):
+        for call_args, expected in zip(mock_sleep.call_args_list, expected_calls, strict=False):
             self.assertEqual(call_args[0][0], expected)
 
     def test_default_parameters_work(self) -> None:

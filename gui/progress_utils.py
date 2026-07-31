@@ -7,7 +7,6 @@ percentages, render visual progress bars, and log memory usage.
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 import psutil
 
@@ -69,7 +68,7 @@ def log_memory_usage(stage: str) -> None:
     )
 
 
-def get_progress_percentage(status: str) -> Optional[int]:
+def get_progress_percentage(status: str) -> int | None:
     """Map a job status string to an estimated completion percentage.
 
     Args:
@@ -82,7 +81,11 @@ def get_progress_percentage(status: str) -> Optional[int]:
     """
     if status == "Queued":
         return PROGRESS_QUEUED
+    elif status.startswith("Connecting to LLM"):
+        return 2
     elif status == "Waiting for LLM":
+        return PROGRESS_WAITING_LLM
+    elif status == "LLM Script (0 words)":
         return PROGRESS_WAITING_LLM
     elif status.startswith("LLM Script"):
         match = _WORD_COUNT_RE.search(status)

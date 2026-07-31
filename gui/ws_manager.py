@@ -104,3 +104,65 @@ def notify_clients(
         "metadata": metadata or {},
     }
     asyncio.run_coroutine_threadsafe(manager.broadcast(payload), _main_loop)
+
+
+def stream_llm_token(job_id: int, token_text: str, word_count: int) -> None:
+    """Push a single LLM output token to all connected WebSocket clients.
+
+    Args:
+        job_id: The 1-indexed batch job number.
+        token_text: The delta content from the LLM chunk.
+        word_count: Current total word count of the accumulated script.
+    """
+    import logging
+    _log = logging.getLogger("shorts_creator")
+    if _main_loop is None:
+        _log.error("[stream_llm_token] _main_loop is None — event loop not registered yet")
+        return
+    if _main_loop.is_closed():
+        _log.error("[stream_llm_token] _main_loop is closed")
+        return
+    payload: dict[str, Any] = {
+        "event_type": "llm_token",
+        "job_id": job_id,
+        "token": token_text,
+        "word_count": word_count,
+    }
+    # Rate-limited logging: log every 10th call to avoid flood
+    try:
+        _stream_llm_count = getattr(stream_llm_token, "_call_count", 0) + 1
+        stream_llm_token._call_count = _stream_llm_count
+        if _stream_llm_count <= 3 or _stream_llm_count % 20 == 0:
+            _log.info(
+                "[stream_llm_token #%d] job %d: %d words, token=%r, conns=%d",
+                _stream_llm_count, job_id, word_count, token_text[:30],
+                len(manager.active_connections),
+            )
+    except Exception as log_e:
+        _log.error("[stream_llm_token] logging error: %s", log_e)
+    asyncio.run_coroutine_threadsafe(manager.broadcast(payload), _main_loop)
+
+
+def stream_llm_event(job_id: int, event: str, word_count: int | None = None) -> None:
+    """Push an LLM lifecycle event (started/completed) to all connected WebSocket clients.
+
+    Args:
+        job_id: The 1-indexed batch job number.
+        event: One of ``"llm_started"`` or ``"llm_completed"``.
+        word_count: Final word count (only for ``"llm_completed"``).
+    """
+    import logging
+    _log = logging.getLogger("shorts_creator")
+    if _main_loop is None:
+        _log.warning("[stream_llm_event] _main_loop is None — event loop not registered yet")
+        return
+    if _main_loop.is_closed():
+        _log.warning("[stream_llm_event] _main_loop is closed")
+        return
+    payload: dict[str, Any] = {
+        "event_type": event,
+        "job_id": job_id,
+        "word_count": word_count,
+    }
+    _log.info("[stream_llm_event] job %d: event=%s, word_count=%s", job_id, event, word_count)
+    asyncio.run_coroutine_threadsafe(manager.broadcast(payload), _main_loop)

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any, Callable, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from gui.config import logger
 
@@ -95,7 +96,7 @@ def retry_with_backoff(
 
 def parse_title_hashtags(
     script_text: str,
-) -> Tuple[str, str, str]:
+) -> tuple[str, str, str]:
     """Extract ``TITLE`` / ``HASHTAGS`` lines from LLM output (case-insensitive).
 
     If no title is found, the first :data:`MAX_TITLE_WORDS` words of the
@@ -137,7 +138,7 @@ def generate_title_hashtags(
     client: Any,
     model: str,
     temperature: float = 0.7,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """Generate title and hashtags from a finished script via a dedicated LLM call.
 
     Always uses a second LLM call — never expects ``TITLE`` / ``HASHTAGS``

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Square, Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Download, Layers, Ban, Zap, Sparkles, Play } from 'lucide-react'
+import { Square, Loader2, CheckCircle2, XCircle, Clock, RefreshCw, Download, Layers, Ban, Zap, Sparkles, Play, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,8 @@ export default function Batch() {
   const [selectedJobId, setSelectedJobId] = useState(null)
   const [jobDetail, setJobDetail] = useState(null)
   
+  const [streamingScripts, setStreamingScripts] = useState({}) // { [jobId]: { text: "...", wordCount: N, isActive: bool } }
+
   const [availablePrompts, setAvailablePrompts] = useState({})
   const [selectedPrompts, setSelectedPrompts] = useState([])
   const [showPromptDropdown, setShowPromptDropdown] = useState(false)
@@ -95,12 +97,55 @@ export default function Batch() {
     return () => clearInterval(interval)
   }, [selectedJobId, batchData?.in_progress, batchData?.jobs])
 
+  // Listen for LLM streaming events from the notifications WebSocket
+  useEffect(() => {
+    const handler = (e) => {
+      const { event_type, job_id, token, word_count } = e.detail
+      setStreamingScripts(prev => {
+        if (event_type === "llm_started") {
+          return { ...prev, [job_id]: { text: "", wordCount: 0, isActive: true } }
+        }
+        if (event_type === "llm_token") {
+          const existing = prev[job_id] || { text: "", wordCount: 0, isActive: true }
+          return { ...prev, [job_id]: { text: existing.text + token, wordCount: word_count, isActive: true } }
+        }
+        if (event_type === "llm_completed") {
+          const existing = prev[job_id] || { text: "", wordCount: 0, isActive: false }
+          return { ...prev, [job_id]: { ...existing, isActive: false, wordCount: word_count } }
+        }
+        return prev
+      })
+    }
+    window.addEventListener("llm-stream", handler)
+    return () => window.removeEventListener("llm-stream", handler)
+  }, [])
+
   const handleStart = async () => {
     if (numShorts < 1) return
     if (selectedPrompts.length === 0) {
       toast.error("No prompts selected", { description: "Please select at least one prompt template." })
       return
     }
+
+    // Pre-flight validation
+    try {
+      const validation = await api.validateBatch()
+      if (validation?.status === 'error') {
+        const msg = validation.message || 'Validation failed'
+        toast.error("Validation error", { description: msg })
+        return
+      }
+      const warnings = validation?.warnings || []
+      if (warnings.length > 0) {
+        const proceed = window.confirm(
+          `Pre-flight warnings (${warnings.length}):\n\n${warnings.join('\n')}\n\nDo you want to proceed anyway?`
+        )
+        if (!proceed) return
+      }
+    } catch (err) {
+      console.debug("Validation request failed, proceeding anyway:", err)
+    }
+
     setIsStarting(true)
     try {
       await api.startBatch(numShorts, selectedPrompts, enableEmojis,
@@ -304,6 +349,23 @@ export default function Batch() {
                 Download Report
               </Button>
             )}
+            {!inProgress && doneCount > 0 && (
+              <Button
+                onClick={async () => {
+                  try {
+                    await api.openOutputFolder()
+                    toast.success("Output folder opened")
+                  } catch (err) {
+                    toast.error("Failed to open folder", { description: err.message })
+                  }
+                }}
+                variant="outline"
+                className="bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 border-blue-500/20 text-[10px] md:text-xs px-2 py-1 h-auto"
+              >
+                <FolderOpen size={10} />
+                Open Output Folder
+              </Button>
+            )}
             {inProgress && (
               <Button 
                 onClick={handleCancel}
@@ -351,6 +413,7 @@ export default function Batch() {
                   index={index}
                   onClick={() => setSelectedJobId(job.id)}
                   progressSegments={batchData?.progress_segments}
+                  streamingScript={streamingScripts[job.id]}
                   onRetry={!inProgress ? handleRetryJob : null}
                   onDismiss={!inProgress ? handleDismiss : null}
                   onCancelQueued={inProgress ? handleCancelQueued : null}
@@ -392,6 +455,7 @@ export default function Batch() {
           job={jobDetail}
           onClose={() => setSelectedJobId(null)}
           progress={batchData?.progress_segments}
+          streamingScript={streamingScripts[selectedJobId]}
         />
       )}
     </div>

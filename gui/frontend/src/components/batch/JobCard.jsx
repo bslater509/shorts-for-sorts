@@ -2,7 +2,7 @@ import { CheckCircle2, XCircle, Clock, RefreshCw, Ban, X, Square } from 'lucide-
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
 import { Button } from "@/components/ui/button"
 
-const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQueued, index = 0 }) => {
+const JobCard = ({ job, onClick, progressSegments, streamingScript, onRetry, onDismiss, onCancelQueued, index = 0 }) => {
   const isDone = job.status === 'Done'
   const isCancelled = job.cancelled || job.status === 'Cancelled'
   const isFailed = (job.failed || job.status?.startsWith('Failed')) && !isCancelled
@@ -166,6 +166,12 @@ const JobCard = ({ job, onClick, progressSegments, onRetry, onDismiss, onCancelQ
             <span className="text-foreground/80 font-semibold tabular-nums">{p}%</span>
           </div>
           <MultiSegmentProgressBar progress={p} segments={progressSegments} isRunning={isRunning} />
+        </div>
+      )}
+      {streamingScript?.isActive && streamingScript?.text && (
+        <div className="mt-1.5 text-[10px] text-blue-300/70 font-mono leading-relaxed truncate bg-blue-500/5 border border-blue-500/10 rounded-md px-2 py-1">
+          <span>{streamingScript.text.slice(-60)}</span>
+          <span className="inline-block w-1.5 h-3 bg-blue-400 animate-pulse ml-0.5 align-middle rounded-sm" />
         </div>
       )}
     </div>

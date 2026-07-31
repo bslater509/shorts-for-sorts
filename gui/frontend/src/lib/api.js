@@ -237,3 +237,29 @@ export async function loginTikTok() {
 export async function getBatchStats() {
   return await apiFetch('/api/batch/stats');
 }
+
+export async function openOutputFolder() {
+  return await apiFetch('/api/gallery/open-folder', { method: 'POST' });
+}
+
+export async function validateBatch() {
+  return await apiFetch('/api/batch/validate');
+}
+
+export async function getBatchProfiles() {
+  return await apiFetch('/api/batch/profiles');
+}
+
+export async function saveBatchProfile(name, config) {
+  return await apiFetch('/api/batch/profiles', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, config })
+  });
+}
+
+export async function deleteBatchProfile(name) {
+  return await apiFetch(`/api/batch/profiles/${encodeURIComponent(name)}`, {
+    method: 'DELETE'
+  });
+}

@@ -6,7 +6,6 @@ Extracted from duplicate inline logic across multiple modules.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 from gui.config import MUSIC_DIR, VIDEOS_DIR
 
@@ -26,7 +25,7 @@ SFX_EXCLUDE_KEYWORDS: tuple[str, ...] = ("sound effect", "sfx")
 
 
 def list_video_files(
-    directory: Optional[str] = None, exclude_sfx: bool = True
+    directory: str | None = None, exclude_sfx: bool = True
 ) -> list[str]:
     """List video files in a directory, sorted by modification time (newest first).
 
@@ -55,7 +54,7 @@ def list_video_files(
     return [fp for fp, _ in files]
 
 
-def list_music_files(directory: Optional[str] = None) -> list[str]:
+def list_music_files(directory: str | None = None) -> list[str]:
     """List music/audio files in a directory, sorted by modification time (newest first).
 
     Args:

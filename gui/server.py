@@ -19,13 +19,12 @@ import asyncio
 import logging
 
 import psutil
+import uvicorn
 from fastapi import FastAPI, Header, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
-
-import uvicorn
 
 from gui.config import (
     FRONTEND_DIST_DIR,

@@ -107,7 +107,7 @@ def search_pexels_api(data: PexelsSearchRequest) -> dict[str, Any]:
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to search Pexels: {str(e)}"
-        )
+        ) from e
 
 
 @router.post("/api/pexels/download")
@@ -379,7 +379,7 @@ def search_youtube_api(data: YoutubeSearchRequest) -> dict[str, Any]:
         logger.error("[YouTube Search] Error: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to search YouTube: {str(e)}"
-        )
+        ) from e
 
 
 # ---------------------------------------------------------------------------
@@ -484,4 +484,4 @@ def login_tiktok_browser() -> dict[str, str]:
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to open login browser: {e}"
-        )
+        ) from e

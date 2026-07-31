@@ -9,9 +9,15 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 import gui.state as shared_state
-from gui.config import GUI_STATE_FILE, logger
-from gui.config import delete_custom_preset, load_presets, load_settings
-from gui.config import save_custom_preset, save_settings
+from gui.config import (
+    GUI_STATE_FILE,
+    delete_custom_preset,
+    load_presets,
+    load_settings,
+    logger,
+    save_custom_preset,
+    save_settings,
+)
 from gui.models import FetchModelsRequest, PresetModel, SettingsModel, StateModel
 
 router: APIRouter = APIRouter()
@@ -80,7 +86,7 @@ def fetch_llm_models(data: FetchModelsRequest) -> dict[str, Any]:
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch models: {str(e)}"
-        )
+        ) from e
 
 
 @router.get("/api/presets")

@@ -16,7 +16,7 @@ import re
 import select
 import subprocess
 import time
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 import ffmpeg
 

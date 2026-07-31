@@ -554,13 +554,12 @@ def retry_failed_batch() -> dict[str, str]:
         )
 
     failed_configs = batch_state.get("failed_job_configs", [])
-    if not failed_configs:
-        if os.path.exists(FAILED_CONFIGS_FILE):
-            try:
-                with open(FAILED_CONFIGS_FILE) as f:
-                    failed_configs = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to load persisted failed configs: %s", e)
+    if not failed_configs and os.path.exists(FAILED_CONFIGS_FILE):
+        try:
+            with open(FAILED_CONFIGS_FILE) as f:
+                failed_configs = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to load persisted failed configs: %s", e)
     if not failed_configs:
         raise HTTPException(
             status_code=400, detail="No failed jobs to retry."
@@ -602,13 +601,12 @@ def retry_single_job(job_id: int) -> dict[str, str]:
         )
 
     failed_configs = batch_state.get("failed_job_configs", [])
-    if not failed_configs:
-        if os.path.exists(FAILED_CONFIGS_FILE):
-            try:
-                with open(FAILED_CONFIGS_FILE) as f:
-                    failed_configs = json.load(f)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning("Failed to load persisted failed configs: %s", e)
+    if not failed_configs and os.path.exists(FAILED_CONFIGS_FILE):
+        try:
+            with open(FAILED_CONFIGS_FILE) as f:
+                failed_configs = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to load persisted failed configs: %s", e)
     target = None
     for cfg in failed_configs:
         if cfg.get("index") == job_id:

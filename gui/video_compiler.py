@@ -16,7 +16,8 @@ import shutil
 import subprocess
 import time
 import uuid
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 import nltk
 import numpy as np
@@ -137,7 +138,7 @@ def _process_chunk_worker(
 def _resolve_background_videos(
     current_state: dict[str, Any],
     video_files: list[str],
-) -> tuple[Optional[str], Optional[str], Optional[str]]:
+) -> tuple[str | None, str | None, str | None]:
     """Resolve top/bottom/music paths, handle "random" selection, validate existence.
 
     Args:
@@ -152,13 +153,13 @@ def _resolve_background_videos(
         RuntimeError: If no videos are available for random selection or
             a required path does not exist.
     """
-    resolved_top_path: Optional[str] = resolve_preset_path(
+    resolved_top_path: str | None = resolve_preset_path(
         current_state["bg_video_path"]
     )
-    resolved_bottom_path: Optional[str] = resolve_preset_path(
+    resolved_bottom_path: str | None = resolve_preset_path(
         current_state["bg_video_bottom_path"]
     )
-    resolved_music_path: Optional[str] = resolve_preset_path(
+    resolved_music_path: str | None = resolve_preset_path(
         current_state["bg_music_path"]
     )
 
@@ -392,7 +393,7 @@ def _run_tts_phase(
     Returns:
         Tuple of ``(audio_arrays_list, sample_rate)``.
     """
-    results: list[Optional[np.ndarray]] = [None] * len(chunks)
+    results: list[np.ndarray | None] = [None] * len(chunks)
     total_chunks: int = len(chunks)
     sample_rate: int = TTS_DEFAULT_SAMPLE_RATE
 
@@ -470,7 +471,7 @@ def _transcribe_audio(
     audio_path: str,
     total_duration: float,
     use_local_whisper: bool,
-    w_client: Optional[OpenAI],
+    w_client: OpenAI | None,
     local_model_name: str,
     script: str,
 ) -> tuple[list[dict[str, Any]], bool]:
@@ -624,8 +625,8 @@ def _generate_subtitles(
 
 def _render_ffmpeg(
     resolved_top_path: str,
-    resolved_bottom_path: Optional[str],
-    resolved_music_path: Optional[str],
+    resolved_bottom_path: str | None,
+    resolved_music_path: str | None,
     audio_path: str,
     subs_path: str,
     temp_output_path: str,
@@ -683,6 +684,7 @@ def _save_metadata_and_thumbnail(
     output_filename: str,
     current_state: dict[str, Any],
     script: str,
+    duration: float | None = None,
 ) -> None:
     """Save a metadata ``.txt`` file and generate a thumbnail for the output video.
 
@@ -693,14 +695,19 @@ def _save_metadata_and_thumbnail(
         output_filename: The base filename of the output.
         current_state: Session state with ``generated_title`` and ``generated_hashtags``.
         script: The original script text.
+        duration: Optional video duration in seconds. When provided, a
+            ``Duration: <seconds>`` line is written to the metadata sidecar so
+            gallery loads can avoid an ffprobe round-trip.
     """
     try:
         base_name: str = os.path.splitext(output_filename)[0]
         txt_path: str = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
         with open(txt_path, "w", encoding="utf-8") as f:
             f.write(f"{current_state.get('generated_title', '')}\n")
-            f.write(f"{current_state.get('generated_hashtags', '')}\n\n")
-            f.write(f"Script:\n{script}\n")
+            f.write(f"{current_state.get('generated_hashtags', '')}\n")
+            if duration is not None:
+                f.write(f"Duration: {duration:.2f}\n")
+            f.write(f"\nScript:\n{script}\n")
     except Exception as e:
         logger.warning("Failed to write metadata .txt: %s", e)
 
@@ -739,9 +746,9 @@ def _save_metadata_and_thumbnail(
 
 def compile_video_flow(
     skip_confirm: bool = False,
-    custom_output_filename: Optional[str] = None,
+    custom_output_filename: str | None = None,
     progress_callback: Callable[[float], None] | None = None,
-    state_override: Optional[dict[str, Any]] = None,
+    state_override: dict[str, Any] | None = None,
 ) -> bool:
     """Run the full video compilation pipeline.
 
@@ -985,7 +992,7 @@ def compile_video_flow(
 
         # Metadata + thumbnail
         _save_metadata_and_thumbnail(
-            output_path, output_filename, current_state, script
+            output_path, output_filename, current_state, script, duration=audio_duration
         )
 
         _t1 = time.time()
