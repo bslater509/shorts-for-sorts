@@ -1,10 +1,9 @@
-"""Third-party integration routes: Pexels, YouTube, TikTok."""
+"""Third-party integration routes: Pexels, YouTube."""
 
 from __future__ import annotations
 
 import json
 import os
-import threading
 import time
 import urllib.parse
 import urllib.request
@@ -13,11 +12,10 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 import gui.state as shared_state
-from gui.config import GUI_STATE_FILE, OUTPUT_DIR, VIDEOS_DIR, logger, save_settings
+from gui.config import GUI_STATE_FILE, VIDEOS_DIR, logger
 from gui.models import (
     PexelsDownloadRequest,
     PexelsSearchRequest,
-    TiktokUploadRequest,
     YoutubeDownloadRequest,
     YoutubeSearchRequest,
 )
@@ -379,109 +377,4 @@ def search_youtube_api(data: YoutubeSearchRequest) -> dict[str, Any]:
         logger.error("[YouTube Search] Error: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500, detail=f"Failed to search YouTube: {str(e)}"
-        ) from e
-
-
-# ---------------------------------------------------------------------------
-# TikTok
-# ---------------------------------------------------------------------------
-
-
-@router.post("/api/tiktok/upload")
-def upload_tiktok_video(
-    data: TiktokUploadRequest, background_tasks: BackgroundTasks
-) -> dict[str, str]:
-    """Upload a rendered video to TikTok in the background.
-
-    Args:
-        data: Upload request with filename, description, and visibility.
-        background_tasks: FastAPI background task manager.
-
-    Returns:
-        Status response indicating the upload has started.
-    """
-    sessionid: str = shared_state.settings.get("tiktok_sessionid", "").strip()
-    if not sessionid:
-        raise HTTPException(
-            status_code=400,
-            detail="TikTok session ID is missing. Add it in Settings.",
-        )
-
-    video_path: str = os.path.join(OUTPUT_DIR, data.filename)
-    if not os.path.exists(video_path):
-        raise HTTPException(status_code=404, detail="Video file not found.")
-
-    def _upload_job() -> None:
-        """Background job to perform the TikTok upload."""
-        try:
-            logger.info(
-                "[TikTok] Starting background upload for %s", data.filename
-            )
-            import asyncio
-
-            from gui.tiktok_uploader import upload_video
-
-            asyncio.run(
-                upload_video(
-                    sessionid, video_path, data.description, data.visibility
-                )
-            )
-            logger.info("[TikTok] Successfully uploaded %s", data.filename)
-        except Exception as e:
-            logger.error("[TikTok] Upload failed: %s", e, exc_info=True)
-
-    background_tasks.add_task(_upload_job)
-    return {
-        "status": "pending",
-        "message": "TikTok upload started in background.",
-    }
-
-
-@router.post("/api/tiktok/login")
-def login_tiktok_browser() -> dict[str, str]:
-    """Open a browser window for interactive TikTok login.
-
-    Runs the login in a background thread to avoid blocking the event loop.
-
-    Returns:
-        Status response indicating the browser has been opened.
-    """
-    try:
-        logger.info("[TikTok] Launching browser for login...")
-
-        def _run_login() -> None:
-            """Thread runner for the interactive login flow."""
-            try:
-                import asyncio
-
-                from gui.tiktok_uploader import login_to_tiktok
-
-                sid: str | None = asyncio.run(login_to_tiktok())
-                if sid:
-                    shared_state.settings["tiktok_sessionid"] = sid
-                    save_settings(shared_state.settings)
-                    logger.info("[TikTok] Login successful, saved sessionid.")
-                    logger.warning(
-                        "[TikTok] Session ID stored in plaintext in "
-                        "config/settings.json. Keep this file secure "
-                        "and do not commit it."
-                    )
-                else:
-                    logger.warning(
-                        "[TikTok] Login finished but no sessionid was found."
-                    )
-            except Exception as e:
-                logger.error(
-                    "[TikTok] Error during login: %s", e, exc_info=True
-                )
-
-        threading.Thread(target=_run_login, daemon=True).start()
-        return {
-            "status": "pending",
-            "message": "Browser opened for TikTok login. "
-            "Please complete login in the new window.",
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Failed to open login browser: {e}"
         ) from e

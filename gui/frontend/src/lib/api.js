@@ -51,24 +51,6 @@ export async function fetchLLMModels(api_key, base_url) {
   });
 }
 
-export async function fetchPresets() {
-  return await apiFetch('/api/presets');
-}
-
-export async function savePreset(payload) {
-  return await apiFetch('/api/presets', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-}
-
-export async function deletePreset(name) {
-  return await apiFetch(`/api/presets/${encodeURIComponent(name)}`, {
-    method: 'DELETE'
-  });
-}
-
 export async function fetchVoices() {
   return await apiFetch('/api/voices');
 }
@@ -163,9 +145,43 @@ export async function fetchPrompts() {
   return await apiFetch('/api/prompts');
 }
 
-export async function startBatch(numShorts, prompts = [], enableEmojis = true,
-    enableEmojiAnimation = true, emojiScaleFactor = 1.5, emojiHoldDuration = 0.5,
-    emojiThrowMaxCount = 3, emojiStyles = null) {
+export async function startBatch(numShorts, prompts = [], options = {}, ...legacy) {
+  // Backward compatibility: the previous signature accepted positional emoji
+  // overrides as arguments 3-8. If `options` isn't an object, treat the call
+  // as the legacy positional form.
+  let opts = options
+  if (typeof options !== 'object' || options === null) {
+    opts = {
+      enableEmojis: options,
+      enableEmojiAnimation: legacy[0],
+      emojiScaleFactor: legacy[1],
+      emojiHoldDuration: legacy[2],
+      emojiThrowMaxCount: legacy[3],
+    }
+  }
+  const {
+    enableEmojis = true,
+    enableEmojiAnimation = true,
+    emojiScaleFactor = 1.5,
+    emojiHoldDuration = 0.5,
+    emojiThrowMaxCount = 3,
+    emojiStyles = null,
+    layout = null,
+    voiceId = null,
+    subAnimationStyle = null,
+    wordsPerScreen = null,
+    singleWordMode = null,
+    bgMusicPath = null,
+    scriptTemp = null,
+    metaTemp = null,
+    maxWorkers = null,
+    llmMaxWorkers = null,
+  } = opts
+
+  // UI sentinels — "Random" / "Default" mean "let the backend decide" and are
+  // sent as null so the batch engine keeps its default random behaviour.
+  const resolveRandom = (value) => (value === 'Random' || value === 'Default' ? null : value)
+
   return await apiFetch('/api/batch/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -178,6 +194,16 @@ export async function startBatch(numShorts, prompts = [], enableEmojis = true,
       emoji_hold_duration: emojiHoldDuration,
       emoji_throw_max_count: emojiThrowMaxCount,
       emoji_styles: emojiStyles,
+      layout: resolveRandom(layout),
+      voice_id: resolveRandom(voiceId),
+      sub_animation_style: resolveRandom(subAnimationStyle),
+      words_per_screen: resolveRandom(wordsPerScreen),
+      single_word_mode: singleWordMode,
+      bg_music_path: resolveRandom(bgMusicPath),
+      script_temp: scriptTemp,
+      meta_temp: metaTemp,
+      max_workers: maxWorkers,
+      llm_max_workers: llmMaxWorkers,
     })
   });
 }
@@ -222,18 +248,6 @@ export async function getJobDetail(jobId) {
   return await apiFetch(`/api/batch/job/${jobId}`);
 }
 
-export async function uploadTikTokVideo(filename, description, visibility) {
-  return await apiFetch('/api/tiktok/upload', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filename, description, visibility })
-  });
-}
-
-export async function loginTikTok() {
-  return await apiFetch('/api/tiktok/login', { method: 'POST' });
-}
-
 export async function getBatchStats() {
   return await apiFetch('/api/batch/stats');
 }
@@ -248,22 +262,4 @@ export async function openOutputFolder() {
 
 export async function validateBatch() {
   return await apiFetch('/api/batch/validate');
-}
-
-export async function getBatchProfiles() {
-  return await apiFetch('/api/batch/profiles');
-}
-
-export async function saveBatchProfile(name, config) {
-  return await apiFetch('/api/batch/profiles', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, config })
-  });
-}
-
-export async function deleteBatchProfile(name) {
-  return await apiFetch(`/api/batch/profiles/${encodeURIComponent(name)}`, {
-    method: 'DELETE'
-  });
 }

@@ -2,20 +2,12 @@ import { useState, useEffect } from 'react'
 import { Film, RefreshCw, Trash2, Clapperboard } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
-import TikTokIcon from '@/components/gallery/TikTokIcon'
 import GallerySkeleton from '@/components/gallery/GallerySkeleton'
 import VideoCard from '@/components/gallery/VideoCard'
-import TikTokUploadModal from '@/components/gallery/TikTokUploadModal'
 
 export default function Gallery() {
   const [videos, setVideos] = useState([])
   const [isLoading, setIsLoading] = useState(true)
-
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
-  const [selectedVideo, setSelectedVideo] = useState(null)
-  const [tiktokDescription, setTiktokDescription] = useState("")
-  const [tiktokVisibility, setTiktokVisibility] = useState("Public")
-  const [isUploading, setIsUploading] = useState(false)
 
   const loadGallery = async () => {
     setIsLoading(true)
@@ -118,28 +110,6 @@ export default function Gallery() {
     }
   }
 
-  const openUploadModal = (video) => {
-    setSelectedVideo(video)
-    const videoTitle = video.title || video.filename.replace('.mp4', '')
-    setTiktokDescription(`${videoTitle}\n${video.hashtags || ''}`)
-    setTiktokVisibility("Public")
-    setIsUploadModalOpen(true)
-  }
-
-  const handleUploadSubmit = async () => {
-    if (!selectedVideo) return
-    setIsUploading(true)
-    try {
-      await api.uploadTikTokVideo(selectedVideo.filename, tiktokDescription, tiktokVisibility)
-      alert("TikTok upload started in background!")
-      setIsUploadModalOpen(false)
-    } catch (err) {
-      alert(`Upload failed: ${err.message}`)
-    } finally {
-      setIsUploading(false)
-    }
-  }
-
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto flex flex-col min-h-0 md:min-h-[calc(100dvh-6rem)]">
       {/* ── Header ── */}
@@ -196,7 +166,6 @@ export default function Gallery() {
                   video={v}
                   onCopyHashtags={handleCopyHashtags}
                   onShare={handleShare}
-                  onTikTokUpload={openUploadModal}
                   onDelete={handleDelete}
                 />
               </div>
@@ -223,18 +192,6 @@ export default function Gallery() {
           </div>
         )}
       </div>
-
-      <TikTokUploadModal
-        isOpen={isUploadModalOpen}
-        video={selectedVideo}
-        onClose={() => setIsUploadModalOpen(false)}
-        onUpload={handleUploadSubmit}
-        isUploading={isUploading}
-        description={tiktokDescription}
-        setDescription={setTiktokDescription}
-        visibility={tiktokVisibility}
-        setVisibility={setTiktokVisibility}
-      />
     </div>
   )
 }

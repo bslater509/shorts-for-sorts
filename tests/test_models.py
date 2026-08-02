@@ -11,7 +11,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from gui.models import (
     BatchStartRequest,
     PexelsSearchRequest,
-    PresetModel,
     SettingsModel,
 )
 
@@ -79,7 +78,6 @@ class TestSettingsModel(unittest.TestCase):
         self.assertEqual(settings.emoji_scale_factor, 1.5)
         self.assertEqual(settings.emoji_hold_duration, 0.5)
         self.assertEqual(settings.sentry_dsn, "")
-        self.assertEqual(settings.tiktok_sessionid, "")
 
     def test_missing_optional_fields_use_defaults(self):
         """Omitting all optional fields should produce the default values."""
@@ -89,88 +87,6 @@ class TestSettingsModel(unittest.TestCase):
         self.assertEqual(settings.active_llm_profile_id, "")
         self.assertEqual(settings.sub_font, "Arial")
         self.assertEqual(settings.sub_size, 72)
-
-
-class TestPresetModel(unittest.TestCase):
-    """Tests for PresetModel — preset configuration."""
-
-    def test_valid_with_overrides(self):
-        """Construct a valid PresetModel with all fields including overrides."""
-        preset = PresetModel(
-            name="My Preset",
-            selected_voice="en-US-Wavenet-D",
-            voice_speed=1.1,
-            bg_video_path="/custom/bg.mp4",
-            bg_video_bottom_path="/custom/bottom.mp4",
-            bg_music_path="/custom/music.mp3",
-            music_volume=0.3,
-            voice_volume=0.9,
-            sub_font="Comic Sans",
-            sub_size=48,
-            sub_color="#FF0000",
-            sub_highlight="#00FF00",
-            sub_outline="#0000FF",
-            sub_outline_width=3,
-            sub_bold=False,
-            word_pop=False,
-            word_pop_scale=1.0,
-            inactive_dim=False,
-            inactive_alpha="FF",
-            enable_emojis=False,
-            sub_animation_style="typewriter",
-            single_word_mode=True,
-            emoji_position="below",
-            sub_uppercase=False,
-            sub_border_style=2,
-        )
-        self.assertEqual(preset.name, "My Preset")
-        self.assertEqual(preset.selected_voice, "en-US-Wavenet-D")
-        self.assertEqual(preset.voice_speed, 1.1)
-        self.assertEqual(preset.bg_video_path, "/custom/bg.mp4")
-        self.assertEqual(preset.bg_video_bottom_path, "/custom/bottom.mp4")
-        self.assertEqual(preset.bg_music_path, "/custom/music.mp3")
-        self.assertEqual(preset.music_volume, 0.3)
-        self.assertEqual(preset.voice_volume, 0.9)
-        self.assertEqual(preset.sub_font, "Comic Sans")
-        self.assertEqual(preset.sub_size, 48)
-        self.assertEqual(preset.sub_color, "#FF0000")
-        self.assertEqual(preset.sub_highlight, "#00FF00")
-        self.assertEqual(preset.sub_outline, "#0000FF")
-        self.assertEqual(preset.sub_outline_width, 3)
-        self.assertFalse(preset.sub_bold)
-        self.assertFalse(preset.word_pop)
-        self.assertEqual(preset.word_pop_scale, 1.0)
-        self.assertFalse(preset.inactive_dim)
-        self.assertEqual(preset.inactive_alpha, "FF")
-        self.assertFalse(preset.enable_emojis)
-        self.assertEqual(preset.sub_animation_style, "typewriter")
-        self.assertTrue(preset.single_word_mode)
-        self.assertEqual(preset.emoji_position, "below")
-        self.assertFalse(preset.sub_uppercase)
-        self.assertEqual(preset.sub_border_style, 2)
-
-    def test_missing_name_fails(self):
-        """Omitting the required 'name' field should raise ValidationError."""
-        with self.assertRaises(ValidationError):
-            PresetModel(
-                selected_voice="en-US-Wavenet-D",
-                voice_speed=1.0,
-                music_volume=0.15,
-                voice_volume=1.0,
-                sub_font="Arial",
-                sub_size=72,
-                sub_color="#FFFFFF",
-                sub_highlight="#00FFFF",
-                sub_outline="#000000",
-                sub_outline_width=5,
-                sub_bold=True,
-                word_pop=True,
-                word_pop_scale=1.15,
-                inactive_dim=True,
-                inactive_alpha="88",
-                enable_emojis=True,
-                sub_animation_style="tiktok_pop",
-            )
 
 
 class TestBatchStartRequest(unittest.TestCase):

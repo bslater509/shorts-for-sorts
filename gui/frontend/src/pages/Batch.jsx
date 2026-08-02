@@ -32,6 +32,18 @@ export default function Batch() {
   const emojiScaleFactor = useAppStore((s) => s.appState?.emoji_scale_factor || 1.5)
   const emojiHoldDuration = useAppStore((s) => s.appState?.emoji_hold_duration || 0.5)
   const emojiThrowMaxCount = useAppStore((s) => s.appState?.emoji_throw_max_count || 3)
+
+  // Advanced batch generation options (persisted in appState, see BatchHeader)
+  const batchLayout = useAppStore((s) => s.appState?.batch_layout ?? 'Random')
+  const batchVoiceId = useAppStore((s) => s.appState?.batch_voice_id ?? 'Random')
+  const batchSubAnimationStyle = useAppStore((s) => s.appState?.batch_sub_animation_style ?? 'Random')
+  const batchWordsPerScreen = useAppStore((s) => s.appState?.batch_words_per_screen ?? 'Default')
+  const batchSingleWordMode = useAppStore((s) => s.appState?.batch_single_word_mode ?? false)
+  const batchBgMusicPath = useAppStore((s) => s.appState?.batch_bg_music_path ?? 'Random')
+  const batchScriptTemp = useAppStore((s) => s.appState?.batch_script_temp ?? s.settings?.llm_temp_script ?? 0.7)
+  const batchMetaTemp = useAppStore((s) => s.appState?.batch_meta_temp ?? s.settings?.llm_temp_metadata ?? 0.7)
+  const batchMaxWorkers = useAppStore((s) => s.appState?.batch_max_workers ?? s.settings?.max_workers ?? 1)
+  const batchLlmMaxWorkers = useAppStore((s) => s.appState?.batch_llm_max_workers ?? s.settings?.llm_max_workers ?? 5)
   const updateAppState = useAppStore((s) => s.updateAppState)
   const saveCurrentState = useAppStore((s) => s.saveCurrentState)
   const [batchData, setBatchData] = useState(null)
@@ -204,9 +216,23 @@ export default function Batch() {
     }
     setIsStarting(true)
     try {
-      await api.startBatch(numShorts, selectedPrompts, enableEmojis,
-          enableEmojiAnimation, emojiScaleFactor, emojiHoldDuration,
-          emojiThrowMaxCount)
+      await api.startBatch(numShorts, selectedPrompts, {
+        enableEmojis,
+        enableEmojiAnimation,
+        emojiScaleFactor,
+        emojiHoldDuration,
+        emojiThrowMaxCount,
+        layout: batchLayout,
+        voiceId: batchVoiceId,
+        subAnimationStyle: batchSubAnimationStyle,
+        wordsPerScreen: batchWordsPerScreen,
+        singleWordMode: batchSingleWordMode,
+        bgMusicPath: batchBgMusicPath,
+        scriptTemp: batchScriptTemp,
+        metaTemp: batchMetaTemp,
+        maxWorkers: batchMaxWorkers,
+        llmMaxWorkers: batchLlmMaxWorkers,
+      })
       toast.success("Batch started", { description: `Generating ${numShorts} videos across ${selectedPrompts.length} prompt sets.` })
       fetchStatus()
     } catch (err) {

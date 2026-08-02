@@ -38,15 +38,6 @@ VOICE_DISPLAY_TO_ID: dict[str, str] = {
     "af": "af",
     "af_nicole": "af_nicole",
     "af_sky": "af_sky",
-    # Legacy preset names (used in BUILTIN_PRESETS)
-    "Craig Gutsy": "am_michael",
-    "Ana Florence": "af_sarah",
-    "Zacharie Julian": "am_adam",
-    "Claribel Dervla": "af_bella",
-    "Gracie Wise": "bf_emma",
-    "Badr Odhiambo": "bm_george",
-    "Damien Black": "am_michael",
-    "Tammie Ema": "bf_emma",
 }
 """Maps display names and legacy preset names to Kokoro voice IDs."""
 
@@ -91,6 +82,18 @@ state: dict[str, Any] = {
     "sub_animation_style": None,
     "generated_title": None,
     "generated_hashtags": None,
+    # Advanced batch generation overrides — mirrored by ``StateModel`` so the
+    # batch UI choices survive page reloads and re-serves on GET /api/state.
+    "batch_layout": None,
+    "batch_voice_id": None,
+    "batch_sub_animation_style": None,
+    "batch_words_per_screen": None,
+    "batch_single_word_mode": None,
+    "batch_bg_music_path": None,
+    "batch_script_temp": None,
+    "batch_meta_temp": None,
+    "batch_max_workers": None,
+    "batch_llm_max_workers": None,
 }
 """Active session state dictionary.
 

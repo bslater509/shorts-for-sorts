@@ -25,7 +25,6 @@ export default function SettingsPage() {
     max_workers: 1,
     llm_max_workers: 5,
     sentry_dsn: '',
-    tiktok_sessionid: '',
     system_prompt: '',
     max_words: 400,
     default_batch_size: 1,
@@ -226,14 +225,6 @@ export default function SettingsPage() {
         <ThirdPartySection
           settings={settings}
           onChange={handleChange}
-          onTikTokLogin={async () => {
-            try {
-              const res = await api.loginTikTok();
-              alert(res.message || "Browser opened! Please log in.");
-            } catch (e) {
-              alert("Error: " + e.message);
-            }
-          }}
         />
 
         <WhisperSection

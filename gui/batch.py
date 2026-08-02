@@ -527,7 +527,6 @@ def video_job_worker(
             "inactive_dim": job_config["inactive_dim"],
             "inactive_alpha": job_config["inactive_alpha"],
             "voice_speed": job_config.get("voice_speed", 1.0),
-            "loaded_preset_name": "Randomized Batch Job",
             "generated_title": job_config.get("generated_title", TITLE_FALLBACK),
             "generated_hashtags": job_config.get("generated_hashtags", HASHTAGS_FALLBACK),
         }

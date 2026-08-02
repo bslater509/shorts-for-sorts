@@ -60,9 +60,9 @@ shorts-for-sorts/
 │   ├── server.py               # App creation, WebSocket endpoints, static serving, SPA catch-all
 │   ├── routers/                # REST API route modules
 │   │   ├── batch.py            # Batch generation CRUD (start, status, cancel, retry, report)
-│   │   ├── settings.py         # Settings, presets, session state
+│   │   ├── settings.py         # Settings, session state
 │   │   ├── assets.py           # Video/music upload, list, delete
-│   │   ├── integrations.py     # Pexels search/download, YouTube search/download, TikTok upload
+│   │   ├── integrations.py     # Pexels search/download, YouTube search/download
 │   │   └── admin.py            # Health check, server restart
 │   ├── batch_engine.py         # Batch orchestrator: job config builder, pipeline loop, ETA prediction
 │   ├── video_compiler.py       # Single-video compilation pipeline (TTS→Transcribe→Subs→Render)
@@ -73,22 +73,19 @@ shorts-for-sorts/
 │   ├── ws_manager.py           # WebSocket connection manager + cross-thread notify_clients()
 │   ├── models.py               # Pydantic request/response models
 │   ├── utils.py                # LLM profile resolution, system deps check
-│   ├── tiktok_uploader.py      # Playwright-based TikTok upload
 │   ├── media.py                # Range-request media streaming
 │   ├── prompts.py              # Default prompt templates
 │   ├── emoji_map.py            # Emoji keyword→unicode map
-│   ├── builtin_presets.py      # 8 built-in video presets
 │   └── frontend/               # React SPA (Vite + shadcn/ui)
 │       └── src/
-│           ├── pages/          # Batch, MediaManager, Presets, Gallery, SettingsPage, Analytics
-│           ├── components/     # layout/, batch/, presets/, settings/, media/, gallery/, analytics/, ui/ (shadcn)
+│           ├── pages/          # Batch, MediaManager, Gallery, SettingsPage, Analytics
+│           ├── components/     # layout/, batch/, settings/, media/, gallery/, analytics/, ui/ (shadcn)
 │           ├── lib/            # api.js (all API calls + WebSocket hooks), utils.js (cn helper)
 │           ├── hooks/          # useNotifications (WebSocket), useInView
-│           └── store/          # useAppStore.js (Zustand: settings, presets, batch state, theme)
+│           └── store/          # useAppStore.js (Zustand: settings, batch state, theme)
 ├── config/                     # Runtime JSON config files
 │   ├── settings.json           # User settings (auto-generated, gitignored)
 │   ├── prompts.json            # Prompt templates for batch LLM generation
-│   ├── presets.json            # Saved video presets
 │   ├── emojis.json             # Emoji map (keyword → unicode)
 │   ├── batch_stats.json        # Learned phase weights + per-job stats for ETA prediction
 │   ├── batch_profiles.json     # Saved batch config profiles
@@ -139,10 +136,7 @@ shorts-for-sorts/
 `tiktok_pop`, `karaoke_sweep`, `bouncy_bounce`, `cinematic_zoom`, `glow_shake`, `neon_flicker`, `pulse_grow`, `fade_in_slide`, `typewriter_swipe`
 
 ### Voices
-8 primary voices (GUI dropdown): Bella/Sarah (US female), Adam/Michael (US male), Emma/Isabella (UK female), George/Lewis (UK male). Prefixes: `af_`, `am_`, `bf_`, `bm_`. Default: `af_bella`. 20+ additional Kokoro voices recognized in presets.
-
-### Built-in Presets
-Split-Screen Chill, Lofi Storyteller, Fast-Paced Promo, TikTok Kinetic Pop, Retro Synthwave, Cinematic Documentary, Cyberpunk Red, Classic Serif Storyteller
+8 primary voices (GUI dropdown): Bella/Sarah (US female), Adam/Michael (US male), Emma/Isabella (UK female), George/Lewis (UK male). Prefixes: `af_`, `am_`, `bf_`, `bm_`. Default: `af_bella`. 20+ additional Kokoro voices available.
 
 ## Patterns & Conventions
 

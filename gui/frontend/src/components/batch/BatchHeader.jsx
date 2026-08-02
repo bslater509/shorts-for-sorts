@@ -1,15 +1,47 @@
 import { useState, useEffect, useRef } from 'react'
 
 import { BottomSheet } from '@/components/ui/bottom-sheet'
-import { ChevronUp, Settings2 } from 'lucide-react'
-import { Layers, ChevronDown, Check, Play, Loader2, FolderOpen, Save, Trash2, AlertOctagon } from 'lucide-react'
+import { ChevronUp, Settings2, SlidersHorizontal } from 'lucide-react'
+import { Layers, ChevronDown, Check, Play, Loader2, AlertOctagon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { useAppStore } from '@/store/useAppStore'
 import { toast } from 'sonner'
 import * as api from '@/lib/api'
+
+// Subtitle animation styles supported by the generator (used for the
+// sub_animation_style batch override).
+const ANIMATION_STYLES = [
+  { value: 'tiktok_pop', label: 'TikTok Pop' },
+  { value: 'bouncy_bounce', label: 'Bouncy Bounce' },
+  { value: 'cinematic_zoom', label: 'Cinematic Zoom' },
+  { value: 'glow_shake', label: 'Glow Shake' },
+  { value: 'neon_flicker', label: 'Neon Flicker' },
+  { value: 'pulse_grow', label: 'Pulse Grow' },
+  { value: 'fade_in_slide', label: 'Fade In Slide' },
+  { value: 'karaoke_sweep', label: 'Karaoke Sweep' },
+  { value: 'typewriter_swipe', label: 'Typewriter Swipe' },
+]
+
+// Common values for the temperature / concurrency overrides.
+const TEMP_OPTIONS = ['0.0', '0.1', '0.2', '0.3', '0.4', '0.5', '0.6', '0.7', '0.8', '0.9', '1.0', '1.1', '1.2', '1.3', '1.4', '1.5']
+const WORKER_OPTIONS = ['1', '2', '3', '4', '6', '8']
+const LLM_WORKER_OPTIONS = ['1', '2', '3', '4', '6', '8', '10']
+
+// Base classes for the compact selects used inside popover/sheet settings.
+const SELECT_BASE = 'bg-background border border-border rounded-md px-2 py-1 text-xs h-auto min-h-0'
+
+const Row = ({ label, hint, children }) => (
+  <div className="flex items-center justify-between gap-2">
+    <div className="min-w-0">
+      <Label className="text-xs md:text-[10px] font-medium text-muted-foreground leading-tight">{label}</Label>
+      {hint && <p className="text-[9px] md:text-[8px] text-muted-foreground/50 mt-0.5">{hint}</p>}
+    </div>
+    {children}
+  </div>
+)
 
 const BatchHeader = ({
   availablePrompts,
@@ -45,100 +77,92 @@ const BatchHeader = ({
     }
   }
 
-  // Batch profiles
-  const [profiles, setProfiles] = useState([])
-  const [profilesOpen, setProfilesOpen] = useState(false)
-  const [selectedProfile, setSelectedProfile] = useState(null)
-  const [profileNameInput, setProfileNameInput] = useState('')
-  const [savingProfile, setSavingProfile] = useState(false)
-  const [profilesLoading, setProfilesLoading] = useState(false)
-  const profilesRef = useRef(null)
+  const [mobileOptionsOpen, setMobileOptionsOpen] = useState(false)
 
-  // Close profiles dropdown on click outside
+  const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false)
+  const emojiRef = useRef(null)
+
+  // Advanced generation options — bound to appState so they persist across
+  // sessions (saved server-side via saveCurrentState -> POST /api/state).
+  const batchLayout = useAppStore((s) => s.appState?.batch_layout ?? 'Random')
+  const batchVoiceId = useAppStore((s) => s.appState?.batch_voice_id ?? 'Random')
+  const batchSubAnimationStyle = useAppStore((s) => s.appState?.batch_sub_animation_style ?? 'Random')
+  const batchWordsPerScreen = useAppStore((s) => s.appState?.batch_words_per_screen ?? 'Default')
+  const batchSingleWordMode = useAppStore((s) => s.appState?.batch_single_word_mode ?? false)
+  const batchBgMusicPath = useAppStore((s) => s.appState?.batch_bg_music_path ?? 'Random')
+  const batchScriptTemp = useAppStore((s) => s.appState?.batch_script_temp ?? s.settings?.llm_temp_script ?? 0.7)
+  const batchMetaTemp = useAppStore((s) => s.appState?.batch_meta_temp ?? s.settings?.llm_temp_metadata ?? 0.7)
+  const batchMaxWorkers = useAppStore((s) => s.appState?.batch_max_workers ?? s.settings?.max_workers ?? 1)
+  const batchLlmMaxWorkers = useAppStore((s) => s.appState?.batch_llm_max_workers ?? s.settings?.llm_max_workers ?? 5)
+
+  const batch = {
+    layout: batchLayout,
+    voiceId: batchVoiceId,
+    subAnimationStyle: batchSubAnimationStyle,
+    wordsPerScreen: batchWordsPerScreen,
+    singleWordMode: batchSingleWordMode,
+    bgMusicPath: batchBgMusicPath,
+    scriptTemp: batchScriptTemp,
+    metaTemp: batchMetaTemp,
+    maxWorkers: batchMaxWorkers,
+    llmMaxWorkers: batchLlmMaxWorkers,
+  }
+  const voices = useAppStore((s) => s.voices || [])
+
+  const [advancedPopoverOpen, setAdvancedPopoverOpen] = useState(false)
+  const advancedRef = useRef(null)
+  const [musicFiles, setMusicFiles] = useState([])
+
+  // Fetch available music tracks for the background-music override.
+  useEffect(() => {
+    api.fetchMusic()
+      .then((data) => setMusicFiles(Array.isArray(data) ? data : []))
+      .catch(() => { /* music listing is best-effort */ })
+  }, [])
+
+  // Close the desktop Advanced popover when clicking outside. Mobile uses a
+  // BottomSheet instead, which manages its own backdrop dismissal.
   useEffect(() => {
     const handleClick = (e) => {
-      if (profilesRef.current && !profilesRef.current.contains(e.target)) {
-        setProfilesOpen(false)
+      if (typeof window !== 'undefined' && window.innerWidth < 768) return
+      if (advancedRef.current && !advancedRef.current.contains(e.target)) {
+        setAdvancedPopoverOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [])
 
-  const fetchProfiles = async () => {
-    setProfilesLoading(true)
-    try {
-      const data = await api.getBatchProfiles()
-      setProfiles(data?.profiles || [])
-    } catch (err) {
-      console.debug("Failed to fetch batch profiles", err)
-    } finally {
-      setProfilesLoading(false)
-    }
+  // Persist an advanced option to appState immediately.
+  const setBatchOption = (key, value) => {
+    updateAppState({ [key]: value })
+    saveCurrentState()
   }
 
-  const handleLoadProfile = async (profileName) => {
-    try {
-      const data = await api.getBatchProfiles()
-      const profile = (data?.profiles || []).find(p => p.name === profileName)
-      if (profile?.config) {
-        updateAppState(profile.config)
-        saveCurrentState()
-        setSelectedProfile(profileName)
-        toast.success(`Profile "${profileName}" loaded`)
-      }
-    } catch (err) {
-      toast.error("Failed to load profile", { description: err.message })
-    }
+  const hasAdvancedOverrides =
+    batch.layout !== 'Random' ||
+    batch.voiceId !== 'Random' ||
+    batch.subAnimationStyle !== 'Random' ||
+    batch.wordsPerScreen !== 'Default' ||
+    batch.singleWordMode ||
+    batch.bgMusicPath !== 'Random'
+
+  const musicValues = musicFiles.map((m) => `music/${m.filename}`)
+  // Show the configured track if one is set (the fallback SelectItem below
+  // keeps the trigger populated even when that file was deleted); otherwise
+  // fall back to "Random".
+  const currentMusicValue = batch.bgMusicPath && batch.bgMusicPath !== 'Random'
+    ? batch.bgMusicPath
+    : 'Random'
+
+  // Ensure a select always has an item matching the current value so Radix
+  // doesn't render an empty trigger (e.g. temps not in the presets list).
+  const ensureOption = (current, options) => {
+    const str = String(current)
+    return options.includes(str) ? options : [str, ...options]
   }
 
-  const handleSaveProfile = async () => {
-    const name = profileNameInput.trim()
-    if (!name) {
-      toast.error("Profile name required")
-      return
-    }
-    setSavingProfile(true)
-    try {
-      const config = {
-        batch_num_shorts: numShorts,
-        enable_emojis: enableEmojis,
-        enable_emoji_animation: enableEmojiAnimation,
-        emoji_scale_factor: emojiScaleFactor,
-        emoji_hold_duration: emojiHoldDuration,
-        emoji_throw_max_count: emojiThrowMaxCount,
-        selected_prompts: selectedPrompts
-      }
-      await api.saveBatchProfile(name, config)
-      toast.success(`Profile "${name}" saved`)
-      setProfileNameInput('')
-      fetchProfiles()
-    } catch (err) {
-      toast.error("Failed to save profile", { description: err.message })
-    } finally {
-      setSavingProfile(false)
-    }
-  }
-
-  const handleDeleteProfile = async (name) => {
-    if (!window.confirm(`Delete profile "${name}"?`)) return
-    try {
-      await api.deleteBatchProfile(name)
-      toast.success(`Profile "${name}" deleted`)
-      if (selectedProfile === name) setSelectedProfile(null)
-      fetchProfiles()
-    } catch (err) {
-      toast.error("Failed to delete profile", { description: err.message })
-    }
-  }
-
-
-  const [mobileOptionsOpen, setMobileOptionsOpen] = useState(false)
-
-  const [emojiPopoverOpen, setEmojiPopoverOpen] = useState(false)
-  const emojiRef = useRef(null)
-
-  const PromptSelectorContent = () => (
+  const renderPromptSelector = () => (
     <>
       <div className="p-1.5 border-b border-border bg-secondary/30 flex justify-between items-center text-[10px]">
         <span className="font-semibold text-muted-foreground hidden md:inline">Select Prompts</span>
@@ -174,7 +198,7 @@ const BatchHeader = ({
     </>
   )
 
-  const EmojiSettingsContent = () => (
+  const renderEmojiSettings = () => (
     <>
       <div className="p-3 md:p-2 border-b border-border bg-secondary/30">
         <p className="text-xs md:text-[10px] font-semibold text-muted-foreground mb-2 md:mb-1.5">Emoji Settings</p>
@@ -251,54 +275,149 @@ const BatchHeader = ({
     </>
   )
 
-  const ProfilesContent = () => (
-    <>
-      <div className="p-3 md:p-2 border-b border-border bg-secondary/30">
-        <p className="text-xs md:text-[10px] font-semibold text-muted-foreground mb-2 md:mb-1.5 hidden md:block">Batch Profiles</p>
-        {profiles.length > 0 && (
-          <div className="max-h-48 md:max-h-36 overflow-y-auto space-y-1 md:space-y-0.5 mb-2">
-            {profiles.map((p) => (
-              <div key={p.name} className="flex items-center justify-between gap-2 rounded hover:bg-secondary/50 px-2 md:px-1.5 py-2 md:py-1">
-                <button
-                  onClick={() => { handleLoadProfile(p.name); setProfilesOpen(false) }}
-                  className={`text-sm md:text-[11px] text-left flex-1 truncate ${
-                    selectedProfile === p.name ? 'text-blue-400 font-semibold' : 'text-foreground'
-                  }`}
-                >
-                  {p.name}
-                </button>
-                <button
-                  onClick={() => handleDeleteProfile(p.name)}
-                  className="text-muted-foreground hover:text-red-400 transition-colors p-1 md:p-0.5"
-                >
-                  <Trash2 size={14} className="md:w-2.5 md:h-2.5" />
-                </button>
-              </div>
-            ))}
+  const renderAdvancedSettings = () => {
+    const rowSelectCls = (width) => `${SELECT_BASE} ${width} text-left`
+
+    return (
+      <>
+        <div className="p-3 md:p-2 border-b border-border bg-secondary/30 flex items-center gap-1.5">
+          <SlidersHorizontal size={12} className="text-violet-400" />
+          <p className="text-xs md:text-[10px] font-semibold text-muted-foreground">Advanced Generation Options</p>
+          <span className="ml-auto text-[10px] md:text-[9px] text-muted-foreground/50 font-medium hidden md:inline">per-job overrides</span>
+        </div>
+        <div className="p-3 md:p-2 space-y-3 md:space-y-2 max-h-[70vh] md:max-h-96 overflow-y-auto">
+          {/* Layout */}
+          <Row label="Layout" hint="Split vs. full-screen backgrounds">
+            <Select value={String(batch.layout)} onValueChange={(v) => setBatchOption('batch_layout', v)} disabled={inProgress}>
+              <SelectTrigger className={rowSelectCls('w-32')}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Random">Random</SelectItem>
+                <SelectItem value="Split-Screen">Split-Screen</SelectItem>
+                <SelectItem value="Full Screen">Full Screen</SelectItem>
+              </SelectContent>
+            </Select>
+          </Row>
+
+          {/* Voice */}
+          <Row label="Voice" hint={batch.voiceId !== 'Random' ? batch.voiceId : 'Random voice per job'}>
+            <Select value={String(batch.voiceId)} onValueChange={(v) => setBatchOption('batch_voice_id', v)} disabled={inProgress}>
+              <SelectTrigger className={rowSelectCls('w-44')}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Random">Random</SelectItem>
+                {voices.map((v) => (
+                  <SelectItem key={v.value} value={v.value}>{v.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Row>
+
+          {/* Subtitle animation style */}
+          <Row label="Sub Animation" hint="Caption animation style">
+            <Select value={String(batch.subAnimationStyle)} onValueChange={(v) => setBatchOption('batch_sub_animation_style', v)} disabled={inProgress}>
+              <SelectTrigger className={rowSelectCls('w-40')}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Random">Random</SelectItem>
+                {ANIMATION_STYLES.map((a) => (
+                  <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Row>
+
+          {/* Words per screen */}
+          <Row label="Words / Screen" hint="Caption phrasing">
+            <Select value={String(batch.wordsPerScreen)} onValueChange={(v) => setBatchOption('batch_words_per_screen', v)} disabled={inProgress}>
+              <SelectTrigger className={rowSelectCls('w-28')}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Default">Default</SelectItem>
+                <SelectItem value="1">1 word</SelectItem>
+                <SelectItem value="3">3 words</SelectItem>
+                <SelectItem value="sentence">Sentence</SelectItem>
+                <SelectItem value="random">Random</SelectItem>
+              </SelectContent>
+            </Select>
+          </Row>
+
+          {/* Single word mode */}
+          <Row label="Single Word Mode" hint="One word on screen at a time">
+            <Switch
+              checked={batch.singleWordMode}
+              onCheckedChange={(v) => setBatchOption('batch_single_word_mode', v)}
+              disabled={inProgress}
+              className="data-[state=checked]:bg-violet-500"
+            />
+          </Row>
+
+          {/* Background music */}
+          <Row label="Music" hint={batch.bgMusicPath !== 'Random' ? String(batch.bgMusicPath).replace(/^music\//, '') : 'Random track per job'}>
+            <Select value={String(currentMusicValue)} onValueChange={(v) => setBatchOption('batch_bg_music_path', v)} disabled={inProgress}>
+              <SelectTrigger className={rowSelectCls('w-44')}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Random">Random</SelectItem>
+                {musicFiles.map((m) => (
+                  <SelectItem key={m.filename} value={`music/${m.filename}`} className="truncate">{m.filename}</SelectItem>
+                ))}
+                {!musicValues.includes(batch.bgMusicPath) && batch.bgMusicPath !== 'Random' && (
+                  <SelectItem value={batch.bgMusicPath} className="truncate">{String(batch.bgMusicPath).replace(/^music\//, '')}</SelectItem>
+                )}
+                {musicFiles.length === 0 && (
+                  <SelectItem value="__empty__" disabled>No music tracks found</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </Row>
+
+          {/* Temperatures */}
+          <div className="border-t border-border/40 pt-2.5 md:pt-2 space-y-3 md:space-y-2">
+            <Row label="Script Temp" hint="LLM creativity (higher = more varied)">
+              <Select value={String(batch.scriptTemp)} onValueChange={(v) => setBatchOption('batch_script_temp', parseFloat(v))} disabled={inProgress}>
+                <SelectTrigger className={rowSelectCls('w-20')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ensureOption(batch.scriptTemp, TEMP_OPTIONS).map((t) => (
+                    <SelectItem key={t} value={String(t)}>{String(t)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
+            <Row label="Meta Temp" hint="Title & keyword generation">
+              <Select value={String(batch.metaTemp)} onValueChange={(v) => setBatchOption('batch_meta_temp', parseFloat(v))} disabled={inProgress}>
+                <SelectTrigger className={rowSelectCls('w-20')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ensureOption(batch.metaTemp, TEMP_OPTIONS).map((t) => (
+                    <SelectItem key={t} value={String(t)}>{String(t)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
           </div>
-        )}
-        {profilesLoading && <p className="text-xs md:text-[10px] text-muted-foreground text-center py-2 md:py-1">Loading...</p>}
-      </div>
-      <div className="p-3 md:p-2 space-y-2 md:space-y-1.5">
-        <Input
-          value={profileNameInput}
-          onChange={(e) => setProfileNameInput(e.target.value)}
-          placeholder="New profile name..."
-          className="h-9 md:h-7 text-xs md:text-[11px] px-3 md:px-2 py-1.5 md:py-1"
-          onKeyDown={(e) => { if (e.key === 'Enter') handleSaveProfile() }}
-        />
-        <Button
-          variant="outline"
-          onClick={handleSaveProfile}
-          disabled={savingProfile || !profileNameInput.trim()}
-          className="w-full text-xs md:text-[10px] h-9 md:h-7 px-3 md:px-2 flex items-center justify-center gap-1.5 md:gap-1"
-        >
-          {savingProfile ? <Loader2 size={12} className="animate-spin md:w-2.5 md:h-2.5" /> : <Save size={12} className="md:w-2.5 md:h-2.5" />}
-          Save Current Config
-        </Button>
-      </div>
-    </>
-  )
+
+          {/* Concurrency */}
+          <div className="border-t border-border/40 pt-2.5 md:pt-2 space-y-3 md:space-y-2">
+            <Row label="Render Workers" hint="Parallel video renders per job">
+              <Select value={String(batch.maxWorkers)} onValueChange={(v) => setBatchOption('batch_max_workers', parseInt(v, 10))} disabled={inProgress}>
+                <SelectTrigger className={rowSelectCls('w-20')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ensureOption(batch.maxWorkers, WORKER_OPTIONS).map((w) => (
+                    <SelectItem key={w} value={String(w)}>{w}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
+            <Row label="LLM Workers" hint="Parallel script generation calls">
+              <Select value={String(batch.llmMaxWorkers)} onValueChange={(v) => setBatchOption('batch_llm_max_workers', parseInt(v, 10))} disabled={inProgress}>
+                <SelectTrigger className={rowSelectCls('w-20')}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ensureOption(batch.llmMaxWorkers, LLM_WORKER_OPTIONS).map((w) => (
+                    <SelectItem key={w} value={String(w)}>{w}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Row>
+          </div>
+        </div>
+      </>
+    )
+  }
 
   return (
     <header className="shrink-0 flex flex-col sm:flex-row items-start sm:justify-between gap-3">
@@ -339,7 +458,7 @@ const BatchHeader = ({
           </Button>
           {showPromptDropdown && !inProgress && (
             <div className="absolute top-full mt-1 left-0 w-72 bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col max-h-72">
-              <PromptSelectorContent />
+              {renderPromptSelector()}
             </div>
           )}
         </div>
@@ -363,7 +482,34 @@ const BatchHeader = ({
               className="absolute top-full mt-1 left-1/2 -translate-x-1/2 w-64 bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 zoom-in-95 duration-150"
               onClick={e => e.stopPropagation()}
             >
-              <EmojiSettingsContent />
+              {renderEmojiSettings()}
+            </div>
+          )}
+        </div>
+
+        {/* Advanced Generation Options */}
+        <div className="relative" ref={advancedRef}>
+          <Button
+            variant="outline"
+            onClick={() => setAdvancedPopoverOpen(!advancedPopoverOpen)}
+            disabled={inProgress}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium border h-auto transition-all duration-200 ${
+              hasAdvancedOverrides
+                ? 'bg-violet-500/10 text-violet-400 border-violet-500/20'
+                : 'bg-muted/50 text-muted-foreground/60 border-border/30'
+            } disabled:opacity-50`}
+          >
+            <SlidersHorizontal size={10} />
+            Advanced
+            {hasAdvancedOverrides && <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />}
+          </Button>
+
+          {advancedPopoverOpen && (
+            <div
+              className="absolute top-full mt-1 left-1/2 -translate-x-1/2 w-80 bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 zoom-in-95 duration-150"
+              onClick={e => e.stopPropagation()}
+            >
+              {renderAdvancedSettings()}
             </div>
           )}
         </div>
@@ -384,29 +530,6 @@ const BatchHeader = ({
           <AlertOctagon size={10} />
           {failureMode === 'stop_on_failure' ? 'Stop' : 'Continue'}
         </Button>
-
-        {/* Batch Profiles */}
-        <div className="w-px h-4 bg-border/50" />
-        <div className="relative" ref={profilesRef}>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setProfilesOpen(!profilesOpen)
-              if (!profilesOpen) fetchProfiles()
-            }}
-            disabled={inProgress}
-            className="flex items-center gap-1 bg-background border border-border rounded-md px-2 py-0.5 text-[10px] font-medium hover:bg-secondary/50 disabled:opacity-50 h-auto"
-          >
-            <FolderOpen size={10} />
-            {selectedProfile || 'Profiles'} <ChevronDown size={10} />
-          </Button>
-
-          {profilesOpen && !inProgress && (
-            <div className="absolute top-full mt-1 right-0 w-64 bg-card border border-border rounded-lg shadow-xl z-50 overflow-hidden flex flex-col max-h-80">
-               <ProfilesContent />
-            </div>
-          )}
-        </div>
 
         <Button
           variant="default"
@@ -497,18 +620,23 @@ const BatchHeader = ({
               
               <Button
                 variant="outline"
-                onClick={() => {
-                  setProfilesOpen(true)
-                  fetchProfiles()
-                }}
+                onClick={() => setAdvancedPopoverOpen(true)}
                 disabled={inProgress}
-                className="w-full flex items-center justify-between col-span-2 gap-1 bg-background border border-border rounded-lg px-3 py-2 text-xs font-medium hover:bg-secondary/50 disabled:opacity-50 h-auto min-h-[44px] shadow-sm"
+                className={`w-full flex items-center justify-between col-span-2 gap-1 px-3 py-2 rounded-lg text-xs font-medium border h-auto min-h-[44px] shadow-sm transition-all duration-200 ${
+                  hasAdvancedOverrides
+                    ? 'bg-violet-500/10 text-violet-400 border-violet-500/20'
+                    : 'bg-muted/50 text-muted-foreground/60 border-border/30'
+                } disabled:opacity-50`}
               >
                 <span className="flex items-center gap-1.5 truncate">
-                  <FolderOpen size={14} className="flex-shrink-0" />
-                  <span className="truncate">{selectedProfile || 'Load / Save Profiles'}</span>
+                  <SlidersHorizontal size={14} className="flex-shrink-0" />
+                  <span className="truncate">Advanced Generation Options</span>
                 </span>
-                <ChevronDown size={14} className="opacity-50 flex-shrink-0" />
+                {hasAdvancedOverrides ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-400 flex-shrink-0 animate-pulse" />
+                ) : (
+                  <ChevronDown size={14} className="opacity-50 flex-shrink-0" />
+                )}
               </Button>
             </div>
           )}
@@ -522,7 +650,7 @@ const BatchHeader = ({
         title={`Select Prompts (${selectedPrompts.length})`}
       >
         <div className="flex flex-col gap-1">
-           <PromptSelectorContent />
+           {renderPromptSelector()}
         </div>
       </BottomSheet>
       
@@ -531,15 +659,15 @@ const BatchHeader = ({
         onClose={() => setEmojiPopoverOpen(false)} 
         title="Emoji Settings"
       >
-        <EmojiSettingsContent />
+        {renderEmojiSettings()}
       </BottomSheet>
 
       <BottomSheet 
-        isOpen={profilesOpen && typeof window !== 'undefined' && window.innerWidth < 768} 
-        onClose={() => setProfilesOpen(false)} 
-        title="Batch Profiles"
+        isOpen={advancedPopoverOpen && typeof window !== 'undefined' && window.innerWidth < 768} 
+        onClose={() => setAdvancedPopoverOpen(false)} 
+        title="Advanced Generation Options"
       >
-        <ProfilesContent />
+        {renderAdvancedSettings()}
       </BottomSheet>
 
     </header>

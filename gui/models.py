@@ -70,41 +70,6 @@ class SettingsModel(BaseModel):
     system_prompt: str | None = ""
     llm_temp_script: float | None = 0.7
     sentry_dsn: str | None = ""
-    tiktok_sessionid: str | None = ""
-
-
-class PresetModel(BaseModel):
-    """Video style preset schema for saving and loading custom presets."""
-
-    name: str
-    selected_voice: str
-    voice_speed: float
-    bg_video_path: str | None = "random"
-    bg_video_bottom_path: str | None = None
-    bg_music_path: str | None = "music/default_music.mp3"
-    music_volume: float
-    voice_volume: float
-    sub_font: str
-    sub_size: int
-    sub_color: str
-    sub_highlight: str
-    sub_outline: str
-    sub_outline_width: int
-    sub_bold: bool
-    word_pop: bool
-    word_pop_scale: float
-    inactive_dim: bool
-    inactive_alpha: str
-    enable_emojis: bool
-    sub_animation_style: str
-    single_word_mode: bool | None = False
-    emoji_position: str | None = "above"
-    sub_uppercase: bool | None = True
-    sub_border_style: int | None = 1
-    emoji_throw_speed_multiplier: float | None = 1.0
-    emoji_throw_arc_height: float | None = 25.0
-    emoji_throw_fall_distance: float | None = 153.6
-    emoji_spin_speed: float | None = 45.0
 
 
 class StateModel(BaseModel):
@@ -145,7 +110,18 @@ class StateModel(BaseModel):
     voice_speed: float | None = None
     batch_num_shorts: int | None = None
     sub_animation_style: str | None = None
-    loaded_preset_name: str | None = None
+    # Advanced batch generation overrides (bound to the batch UI, persisted
+    # alongside the rest of the session state).
+    batch_layout: str | None = None
+    batch_voice_id: str | None = None
+    batch_sub_animation_style: str | None = None
+    batch_words_per_screen: str | None = None
+    batch_single_word_mode: bool | None = None
+    batch_bg_music_path: str | None = None
+    batch_script_temp: float | None = None
+    batch_meta_temp: float | None = None
+    batch_max_workers: int | None = None
+    batch_llm_max_workers: int | None = None
 
 
 class PexelsSearchRequest(BaseModel):
@@ -184,14 +160,6 @@ class FetchModelsRequest(BaseModel):
     base_url: str | None = ""
 
 
-class TiktokUploadRequest(BaseModel):
-    """Request body for ``POST /api/tiktok/upload``."""
-
-    filename: str
-    description: str
-    visibility: str = "Public"
-
-
 class BatchStartRequest(BaseModel):
     """Request body for ``POST /api/batch/start``."""
 
@@ -203,3 +171,13 @@ class BatchStartRequest(BaseModel):
     emoji_hold_duration: float | None = None
     emoji_throw_max_count: int | None = None
     emoji_styles: list[str] | None = None
+    layout: str | None = None
+    voice_id: str | None = None
+    sub_animation_style: str | None = None
+    words_per_screen: str | None = None
+    single_word_mode: bool | None = None
+    bg_music_path: str | None = None
+    script_temp: float | None = None
+    meta_temp: float | None = None
+    max_workers: int | None = None
+    llm_max_workers: int | None = None

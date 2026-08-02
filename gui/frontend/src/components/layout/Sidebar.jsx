@@ -1,20 +1,17 @@
 import { NavLink } from "react-router-dom"
-import { Wand2, Image as ImageIcon, Sliders, Film, Settings, Layers, Menu, X, RefreshCw, Loader2, BarChart3 } from "lucide-react"
+import { Wand2, Image as ImageIcon, Film, Settings, Layers, Menu, X, RefreshCw, Loader2, BarChart3 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
-import { useAppStore } from "@/store/useAppStore"
 import SystemStats from "./SystemStats"
 import { Button } from "@/components/ui/button"
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false)
   const [restarting, setRestarting] = useState(false)
-  const loadedPreset = useAppStore(state => state.appState.loaded_preset_name) || "None (Custom)"
 
   const navItems = [
     { name: "Batch Generator", path: "/", icon: Layers },
     { name: "Media Manager", path: "/media", icon: ImageIcon },
-    { name: "Presets", path: "/presets", icon: Sliders },
     { name: "Video Gallery", path: "/gallery", icon: Film },
     { name: "Analytics", path: "/analytics", icon: BarChart3 },
     { name: "Settings", path: "/settings", icon: Settings },
@@ -99,10 +96,6 @@ export default function Sidebar() {
         </nav>
 
         <div className="p-4 border-t border-border mt-auto">
-          <div className="bg-secondary rounded-lg p-3 text-sm">
-            <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wider mb-1">Preset Loaded</p>
-            <p className="font-medium truncate">{loadedPreset}</p>
-          </div>
           <SystemStats />
           <Button
             variant="outline"

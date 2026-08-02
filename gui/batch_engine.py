@@ -775,6 +775,14 @@ def _build_job_configs(
     emoji_hold_duration: float | None = None,
     emoji_throw_max_count: int | None = None,
     emoji_styles: list[str] | None = None,
+    layout: str | None = None,
+    voice_id: str | None = None,
+    sub_animation_style: str | None = None,
+    words_per_screen: str | None = None,
+    single_word_mode: bool | None = None,
+    bg_music_path: str | None = None,
+    script_temp: float | None = None,
+    meta_temp: float | None = None,
 ) -> tuple[dict[int, dict[str, Any]], str]:
     """Build job configuration dicts for a batch run.
 
@@ -790,6 +798,16 @@ def _build_job_configs(
         emoji_hold_duration: Override for emoji hold duration.
         emoji_throw_max_count: Override for emoji throw count.
         emoji_styles: Override list of emoji font styles.
+        layout: Optional layout override ("Split-Screen", "Full Screen",
+            or ``None`` for random).
+        voice_id: Optional voice ID override; ``None`` for random.
+        sub_animation_style: Optional subtitle animation override.
+        words_per_screen: Optional words-per-screen override.
+        single_word_mode: Optional single-word-mode override.
+        bg_music_path: Optional music file override ("random" or ``None``
+            falls back to the normal random selection).
+        script_temp: Optional LLM script temperature override.
+        meta_temp: Optional LLM metadata temperature override.
 
     Returns:
         Tuple of ``(job_configs_dict, timestamp_str)``.
@@ -911,8 +929,24 @@ def _build_job_configs(
 
     for i in range(1, num_shorts + 1):
         template_title, prompt = prompt_items[(i - 1) % len(prompt_items)]
+        voice_id_override: str | None = voice_id
         voice_name, voice_id = random.choice(shared_state.VOICES)
-        is_split: bool = random.choice([True, False])
+        if voice_id_override is not None:
+            matched: tuple[str, str] | None = next(
+                (
+                    (name, vid)
+                    for name, vid in shared_state.VOICES
+                    if vid == voice_id_override
+                ),
+                None,
+            )
+            if matched is not None:
+                voice_name, voice_id = matched
+        is_split: bool = (
+            True
+            if layout == "Split-Screen"
+            else (False if layout == "Full Screen" else random.choice([True, False]))
+        )
         top_video: str = "random"
         bottom_video: str = "random" if is_split else ""
 
@@ -920,11 +954,14 @@ def _build_job_configs(
         music_files: list[str] = [
             os.path.basename(f) for f in list_music_files(MUSIC_DIR)
         ]
-        chosen_music: str | None = (
-            os.path.join(MUSIC_DIR, random.choice(music_files))
-            if music_files
-            else _resolve_music("music/default_music.mp3")
-        )
+        if bg_music_path and bg_music_path != "random":
+            chosen_music: str | None = _resolve_music(bg_music_path)
+        else:
+            chosen_music = (
+                os.path.join(MUSIC_DIR, random.choice(music_files))
+                if music_files
+                else _resolve_music("music/default_music.mp3")
+            )
 
         sub_font: str = random.choice(font_options)
         sub_size: int = random.randint(64, 84)
@@ -945,16 +982,33 @@ def _build_job_configs(
         inactive_alpha: str = (
             random.choice(inactive_alpha_options) if inactive_dim else "FF"
         )
-        sub_animation_style: str = random.choice(animation_options)
+        _sub_animation_style: str = (
+            sub_animation_style
+            if sub_animation_style is not None
+            else random.choice(animation_options)
+        )
 
-        script_temp: float = shared_state.settings.get("llm_temp_script", 0.7)
-        meta_temp: float = shared_state.settings.get("llm_temp_metadata", 0.7)
+        _script_temp: float = (
+            script_temp
+            if script_temp is not None
+            else shared_state.settings.get("llm_temp_script", 0.7)
+        )
+        _meta_temp: float = (
+            meta_temp
+            if meta_temp is not None
+            else shared_state.settings.get("llm_temp_metadata", 0.7)
+        )
         output_filename: str = f"rendered_batch_{timestamp}_{i}.mp4"
 
         global_wps: str = shared_state.settings.get("words_per_screen", "3")
-        words_per_screen_choice: str = (
-            random.choice(["1", "3", "sentence"]) if global_wps == "random" else global_wps
-        )
+        if words_per_screen is not None:
+            words_per_screen_choice: str = words_per_screen
+        else:
+            words_per_screen_choice = (
+                random.choice(["1", "3", "sentence"])
+                if global_wps == "random"
+                else global_wps
+            )
 
         random_setting: str = random.choice(setting_options)
         random_tone: str = random.choice(tone_options)
@@ -1013,7 +1067,11 @@ def _build_job_configs(
             "sub_shadow_width": shared_state.settings.get("sub_shadow_width", 0),
             "sub_bg_color": shared_state.settings.get("sub_bg_color", "#000000"),
             "sub_bg_alpha": shared_state.settings.get("sub_bg_alpha", "80"),
-            "single_word_mode": shared_state.settings.get("single_word_mode", False),
+            "single_word_mode": (
+                single_word_mode
+                if single_word_mode is not None
+                else shared_state.settings.get("single_word_mode", False)
+            ),
             "words_per_screen": words_per_screen_choice,
             "emoji_position": shared_state.settings.get("emoji_position", "above"),
             "emoji_style": (
@@ -1021,9 +1079,9 @@ def _build_job_configs(
                 if emoji_styles
                 else shared_state.settings.get("emoji_style", "Noto Color Emoji")
             ),
-            "sub_animation_style": sub_animation_style,
-            "script_temp": script_temp,
-            "meta_temp": meta_temp,
+            "sub_animation_style": _sub_animation_style,
+            "script_temp": _script_temp,
+            "meta_temp": _meta_temp,
             "output_filename": output_filename,
             "model": model,
             "system_prompt": system_prompt,
@@ -1050,6 +1108,8 @@ def _run_pipeline(
     job_configs: dict[int, dict[str, Any]],
     num_shorts: int,
     failure_mode: str,
+    max_workers_override: int | None = None,
+    llm_max_workers_override: int | None = None,
 ) -> None:
     """Main polling loop — two-phase: LLM then Video.
 
@@ -1060,6 +1120,8 @@ def _run_pipeline(
         job_configs: Job configuration dicts keyed by index.
         num_shorts: Number of shorts in the batch.
         failure_mode: ``"stop_all"`` or ``"continue"`` on job failure.
+        max_workers_override: Optional video worker count override.
+        llm_max_workers_override: Optional LLM worker count override.
     """
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -1071,6 +1133,10 @@ def _run_pipeline(
 
     max_workers: int = _resolve_worker_count("max_workers", 1)
     llm_max_workers: int = _resolve_worker_count("llm_max_workers", 5)
+    if max_workers_override is not None:
+        max_workers = max(1, int(max_workers_override))
+    if llm_max_workers_override is not None:
+        llm_max_workers = max(1, int(llm_max_workers_override))
     batch_state["max_workers"] = max_workers
     batch_state["llm_max_workers"] = llm_max_workers
     batch_state["_smoothed_eta"] = {}
@@ -1610,6 +1676,16 @@ def batch_worker_thread(
     emoji_hold_duration: float | None = None,
     emoji_throw_max_count: int | None = None,
     emoji_styles: list[str] | None = None,
+    layout: str | None = None,
+    voice_id: str | None = None,
+    sub_animation_style: str | None = None,
+    words_per_screen: str | None = None,
+    single_word_mode: bool | None = None,
+    bg_music_path: str | None = None,
+    script_temp: float | None = None,
+    meta_temp: float | None = None,
+    max_workers: int | None = None,
+    llm_max_workers: int | None = None,
 ) -> None:
     """Entry point for the background batch worker thread.
 
@@ -1625,6 +1701,18 @@ def batch_worker_thread(
         emoji_hold_duration: Override for emoji hold duration.
         emoji_throw_max_count: Override for emoji throw count.
         emoji_styles: Override list of emoji font styles.
+        layout: Optional layout override ("Split-Screen", "Full Screen",
+            or ``None`` for random).
+        voice_id: Optional voice ID override; ``None`` for random.
+        sub_animation_style: Optional subtitle animation override.
+        words_per_screen: Optional words-per-screen override.
+        single_word_mode: Optional single-word-mode override.
+        bg_music_path: Optional music file override ("random" or ``None``
+            falls back to the normal random selection).
+        script_temp: Optional LLM script temperature override.
+        meta_temp: Optional LLM metadata temperature override.
+        max_workers: Optional video worker count override.
+        llm_max_workers: Optional LLM worker count override.
     """
     batch_state["in_progress"] = True
     notify_clients(
@@ -1662,10 +1750,24 @@ def batch_worker_thread(
             emoji_hold_duration=emoji_hold_duration,
             emoji_throw_max_count=emoji_throw_max_count,
             emoji_styles=emoji_styles,
+            layout=layout,
+            voice_id=voice_id,
+            sub_animation_style=sub_animation_style,
+            words_per_screen=words_per_screen,
+            single_word_mode=single_word_mode,
+            bg_music_path=bg_music_path,
+            script_temp=script_temp,
+            meta_temp=meta_temp,
         )
         batch_state["job_configs"] = job_configs
 
-        _run_pipeline(job_configs, num_shorts, failure_mode)
+        _run_pipeline(
+            job_configs,
+            num_shorts,
+            failure_mode,
+            max_workers_override=max_workers,
+            llm_max_workers_override=llm_max_workers,
+        )
         _collect_and_persist_results(job_configs, num_shorts)
 
     except Exception as e:

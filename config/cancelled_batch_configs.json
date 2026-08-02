@@ -143,8 +143,7 @@
       "emoji_spin_speed": 45.0,
       "batch_failure_mode": "continue",
       "batch_job_timeout": 600,
-      "sentry_dsn": "",
-      "tiktok_sessionid": ""
+      "sentry_dsn": ""
     }
   },
   {
@@ -291,8 +290,7 @@
       "emoji_spin_speed": 45.0,
       "batch_failure_mode": "continue",
       "batch_job_timeout": 600,
-      "sentry_dsn": "",
-      "tiktok_sessionid": ""
+      "sentry_dsn": ""
     }
   }
 ]

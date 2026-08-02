@@ -11,14 +11,11 @@ from fastapi import APIRouter, HTTPException
 import gui.state as shared_state
 from gui.config import (
     GUI_STATE_FILE,
-    delete_custom_preset,
-    load_presets,
     load_settings,
     logger,
-    save_custom_preset,
     save_settings,
 )
-from gui.models import FetchModelsRequest, PresetModel, SettingsModel, StateModel
+from gui.models import FetchModelsRequest, SettingsModel, StateModel
 
 router: APIRouter = APIRouter()
 
@@ -87,56 +84,6 @@ def fetch_llm_models(data: FetchModelsRequest) -> dict[str, Any]:
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch models: {str(e)}"
         ) from e
-
-
-@router.get("/api/presets")
-def get_api_presets() -> dict[str, Any]:
-    """Return all presets (built-in + custom) combined."""
-    return load_presets()
-
-
-@router.post("/api/presets")
-def save_api_preset(data: PresetModel) -> dict[str, str]:
-    """Save a custom preset.
-
-    Args:
-        data: The preset configuration (``name`` field is used as the key).
-
-    Returns:
-        Status message on success or failure.
-    """
-    preset_dict: dict[str, Any] = data.model_dump()
-    name: str = preset_dict.pop("name")
-    success = save_custom_preset(name, preset_dict)
-    if success:
-        return {
-            "status": "success",
-            "message": f"Preset '{name}' saved successfully.",
-        }
-    raise HTTPException(status_code=500, detail="Failed to save preset.")
-
-
-@router.delete("/api/presets/{name}")
-def delete_api_preset(name: str) -> dict[str, str]:
-    """Delete a custom preset by name.
-
-    Args:
-        name: The display name of the preset to delete.
-
-    Returns:
-        Status message on success.
-    """
-    success = delete_custom_preset(name)
-    if success:
-        return {
-            "status": "success",
-            "message": f"Preset '{name}' deleted successfully.",
-        }
-    raise HTTPException(
-        status_code=400,
-        detail=f"Preset '{name}' could not be deleted "
-        f"(might be builtin or not found).",
-    )
 
 
 @router.get("/api/state")

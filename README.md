@@ -41,8 +41,6 @@
 - **FFmpeg video composition** — Background videos, music overlay, animated subtitles with word highlighting, emojis, and customizable styles
 - **Real-time progress** — WebSocket-powered live updates with ETA, per-job progress segments (LLM → Voice → Transcribe → Render)
 - **Asset management** — Upload/download background videos & music, search and download from Pexels and YouTube, auto-resolve "random" mode
-- **Preset system** — Save and reuse video configurations (voice, subtitles, layout, music)
-- **TikTok integration** — Direct upload to TikTok from the gallery
 - **Analytics dashboard** — Charts for batch performance, phase timing, per-job statistics (Recharts)
 - **Dark/Light mode** — Theme switching with next-themes
 - **Error monitoring** — Optional Sentry integration
@@ -56,8 +54,6 @@ Here is a closer look at the different parts of the Shorts for Sorts interface:
 | Batch Generation | Analytics Dashboard |
 |:---:|:---:|
 | <img src="docs/screenshots/batch.png" width="100%" alt="Batch page"> | <img src="docs/screenshots/analytics.png" width="100%" alt="Analytics page"> |
-| **Media Management** | **Presets Configuration** |
-| <img src="docs/screenshots/media.png" width="100%" alt="Media page"> | <img src="docs/screenshots/presets.png" width="100%" alt="Presets page"> |
 | **Settings Panel** | **Generated Video Gallery** |
 | <img src="docs/screenshots/settings.png" width="100%" alt="Settings page"> | <img src="docs/screenshots/gallery.png" width="100%" alt="Gallery page"> |
 
@@ -126,7 +122,6 @@ python gui/server.py --https
 |---|---|---|
 | **Batch** | `/` or `/batch` | Create and monitor batch video generation jobs |
 | **Media** | `/media` | Upload, browse, and delete background videos & music |
-| **Presets** | `/presets` | Create and manage video preset configurations |
 | **Gallery** | `/gallery` | Browse, play, download, and share generated videos |
 | **Settings** | `/settings` | Configure LLM profiles, API keys, render options |
 | **Analytics** | `/analytics` | View batch generation statistics and charts |
@@ -198,9 +193,9 @@ shorts-for-sorts/
 │   ├── models.py          # Pydantic API models
 │   ├── routers/           # API route modules
 │   │   ├── batch.py       # Batch generation API
-│   │   ├── settings.py    # Settings, presets, state
+│   │   ├── settings.py    # Settings, state
 │   │   ├── assets.py      # Video/music/media CRUD
-│   │   ├── integrations.py # Pexels/YouTube/TikTok
+│   │   ├── integrations.py # Pexels/YouTube
 │   │   └── admin.py       # Health, restart
 │   ├── config.py          # Paths, logging, directory setup
 │   ├── ws_manager.py      # WebSocket connection manager
@@ -209,8 +204,7 @@ shorts-for-sorts/
 │   └── frontend/          # React SPA (Vite + Tailwind)
 ├── config/                 # Runtime configuration
 │   ├── settings.json      # User settings (auto-generated)
-│   ├── prompts.json       # Prompt templates
-│   └── presets.json       # Saved presets
+│   └── prompts.json       # Prompt templates
 ├── cache/                  # Temporary cache files
 ├── output/                 # Generated videos
 ├── videos/                 # Background video assets
@@ -229,7 +223,6 @@ shorts-for-sorts/
 |---|---|---|
 | GET | `/api/settings` | Fetch all settings |
 | POST | `/api/settings` | Save settings |
-| GET | `/api/presets` | List video presets |
 | POST | `/api/batch/start` | Start a batch generation |
 | GET | `/api/batch/status` | Poll batch progress |
 | GET | `/api/batch/job/{id}` | Get single job detail |
@@ -244,7 +237,6 @@ shorts-for-sorts/
 | GET | `/api/gallery` | List generated videos |
 | POST | `/api/pexels/search` | Search Pexels videos |
 | POST | `/api/youtube/search` | Search YouTube videos |
-| POST | `/api/tiktok/upload` | Upload to TikTok |
 
 ### WebSocket Endpoints
 

@@ -54,10 +54,6 @@ if [ -f "requirements.txt" ]; then
     fi
 fi
 
-# Install playwright browsers
-info "Ensuring Playwright browsers are installed..."
-python3 -m playwright install --with-deps
-
 # Ensure NLTK punkt_tab is available
 info "Ensuring NLTK punkt_tab is downloaded..."
 python3 -m nltk.downloader punkt_tab

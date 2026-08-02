@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Hash, Share2, Download, Trash2, Play } from 'lucide-react'
 import LazyVideo from '@/components/LazyVideo'
-import TikTokIcon from './TikTokIcon'
 import { Button } from "@/components/ui/button"
 
 const formatSize = (bytes) => {
@@ -14,7 +13,7 @@ const formatDate = (timestamp) => {
   return new Date(timestamp * 1000).toLocaleString()
 }
 
-export default function VideoCard({ video, onCopyHashtags, onShare, onTikTokUpload, onDelete }) {
+export default function VideoCard({ video, onCopyHashtags, onShare, onDelete }) {
   const [isPlaying, setIsPlaying] = useState(false);
 
   return (
@@ -95,16 +94,6 @@ export default function VideoCard({ video, onCopyHashtags, onShare, onTikTokUplo
           >
             <Share2 size={13} />
             <span className="truncate">Share</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onTikTokUpload(video)}
-            className="flex-1 min-w-0 h-8 gap-1 px-2 rounded-lg text-[11px] font-medium bg-pink-500/5 text-pink-400/80 hover:bg-pink-500/20 hover:text-pink-300 transition-all"
-            title="Upload to TikTok"
-          >
-            <TikTokIcon size={13} />
-            <span className="truncate">TikTok</span>
           </Button>
           <a
             href={video.url}

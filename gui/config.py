@@ -112,7 +112,6 @@ if not logger.handlers:
 # --- File paths ---
 
 SETTINGS_FILE: str = os.path.join(CONFIG_DIR, "settings.json")
-PRESETS_FILE: str = os.path.join(CONFIG_DIR, "presets.json")
 PROMPTS_FILE: str = os.path.join(CONFIG_DIR, "prompts.json")
 EMOJIS_FILE: str = os.path.join(CONFIG_DIR, "emojis.json")
 
@@ -226,12 +225,6 @@ def delete_batch_profile(name: str) -> bool:
 # dependencies — each sub-module imports only config constants/logging which
 # are already defined before this point.
 
-from gui.builtin_presets import (  # noqa: E402, F401
-    BUILTIN_PRESETS,
-    delete_custom_preset,
-    load_presets,
-    save_custom_preset,
-)
 from gui.emoji_map import (  # noqa: E402, F401
     DEFAULT_EMOJI_MAP,
     load_emoji_map,
