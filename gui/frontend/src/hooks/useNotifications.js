@@ -26,6 +26,12 @@ export function useNotifications() {
             return // Don't show toasts for these
           }
 
+          // Handle batch status updates
+          if (data.event_type === "batch_status") {
+            window.dispatchEvent(new CustomEvent("batch-status", { detail: data }))
+            return
+          }
+
           // Determine toast title and action based on event type
           let toastTitle = "Notification"
           let action = undefined

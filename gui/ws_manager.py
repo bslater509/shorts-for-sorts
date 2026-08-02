@@ -166,3 +166,18 @@ def stream_llm_event(job_id: int, event: str, word_count: int | None = None) -> 
     }
     _log.info("[stream_llm_event] job %d: event=%s, word_count=%s", job_id, event, word_count)
     asyncio.run_coroutine_threadsafe(manager.broadcast(payload), _main_loop)
+
+
+def broadcast_batch_status(snapshot: dict[str, Any]) -> None:
+    """Push a full batch-status snapshot to all connected WebSocket clients.
+
+    Args:
+        snapshot: The dict returned by :func:`build_batch_status`.
+    """
+    if _main_loop is None or _main_loop.is_closed():
+        return
+    payload: dict[str, Any] = {
+        "event_type": "batch_status",
+        **snapshot,
+    }
+    asyncio.run_coroutine_threadsafe(manager.broadcast(payload), _main_loop)

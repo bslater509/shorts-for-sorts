@@ -238,6 +238,10 @@ export async function getBatchStats() {
   return await apiFetch('/api/batch/stats');
 }
 
+export async function resetBatchStats() {
+  return await apiFetch('/api/batch/stats/reset', { method: 'POST' });
+}
+
 export async function openOutputFolder() {
   return await apiFetch('/api/gallery/open-folder', { method: 'POST' });
 }

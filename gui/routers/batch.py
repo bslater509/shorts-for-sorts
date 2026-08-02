@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+import re
 import threading
+import time
 from typing import Any
 
 import psutil
@@ -166,9 +168,108 @@ def start_batch(data: BatchStartRequest) -> dict[str, str]:
     }
 
 
-@router.get("/api/batch/status")
-def get_batch_status() -> dict[str, Any]:
+DURATION_RE: re.Pattern = re.compile(r"^Duration\s*:\s*([\d.]+)", re.I)
+
+
+def _collect_system_stats() -> dict[str, Any]:
+    """Gather host resource metrics, degrading gracefully on unsupported platforms.
+
+    Each psutil/``os.getloadavg`` call is guarded so a missing capability on a
+    given platform never crashes the status endpoint — the affected metric
+    falls back to ``0.0`` (``1`` for ``cpu_count``).
+
+    Returns:
+        Dict of system metrics (CPU %, memory %, disk %, RSS in MB, swap %,
+        1-minute load average, and CPU count).
+    """
+    from gui.config import OUTPUT_DIR
+
+    stats: dict[str, Any] = {
+        "cpu_percent": 0.0,
+        "memory_percent": 0.0,
+        "disk_percent": 0.0,
+        "rss_mb": 0.0,
+        "swap_percent": 0.0,
+        "load_avg": 0.0,
+        "cpu_count": 1,
+    }
+
+    try:
+        stats["cpu_percent"] = psutil.cpu_percent(interval=None)
+    except Exception:
+        pass
+    try:
+        stats["memory_percent"] = psutil.virtual_memory().percent
+    except Exception:
+        pass
+    try:
+        stats["rss_mb"] = psutil.Process().memory_info().rss / (1024 * 1024)
+    except Exception:
+        pass
+    try:
+        stats["swap_percent"] = psutil.swap_memory().percent
+    except Exception:
+        pass
+    try:
+        stats["cpu_count"] = psutil.cpu_count() or 1
+    except Exception:
+        pass
+    try:
+        stats["load_avg"] = os.getloadavg()[0]
+    except (OSError, AttributeError):
+        pass
+    try:
+        stats["disk_percent"] = psutil.disk_usage(OUTPUT_DIR).percent
+    except Exception:
+        # Fall back to the filesystem root, then give up silently.
+        try:
+            stats["disk_percent"] = psutil.disk_usage("/").percent
+        except Exception:
+            pass
+    return stats
+
+
+def _compute_net_io_rate(now: float) -> tuple[float, float]:
+    """Compute per-second network throughput in KB/s.
+
+    Derives the recv/sent rate from the delta between the current psutil
+    counters and the previous snapshot stored in ``batch_state`` under
+    ``_batch_state_lock``. The current counters and timestamp are persisted
+    back to ``batch_state`` so the next call can compute its own rate.
+
+    Args:
+        now: Monotonic-ish wall-clock timestamp for the current sample.
+
+    Returns:
+        ``(recv_kbs, sent_kbs)`` in kilobytes per second, or ``(0.0, 0.0)``
+        when counters are unavailable or no prior snapshot exists.
+    """
+    try:
+        counters = psutil.net_io_counters()
+        recv_bytes = counters.bytes_recv
+        sent_bytes = counters.bytes_sent
+    except Exception:
+        return 0.0, 0.0
+
+    prev_counters = batch_state.get("_net_counters")
+    prev_time = batch_state.get("_net_time")
+    batch_state["_net_counters"] = (recv_bytes, sent_bytes)
+    batch_state["_net_time"] = now
+
+    if not prev_counters or not prev_time or now <= prev_time:
+        return 0.0, 0.0
+
+    dt = now - prev_time
+    if dt <= 0:
+        return 0.0, 0.0
+    recv_kbs = max(0.0, (recv_bytes - prev_counters[0]) / dt / 1024.0)
+    sent_kbs = max(0.0, (sent_bytes - prev_counters[1]) / dt / 1024.0)
+    return recv_kbs, sent_kbs
+
+
+def build_batch_status() -> dict[str, Any]:
     """Return the current batch status with per-job progress, ETAs, and pipeline stats."""
+    from gui.config import OUTPUT_DIR
     from gui.progress_utils import get_progress_percentage
 
     with _batch_state_lock:
@@ -176,7 +277,6 @@ def get_batch_status() -> dict[str, Any]:
             batch_state["_dismissed_jobs"] = _load_dismissed_jobs()
         dismissed: set[int] = batch_state.get("_dismissed_jobs", set())
 
-        # Compute stats from completed jobs
         completed_durations: list[float] = []
         for i in range(1, batch_state["num_shorts"] + 1):
             st = batch_state["progress_dict"].get(f"{i}_start")
@@ -244,6 +344,37 @@ def get_batch_status() -> dict[str, Any]:
             )
 
             detail = batch_state["job_details"].get(i, {})
+            config = batch_state.get("job_configs", {}).get(i, {})
+
+            out_filename = config.get("output_filename")
+            video_url = None
+            thumbnail = None
+            size = None
+            duration = None
+
+            if out_filename:
+                basename = os.path.splitext(out_filename)[0]
+                thumbnail = f"/api/gallery/thumbnail/{basename}.jpg"
+                out_path = os.path.join(OUTPUT_DIR, out_filename)
+                if os.path.exists(out_path):
+                    video_url = f"/output/{out_filename}"
+                    try:
+                        size = os.path.getsize(out_path)
+                    except OSError:
+                        pass
+
+                txt_path = os.path.join(OUTPUT_DIR, f"{basename}.txt")
+                if os.path.exists(txt_path):
+                    try:
+                        with open(txt_path, encoding="utf-8") as _f:
+                            for _line in _f:
+                                _m = DURATION_RE.match(_line.strip())
+                                if _m:
+                                    duration = float(_m.group(1))
+                                    break
+                    except Exception:
+                        pass
+
             jobs.append(
                 {
                     "id": i,
@@ -262,6 +393,11 @@ def get_batch_status() -> dict[str, Any]:
                     "eta_seconds": eta_seconds,
                     "eta_llm": round(eta_llm, 1) if eta_llm > 0 else 0,
                     "eta_video": round(eta_video, 1) if eta_video > 0 else 0,
+                    "output_filename": out_filename,
+                    "video_url": video_url,
+                    "thumbnail": thumbnail,
+                    "size": size,
+                    "duration": duration,
                 }
             )
 
@@ -270,7 +406,6 @@ def get_batch_status() -> dict[str, Any]:
         max_workers = batch_state.get("max_workers", 1)
         llm_max_workers = batch_state.get("llm_max_workers", 5)
 
-        # Pipeline-aware global ETA
         avg_llm_dur: float = batch_state.get("_avg_llm_duration", 30) or 30
         avg_video_dur: float = batch_state.get("_avg_video_duration", 60) or 60
         total_llm: float = 0.0
@@ -290,18 +425,37 @@ def get_batch_status() -> dict[str, Any]:
             + total_video / max(1, max_workers)
         )
 
+        # System stats (network rate depends on batch_state counters, so this
+        # must happen while holding the lock).
+        now = time.time()
+        sys_stats = _collect_system_stats()
+        net_recv_kbs, net_sent_kbs = _compute_net_io_rate(now)
+
     return {
         "in_progress": in_progress,
         "num_shorts": num_shorts,
         "jobs": jobs,
         "max_workers": max_workers,
         "global_eta_seconds": round(global_eta_seconds, 1),
-        "cpu_percent": psutil.cpu_percent(interval=None),
-        "memory_percent": psutil.virtual_memory().percent,
+        "cpu_percent": round(sys_stats["cpu_percent"], 1),
+        "memory_percent": round(sys_stats["memory_percent"], 1),
+        "disk_percent": round(sys_stats["disk_percent"], 1),
+        "rss_mb": round(sys_stats["rss_mb"], 1),
+        "net_recv_kbs": round(net_recv_kbs, 2),
+        "net_sent_kbs": round(net_sent_kbs, 2),
+        "swap_percent": round(sys_stats["swap_percent"], 1),
+        "load_avg": round(sys_stats["load_avg"], 2),
+        "cpu_count": sys_stats["cpu_count"],
         "cancelledCount": cancelled_count,
         "failedCount": failed_count,
         "progress_segments": PROGRESS_SEGMENTS,
     }
+
+
+@router.get("/api/batch/status")
+def get_batch_status() -> dict[str, Any]:
+    """Return the current batch status with per-job progress, ETAs, and pipeline stats."""
+    return build_batch_status()
 
 
 @router.get("/api/batch/job/{job_id}")
@@ -380,6 +534,37 @@ def get_batch_job_detail(job_id: int) -> dict[str, Any]:
     else:
         error_detail = None
 
+    from gui.config import OUTPUT_DIR
+
+    out_filename = config.get("output_filename")
+    video_url = None
+    thumbnail = None
+    size = None
+    duration = None
+
+    if out_filename:
+        basename = os.path.splitext(out_filename)[0]
+        thumbnail = f"/api/gallery/thumbnail/{basename}.jpg"
+        out_path = os.path.join(OUTPUT_DIR, out_filename)
+        if os.path.exists(out_path):
+            video_url = f"/output/{out_filename}"
+            try:
+                size = os.path.getsize(out_path)
+            except OSError:
+                pass
+
+        txt_path = os.path.join(OUTPUT_DIR, f"{basename}.txt")
+        if os.path.exists(txt_path):
+            try:
+                with open(txt_path, encoding="utf-8") as _f:
+                    for _line in _f:
+                        _m = DURATION_RE.match(_line.strip())
+                        if _m:
+                            duration = float(_m.group(1))
+                            break
+            except Exception:
+                pass
+
     return {
         "id": job_id,
         "topic": detail.get("topic", ""),
@@ -433,7 +618,11 @@ def get_batch_job_detail(job_id: int) -> dict[str, Any]:
         "meta_temp": config.get("meta_temp", 0),
         "model": config.get("model", ""),
         "system_prompt": config.get("system_prompt", ""),
-        "output_filename": config.get("output_filename", ""),
+        "output_filename": out_filename,
+        "video_url": video_url,
+        "thumbnail": thumbnail,
+        "size": size,
+        "duration": duration,
         "generated_title": config.get("generated_title", ""),
         "generated_hashtags": config.get("generated_hashtags", ""),
         "script_text": config.get("script_text", ""),

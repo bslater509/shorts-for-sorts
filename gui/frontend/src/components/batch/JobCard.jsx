@@ -1,6 +1,23 @@
-import { CheckCircle2, XCircle, Clock, RefreshCw, Ban, X, Square } from 'lucide-react'
+import { CheckCircle2, XCircle, Clock, RefreshCw, Ban, X, Square, ChevronRight } from 'lucide-react'
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
+import InlineVideoPreview from './InlineVideoPreview'
 import { Button } from "@/components/ui/button"
+
+const PHASES = ['LLM', 'Voice', 'Transcribe', 'Render']
+
+function formatSize(bytes) {
+  if (!bytes) return null
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1048576).toFixed(1)} MB`
+}
+
+function formatDuration(secs) {
+  if (!secs) return null
+  const m = Math.floor(secs / 60)
+  const s = Math.floor(secs % 60)
+  return m > 0 ? `${m}m ${s}s` : `${s}s`
+}
 
 const JobCard = ({ job, onClick, progressSegments, streamingScript, onRetry, onDismiss, onCancelQueued, index = 0 }) => {
   const isDone = job.status === 'Done'
@@ -9,6 +26,25 @@ const JobCard = ({ job, onClick, progressSegments, streamingScript, onRetry, onD
   const isQueued = job.status === 'Queued'
   const isRunning = !isDone && !isFailed && !isQueued && !isCancelled
   const p = job.progress || 0
+
+  // Determine current phase from progress
+  const segments = progressSegments || [
+    { name: "LLM", start: 0, end: 20 },
+    { name: "Voice", start: 20, end: 45 },
+    { name: "Transcribe", start: 45, end: 55 },
+    { name: "Render", start: 55, end: 100 },
+  ]
+
+  let currentPhaseIdx = -1
+  if (isRunning) {
+    for (let i = 0; i < segments.length; i++) {
+      if (p >= segments[i].start && p < segments[i].end) {
+        currentPhaseIdx = i
+        break
+      }
+    }
+    if (currentPhaseIdx === -1 && p >= 100) currentPhaseIdx = segments.length - 1
+  }
 
   return (
     <div
@@ -29,6 +65,11 @@ const JobCard = ({ job, onClick, progressSegments, streamingScript, onRetry, onD
 
       {/* Hover glow accent */}
       <div className="absolute -inset-px rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br from-blue-500/5 via-transparent to-purple-500/5 pointer-events-none" />
+
+      {/* Inline video preview for done jobs */}
+      {isDone && job.video_url && (
+        <InlineVideoPreview videoUrl={job.video_url} thumbnail={job.thumbnail} className="mb-1" />
+      )}
 
       {/* Top row: topic + time badges */}
       <div className="flex items-start justify-between gap-2 relative">
@@ -58,6 +99,14 @@ const JobCard = ({ job, onClick, progressSegments, streamingScript, onRetry, onD
           {job.enable_emojis ? '😊 Emoji' : '🚫 No Emoji'}
         </span>
       </p>
+
+      {/* Size/duration badges for done jobs */}
+      {isDone && (job.size != null || job.duration != null) && (
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+          {job.size != null && <span>{formatSize(job.size)}</span>}
+          {job.duration != null && <span>{formatDuration(job.duration)}</span>}
+        </div>
+      )}
 
       {/* Status row */}
       {isDone && (
@@ -165,7 +214,29 @@ const JobCard = ({ job, onClick, progressSegments, streamingScript, onRetry, onD
             </span>
             <span className="text-foreground/80 font-semibold tabular-nums">{p}%</span>
           </div>
-          <MultiSegmentProgressBar progress={p} segments={progressSegments} isRunning={isRunning} />
+          <MultiSegmentProgressBar progress={p} segments={segments} isRunning={isRunning} />
+
+          {/* Phase timeline */}
+          <div className="flex items-center gap-1 text-[9px]">
+            {PHASES.map((phase, idx) => {
+              const seg = segments.find(s => s.name === phase)
+              const phaseEnd = seg ? seg.end : (idx + 1) * 25
+              const done = p >= phaseEnd
+              const active = currentPhaseIdx === idx
+              return (
+                <div key={phase} className="flex items-center gap-0.5">
+                  <span className={`px-1 py-0.5 rounded font-medium ${
+                    done ? 'bg-emerald-500/15 text-emerald-400' :
+                    active ? 'bg-blue-500/15 text-blue-400' :
+                    'bg-muted/50 text-muted-foreground/50'
+                  }`}>
+                    {phase}
+                  </span>
+                  {idx < PHASES.length - 1 && <ChevronRight size={8} className="text-muted-foreground/30" />}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
       {streamingScript?.isActive && streamingScript?.text && (

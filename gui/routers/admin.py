@@ -10,7 +10,12 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 import gui.state as shared_state
-from gui.batch_engine import DEFAULT_PHASE_WEIGHTS
+from gui.batch_engine import (
+    DEFAULT_PHASE_WEIGHTS,
+    _batch_state_lock,
+    _save_phase_weights,
+    batch_state,
+)
 from gui.config import BASE_DIR, BATCH_STATS_FILE, logger
 
 router: APIRouter = APIRouter()
@@ -75,6 +80,55 @@ def get_batch_stats() -> dict[str, Any]:
         "per_job_stats": [],
         "phase_rates": {},
     }
+
+
+@router.post("/api/batch/stats/reset")
+def reset_batch_stats() -> dict[str, Any]:
+    """Reset learned batch analytics back to defaults.
+
+    Refuses to run while a batch is in progress. Clears both the on-disk
+    stats file and the in-memory cached stats so a later batch completion
+    cannot re-persist stale data.
+
+    Returns:
+        The default stats payload (identical shape to ``get_batch_stats``).
+    """
+    if batch_state.get("in_progress"):
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot reset analytics while a batch is running",
+        )
+    defaults: dict[str, Any] = dict(DEFAULT_PHASE_WEIGHTS)
+    _save_phase_weights(defaults, 0, None, None, [], {})
+    with _batch_state_lock:
+        batch_state["_per_job_stats"] = []
+        batch_state["_phase_weights"] = None
+        batch_state["_avg_llm_duration"] = None
+        batch_state["_avg_video_duration"] = None
+        batch_state["_phase_rates"] = {}
+        batch_state["_job_features"] = {}
+    return {
+        "phase_ratios": defaults,
+        "sample_count": 0,
+        "avg_llm_duration": None,
+        "avg_video_duration": None,
+        "phase_rates": {},
+        "per_job_stats": [],
+    }
+
+
+@router.post("/api/log")
+def client_log(payload: dict[str, Any]) -> dict[str, str]:
+    """Accept client-side error reports forwarded from the frontend console."""
+    try:
+        logger.warning(
+            "Frontend %s: %s",
+            payload.get("level", "error"),
+            str(payload.get("message", ""))[:500],
+        )
+    except Exception:
+        pass
+    return {"status": "ok"}
 
 
 @router.get("/api/health")

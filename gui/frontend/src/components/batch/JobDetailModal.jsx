@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal, Ban, ChevronRight, AlertTriangle, FolderOpen } from 'lucide-react'
+import { Activity, CheckCircle2, XCircle, Clock, Loader2, X, Sparkles, Type, Smile, Volume2, Film, FileText, MessageSquare, Terminal, Ban, ChevronRight, AlertTriangle, FolderOpen, ChevronDown, ExternalLink } from 'lucide-react'
 import MultiSegmentProgressBar from './MultiSegmentProgressBar'
+import InlineVideoPreview from './InlineVideoPreview'
 import { Button } from "@/components/ui/button"
 import { toast } from 'sonner'
 import * as api from '@/lib/api'
 
 const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
   const [errorExpanded, setErrorExpanded] = useState(false)
+  const [detailsExpanded, setDetailsExpanded] = useState(false)
   const [visibleSections, setVisibleSections] = useState(new Set())
 
   useEffect(() => {
@@ -15,16 +17,17 @@ const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
     return () => window.removeEventListener('keydown', handleEsc)
   }, [onClose])
 
-  // Reveal sections progressively when content mounts
   useEffect(() => {
     if (!job) return
-    const sectionIds = ['progress', 'error', 'ai', 'text', 'emoji', 'audio', 'video', 'content', 'system_prompt', 'prompt']
+    const sectionIds = ['preview', 'progress', 'error', 'content']
     const timer = setTimeout(() => {
       sectionIds.forEach((id, i) => {
         setTimeout(() => {
           setVisibleSections(prev => new Set(prev).add(id))
         }, i * 60)
       })
+      setDetailsExpanded(true)
+      setTimeout(() => setVisibleSections(prev => new Set(prev).add('details')), sectionIds.length * 60)
     }, 100)
     return () => clearTimeout(timer)
   }, [job?.id])
@@ -69,7 +72,7 @@ const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between p-3 md:p-5 border-b border-border bg-secondary/20 shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-lg font-bold">Job #{job.id}</h2>
             {isDone && statusBadge('Done', <CheckCircle2 size={14} />, 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10')}
             {isCancelled && statusBadge('Cancelled', <Ban size={14} />, 'text-orange-400 border-orange-500/30 bg-orange-500/10')}
@@ -92,7 +95,7 @@ const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
                 className="flex items-center gap-1.5 text-[11px] px-2.5 py-1 h-auto bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border-blue-500/20"
               >
                 <FolderOpen size={13} />
-                Open Folder
+                <span className="hidden sm:inline">Open Folder</span>
               </Button>
             )}
             <Button variant="ghost" size="icon" onClick={onClose} className="p-2 rounded-lg hover:bg-secondary/50 transition-colors">
@@ -103,6 +106,22 @@ const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto p-3 md:p-5 space-y-4">
+          {/* Preview Section */}
+          {isDone && job.video_url && (
+            <Section title="Preview" sectionId="preview" icon={<FileText size={16} className="text-emerald-400" />}>
+              <InlineVideoPreview videoUrl={job.video_url} thumbnail={job.thumbnail} className="w-full max-w-[280px] mx-auto" />
+              <div className="mt-2 text-center">
+                <a
+                  href="/gallery"
+                  onClick={e => { e.stopPropagation() }}
+                  className="text-xs text-blue-400 hover:text-blue-300 inline-flex items-center gap-1 font-medium"
+                >
+                  <ExternalLink size={12} /> Open in Gallery
+                </a>
+              </div>
+            </Section>
+          )}
+
           {/* Topic */}
           <div>
             <p className="text-sm text-muted-foreground font-medium mb-1">Topic</p>
@@ -155,62 +174,8 @@ const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
             </Section>
           )}
 
-          {/* AI Settings */}
-          <Section title="AI Settings" sectionId="ai" icon={<Sparkles size={16} className="text-purple-400" />}>
-            <SettingRow label="Model" value={job.model || '—'} />
-            <SettingRow label="Script Temp" value={job.script_temp || '—'} />
-            <SettingRow label="Meta Temp" value={job.meta_temp || '—'} />
-            <SettingRow label="Max Words" value={job.settings?.max_words || '—'} />
-          </Section>
-
-          {/* Text / Subtitles */}
-          <Section title="Text &amp; Subtitles" sectionId="text" icon={<Type size={16} className="text-amber-400" />}>
-            <SettingRow label="Font" value={job.sub_font || '—'} />
-            <SettingRow label="Font Size" value={job.sub_size ? `${job.sub_size}px` : '—'} />
-            <SettingRow label="Color" value={job.sub_color || '—'} />
-            <SettingRow label="Highlight" value={job.sub_highlight || '—'} />
-            <SettingRow label="Outline" value={job.sub_outline || '—'} />
-            <SettingRow label="Outline Width" value={job.sub_outline_width || '—'} />
-            <SettingRow label="Bold" value={job.sub_bold ? 'Yes' : 'No'} />
-            <SettingRow label="Uppercase" value={job.sub_uppercase ? 'Yes' : 'No'} />
-            <SettingRow label="Animation" value={job.sub_animation_style || '—'} />
-            <SettingRow label="Words / Screen" value={job.words_per_screen || '—'} />
-            <SettingRow label="Word Pop" value={job.word_pop ? `Yes (${job.word_pop_scale}x)` : 'No'} />
-            <SettingRow label="Inactive Dim" value={job.inactive_dim ? `Yes (${job.inactive_alpha})` : 'No'} />
-            <SettingRow label="Single Word" value={job.single_word_mode ? 'Yes' : 'No'} />
-            <SettingRow label="Border Style" value={job.sub_border_style || '—'} />
-            <SettingRow label="Shadow Width" value={job.sub_shadow_width || '—'} />
-            <SettingRow label="BG Color" value={job.sub_bg_color || '—'} />
-            <SettingRow label="BG Alpha" value={job.sub_bg_alpha || '—'} />
-          </Section>
-
-          {/* Emoji Settings */}
-          <Section title="Emoji" sectionId="emoji" icon={<Smile size={16} className="text-yellow-400" />}>
-            <SettingRow label="Enabled" value={job.enable_emojis ? 'Yes' : 'No'} />
-            <SettingRow label="Animation" value={job.enable_emoji_animation ? 'On' : 'Off'} />
-            <SettingRow label="Scale" value={job.emoji_scale_factor || '—'} />
-            <SettingRow label="Hold Duration" value={job.emoji_hold_duration ? `${job.emoji_hold_duration}s` : '—'} />
-            <SettingRow label="Max / Word" value={job.emoji_throw_max_count || '—'} />
-            <SettingRow label="Position" value={job.emoji_position || '—'} />
-            <SettingRow label="Style" value={job.emoji_style || '—'} />
-          </Section>
-
-          {/* Audio Settings */}
-          <Section title="Audio" sectionId="audio" icon={<Volume2 size={16} className="text-green-400" />}>
-            <SettingRow label="Voice" value={job.voice_name || job.voice_id || '—'} />
-            <SettingRow label="Voice Speed" value={job.voice_speed || '—'} />
-            <SettingRow label="Music Volume" value={job.music_volume || '—'} />
-            <SettingRow label="Voice Volume" value={job.voice_volume || '—'} />
-          </Section>
-
-          {/* Video Settings */}
-          <Section title="Video" sectionId="video" icon={<Film size={16} className="text-rose-400" />}>
-            <SettingRow label="Layout" value={job.layout || '—'} />
-            <SettingRow label="Output" value={job.output_filename || '—'} />
-          </Section>
-
           {/* Generated Content (only if available) */}
-          {(job.generated_title || job.generated_hashtags || job.script_text) && (
+          {(job.generated_title || job.generated_hashtags || job.script_text || streamingScript?.text) && (
             <Section title="Generated Content" sectionId="content" icon={<FileText size={16} className="text-emerald-400" />}>
               {job.generated_title && <SettingRow label="Title" value={job.generated_title} />}
               {job.generated_hashtags && <SettingRow label="Hashtags" value={job.generated_hashtags} />}
@@ -228,19 +193,112 @@ const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
             </Section>
           )}
 
-          {/* Prompt (system prompt) */}
-          {job.system_prompt && (
-            <Section title="System Prompt" sectionId="system_prompt" icon={<MessageSquare size={16} className="text-indigo-400" />}>
-              <pre className="text-xs text-foreground whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-40 overflow-y-auto font-mono leading-relaxed">{job.system_prompt}</pre>
-            </Section>
-          )}
+          {/* Settings Accordion */}
+          <div>
+            <button
+              onClick={() => setDetailsExpanded(!detailsExpanded)}
+              className="flex items-center justify-between w-full py-2 cursor-pointer text-left group"
+            >
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <Sparkles size={16} className="text-purple-400" /> Details
+              </h3>
+              <span className={`transition-transform duration-200 ${detailsExpanded ? 'rotate-180' : ''}`}>
+                <ChevronDown size={16} className="text-muted-foreground" />
+              </span>
+            </button>
+            <div className={`grid transition-all duration-300 ease-in-out ${
+              detailsExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+            }`}>
+              <div className="overflow-hidden">
+                <div className="space-y-4 pt-2">
+                  {/* AI Settings */}
+                  <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3"><Sparkles size={16} className="text-purple-400" /> AI Settings</h3>
+                    <div className="divide-y divide-border/20">
+                      <SettingRow label="Model" value={job.model || '—'} />
+                      <SettingRow label="Script Temp" value={job.script_temp || '—'} />
+                      <SettingRow label="Meta Temp" value={job.meta_temp || '—'} />
+                      <SettingRow label="Max Words" value={job.settings?.max_words || '—'} />
+                    </div>
+                  </div>
 
-          {/* Raw Prompt */}
-          {job.prompt && (
-            <Section title="Generation Prompt" sectionId="prompt" icon={<Terminal size={16} className="text-cyan-400" />}>
-              <pre className="text-xs text-foreground whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-32 overflow-y-auto font-mono leading-relaxed">{job.prompt}</pre>
-            </Section>
-          )}
+                  {/* Text / Subtitles */}
+                  <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3"><Type size={16} className="text-amber-400" /> Text &amp; Subtitles</h3>
+                    <div className="divide-y divide-border/20">
+                      <SettingRow label="Font" value={job.sub_font || '—'} />
+                      <SettingRow label="Font Size" value={job.sub_size ? `${job.sub_size}px` : '—'} />
+                      <SettingRow label="Color" value={job.sub_color || '—'} />
+                      <SettingRow label="Highlight" value={job.sub_highlight || '—'} />
+                      <SettingRow label="Outline" value={job.sub_outline || '—'} />
+                      <SettingRow label="Outline Width" value={job.sub_outline_width || '—'} />
+                      <SettingRow label="Bold" value={job.sub_bold ? 'Yes' : 'No'} />
+                      <SettingRow label="Uppercase" value={job.sub_uppercase ? 'Yes' : 'No'} />
+                      <SettingRow label="Animation" value={job.sub_animation_style || '—'} />
+                      <SettingRow label="Words / Screen" value={job.words_per_screen || '—'} />
+                      <SettingRow label="Word Pop" value={job.word_pop ? `Yes (${job.word_pop_scale}x)` : 'No'} />
+                      <SettingRow label="Inactive Dim" value={job.inactive_dim ? `Yes (${job.inactive_alpha})` : 'No'} />
+                      <SettingRow label="Single Word" value={job.single_word_mode ? 'Yes' : 'No'} />
+                      <SettingRow label="Border Style" value={job.sub_border_style || '—'} />
+                      <SettingRow label="Shadow Width" value={job.sub_shadow_width || '—'} />
+                      <SettingRow label="BG Color" value={job.sub_bg_color || '—'} />
+                      <SettingRow label="BG Alpha" value={job.sub_bg_alpha || '—'} />
+                    </div>
+                  </div>
+
+                  {/* Emoji Settings */}
+                  <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3"><Smile size={16} className="text-yellow-400" /> Emoji</h3>
+                    <div className="divide-y divide-border/20">
+                      <SettingRow label="Enabled" value={job.enable_emojis ? 'Yes' : 'No'} />
+                      <SettingRow label="Animation" value={job.enable_emoji_animation ? 'On' : 'Off'} />
+                      <SettingRow label="Scale" value={job.emoji_scale_factor || '—'} />
+                      <SettingRow label="Hold Duration" value={job.emoji_hold_duration ? `${job.emoji_hold_duration}s` : '—'} />
+                      <SettingRow label="Max / Word" value={job.emoji_throw_max_count || '—'} />
+                      <SettingRow label="Position" value={job.emoji_position || '—'} />
+                      <SettingRow label="Style" value={job.emoji_style || '—'} />
+                    </div>
+                  </div>
+
+                  {/* Audio Settings */}
+                  <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3"><Volume2 size={16} className="text-green-400" /> Audio</h3>
+                    <div className="divide-y divide-border/20">
+                      <SettingRow label="Voice" value={job.voice_name || job.voice_id || '—'} />
+                      <SettingRow label="Voice Speed" value={job.voice_speed || '—'} />
+                      <SettingRow label="Music Volume" value={job.music_volume || '—'} />
+                      <SettingRow label="Voice Volume" value={job.voice_volume || '—'} />
+                    </div>
+                  </div>
+
+                  {/* Video Settings */}
+                  <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3"><Film size={16} className="text-rose-400" /> Video</h3>
+                    <div className="divide-y divide-border/20">
+                      <SettingRow label="Layout" value={job.layout || '—'} />
+                      <SettingRow label="Output" value={job.output_filename || '—'} />
+                    </div>
+                  </div>
+
+                  {/* System Prompt */}
+                  {job.system_prompt && (
+                    <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3"><MessageSquare size={16} className="text-indigo-400" /> System Prompt</h3>
+                      <pre className="text-xs text-foreground whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-40 overflow-y-auto font-mono leading-relaxed">{job.system_prompt}</pre>
+                    </div>
+                  )}
+
+                  {/* Raw Prompt */}
+                  {job.prompt && (
+                    <div className="bg-secondary/20 border border-border/40 rounded-xl p-4">
+                      <h3 className="text-sm font-semibold text-foreground flex items-center gap-2 mb-3"><Terminal size={16} className="text-cyan-400" /> Generation Prompt</h3>
+                      <pre className="text-xs text-foreground whitespace-pre-wrap bg-background border border-border/50 rounded-lg p-3 max-h-32 overflow-y-auto font-mono leading-relaxed">{job.prompt}</pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

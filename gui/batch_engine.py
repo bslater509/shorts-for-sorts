@@ -27,7 +27,7 @@ from gui.config import (
     MUSIC_DIR,
     logger,
 )
-from gui.ws_manager import notify_clients
+from gui.ws_manager import broadcast_batch_status, notify_clients
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1064,14 +1064,20 @@ def _run_pipeline(
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
-    from gui.batch import llm_job_worker
+    from gui.batch import llm_job_worker, video_job_worker
     from gui.progress_utils import log_memory_usage
+
+    import hashlib
 
     max_workers: int = _resolve_worker_count("max_workers", 1)
     llm_max_workers: int = _resolve_worker_count("llm_max_workers", 5)
     batch_state["max_workers"] = max_workers
     batch_state["llm_max_workers"] = llm_max_workers
     batch_state["_smoothed_eta"] = {}
+
+    _last_digest: str = ""
+    _last_broadcast: float = 0.0
+    _broadcast_heartbeat: float = 5.0
     logger.info(
         "[Batch Thread] Starting %d shorts with %d video workers, %d LLM workers, "
         "failure_mode=%s",
@@ -1123,6 +1129,23 @@ def _run_pipeline(
             break
 
         _sync_progress(batch_state, num_shorts)
+
+        # Broadcast batch status when progress changes or on heartbeat
+        now = time.time()
+        status_digest = hashlib.md5(
+            str([
+                (j, batch_state["shared_progress"].get(j))
+                for j in range(1, num_shorts + 1)
+                for sk in ["_phase_llm_end", "_phase_voice_start",
+                            "_phase_transcribe_start", "_phase_render_start"]
+                if sk in batch_state["shared_progress"]
+            ]).encode()
+        ).hexdigest()
+        if status_digest != _last_digest or (now - _last_broadcast) >= _broadcast_heartbeat:
+            _last_digest = status_digest
+            _last_broadcast = now
+            from gui.routers.batch import build_batch_status
+            broadcast_batch_status(build_batch_status())
 
         # Process completed LLM futures
         llm_futures = _process_llm_futures(
@@ -1375,6 +1398,10 @@ def _collect_and_persist_results(
 
     # Persist phase timing ratios and duration averages
     _persist_phase_data(job_configs, num_shorts)
+
+    # Broadcast final batch status snapshot
+    from gui.routers.batch import build_batch_status
+    broadcast_batch_status(build_batch_status())
 
 
 def _persist_phase_data(

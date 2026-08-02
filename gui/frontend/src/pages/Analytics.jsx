@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { BarChart3, RefreshCw, RotateCcw, Download } from 'lucide-react'
+import { BarChart3, RefreshCw, RotateCcw, Download, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
 import SummaryCards from '@/components/analytics/SummaryCards'
@@ -51,6 +51,7 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const fetchedAtRef = useRef(null)
   const [timeAgoLabel, setTimeAgoLabel] = useState('')
 
@@ -193,6 +194,21 @@ export default function Analytics() {
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
   }, [perJobStats])
+
+  // Reset handler — clears learned stats after confirmation
+  const handleReset = useCallback(async () => {
+    if (!window.confirm('Reset all analytics data? This clears learned phase weights, per-job stats, and processing rates. This cannot be undone.')) return
+    setResetting(true)
+    setError(null)
+    try {
+      await api.resetBatchStats()
+      await fetchStats(true)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setResetting(false)
+    }
+  }, [fetchStats])
 
   // ---- Loading State ----
   if (loading) {
@@ -400,6 +416,16 @@ export default function Analytics() {
                 title="Download CSV"
               >
                 <Download size={14} />
+              </Button>
+              <Button
+                onClick={handleReset}
+                disabled={resetting}
+                variant="ghost"
+                size="icon"
+                className="text-muted-foreground/40 hover:text-destructive"
+                title="Reset analytics data"
+              >
+                <Trash2 size={14} className={resetting ? 'animate-pulse' : ''} />
               </Button>
             </div>
           )}
