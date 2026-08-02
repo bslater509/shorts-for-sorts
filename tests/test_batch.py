@@ -146,7 +146,7 @@ class TestBatchJobConfig(unittest.TestCase):
         self.assertEqual(cfg.sub_bg_alpha, "80")
         self.assertFalse(cfg.single_word_mode)
         self.assertEqual(cfg.emoji_position, "above")
-        self.assertEqual(cfg.emoji_style, "Symbola")
+        self.assertEqual(cfg.emoji_style, "Noto Color Emoji")
         self.assertEqual(cfg.sub_animation_style, "tiktok_pop")
         self.assertEqual(cfg.script_temp, 0.7)
         self.assertEqual(cfg.meta_temp, 0.7)

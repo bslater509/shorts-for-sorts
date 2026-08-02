@@ -31,7 +31,7 @@ export default function Presets() {
     enable_emoji_animation: true,
     emoji_scale_factor: 1.5,
     emoji_hold_duration: 0.5,
-    emoji_style: 'apple',
+    emoji_style: 'Noto Color Emoji',
     sub_animation_style: 'tiktok_pop'
   })
 
@@ -86,7 +86,7 @@ export default function Presets() {
       enable_emoji_animation: p.enable_emoji_animation !== false,
       emoji_scale_factor: p.emoji_scale_factor || 1.5,
       emoji_hold_duration: p.emoji_hold_duration ?? 0.5,
-      emoji_style: p.emoji_style || 'apple',
+      emoji_style: p.emoji_style || 'Noto Color Emoji',
       sub_animation_style: p.sub_animation_style || 'tiktok_pop'
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })

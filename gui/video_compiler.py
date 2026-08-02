@@ -285,7 +285,7 @@ def _load_subtitle_options(
         "emoji_style": (
             current_state.get("emoji_style")
             if current_state.get("emoji_style") is not None
-            else settings.get("emoji_style", "apple")
+            else settings.get("emoji_style", "Noto Color Emoji")
         ),
         "enable_emoji_animation": (
             current_state.get("enable_emoji_animation")

@@ -136,7 +136,7 @@ class BatchJobConfig:
     sub_bg_alpha: str = "80"
     single_word_mode: bool = False
     emoji_position: str = "above"
-    emoji_style: str = "Symbola"
+    emoji_style: str = "Noto Color Emoji"
     sub_animation_style: str = "tiktok_pop"
     script_temp: float = 0.7
     meta_temp: float = 0.7

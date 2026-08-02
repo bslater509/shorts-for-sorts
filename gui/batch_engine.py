@@ -1019,7 +1019,7 @@ def _build_job_configs(
             "emoji_style": (
                 random.choice(emoji_styles)
                 if emoji_styles
-                else shared_state.settings.get("emoji_style", "apple")
+                else shared_state.settings.get("emoji_style", "Noto Color Emoji")
             ),
             "sub_animation_style": sub_animation_style,
             "script_temp": script_temp,

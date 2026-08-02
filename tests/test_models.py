@@ -73,7 +73,7 @@ class TestSettingsModel(unittest.TestCase):
         self.assertEqual(settings.sub_bg_alpha, "80")
         self.assertFalse(settings.single_word_mode)
         self.assertEqual(settings.emoji_position, "above")
-        self.assertEqual(settings.emoji_style, "Symbola")
+        self.assertEqual(settings.emoji_style, "Noto Color Emoji")
         self.assertEqual(settings.sub_animation_style, "tiktok_pop")
         self.assertTrue(settings.enable_emoji_animation)
         self.assertEqual(settings.emoji_scale_factor, 1.5)

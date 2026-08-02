@@ -194,11 +194,9 @@ export default function PresetForm({ form, onChange, animations, voices, onSave,
                     <SelectValue placeholder="Select style..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="apple">Apple</SelectItem>
-                    <SelectItem value="twemoji">Twemoji (Twitter)</SelectItem>
-                    <SelectItem value="google">Google</SelectItem>
-                    <SelectItem value="facebook">Facebook</SelectItem>
-                    <SelectItem value="openmoji">OpenMoji</SelectItem>
+                    <SelectItem value="Noto Color Emoji">Noto Color Emoji</SelectItem>
+                    <SelectItem value="Symbola">Symbola (Monochrome)</SelectItem>
+                    <SelectItem value="Noto Emoji">Noto Emoji (Monochrome)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

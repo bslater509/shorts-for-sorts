@@ -55,7 +55,7 @@ class SettingsModel(BaseModel):
     sub_bg_alpha: str | None = "80"
     single_word_mode: bool | None = False
     emoji_position: str | None = "above"
-    emoji_style: str | None = "Symbola"
+    emoji_style: str | None = "Noto Color Emoji"
     sub_animation_style: str | None = "tiktok_pop"
     enable_emoji_animation: bool | None = True
     emoji_scale_factor: float | None = 1.5
