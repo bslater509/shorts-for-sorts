@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Hash, Share2, Download, Trash2, Play } from 'lucide-react'
+import { Hash, Share2, Download, Trash2, Play, Upload, Loader2 } from 'lucide-react'
 import LazyVideo from '@/components/LazyVideo'
 import { Button } from "@/components/ui/button"
 
@@ -13,7 +13,7 @@ const formatDate = (timestamp) => {
   return new Date(timestamp * 1000).toLocaleString()
 }
 
-export default function VideoCard({ video, onCopyHashtags, onShare, onDelete }) {
+export default function VideoCard({ video, onCopyHashtags, onShare, onDelete, onTikTok, tiktokUploading }) {
   const [isPlaying, setIsPlaying] = useState(false);
 
   return (
@@ -104,6 +104,23 @@ export default function VideoCard({ video, onCopyHashtags, onShare, onDelete }) 
             <Download size={13} />
             <span className="truncate">Download</span>
           </a>
+          {onTikTok && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onTikTok(video)}
+              disabled={tiktokUploading}
+              className="flex-1 min-w-0 h-8 gap-1 px-2 rounded-lg text-[11px] font-medium bg-rose-500/5 text-rose-400/80 hover:bg-rose-500/20 hover:text-rose-300 transition-all"
+              title="Upload video to TikTok"
+            >
+              {tiktokUploading ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Upload size={13} />
+              )}
+              <span className="truncate">TikTok</span>
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"

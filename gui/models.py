@@ -21,6 +21,7 @@ class SettingsModel(BaseModel):
     llm_profiles: list[dict[str, Any]] | None = []
     active_llm_profile_id: str | None = ""
     pexels_api_key: str | None = ""
+    tiktok_sessionid: str | None = ""
     voice_speed: float | None = 1.0
     voice_volume: float | None = 1.0
     music_volume: float | None = 0.15

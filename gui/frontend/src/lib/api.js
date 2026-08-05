@@ -263,3 +263,11 @@ export async function openOutputFolder() {
 export async function validateBatch() {
   return await apiFetch('/api/batch/validate');
 }
+
+export async function postToTikTok(filename) {
+  return await apiFetch(`/api/tiktok/post/${encodeURIComponent(filename)}`, { method: 'POST' });
+}
+
+export async function getTikTokStatus() {
+  return await apiFetch('/api/tiktok/status');
+}

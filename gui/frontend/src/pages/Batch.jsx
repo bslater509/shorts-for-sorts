@@ -12,6 +12,15 @@ import SystemStatsCharts from '@/components/batch/SystemStatsCharts'
 
 const FILTER_TABS = ['All', 'Running', 'Queued', 'Done', 'Failed', 'Cancelled']
 
+const TAB_EMPTY_STATES = {
+  All: { title: 'All jobs hidden', desc: 'All jobs in this batch have been dismissed.' },
+  Running: { title: 'No running jobs', desc: 'Jobs actively processing will appear here.' },
+  Queued: { title: 'No queued jobs', desc: 'Jobs waiting for a free worker slot.' },
+  Done: { title: 'No completed jobs', desc: 'Finished videos will appear here.' },
+  Failed: { title: 'No failed jobs', desc: 'Jobs that need a retry will appear here.' },
+  Cancelled: { title: 'No cancelled jobs', desc: 'Cancelled jobs will appear here.' },
+}
+
 function formatSize(bytes) {
   if (!bytes) return null
   if (bytes < 1024) return `${bytes} B`
@@ -594,29 +603,56 @@ export default function Batch() {
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground space-y-3 py-16">
-              <div className="relative">
-                <Layers size={48} className="opacity-10" />
-                <Sparkles size={20} className="absolute -top-1 -right-1 text-blue-400/30 animate-pulse" />
-                <Zap size={16} className="absolute -bottom-1 -left-1 text-purple-400/30 animate-pulse delay-500" />
-              </div>
-              <div className="space-y-1 max-w-xs">
-                <p className="text-sm font-medium text-foreground/60">No batch jobs yet</p>
-                <p className="text-xs text-muted-foreground/60 leading-relaxed">
-                  Configure your settings above, choose your prompt templates, then hit <span className="text-blue-400 font-semibold">Start Batch</span> to generate multiple videos autonomously.
-                </p>
-              </div>
-              {!inProgress && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    const header = document.querySelector('header')
-                    header?.scrollIntoView({ behavior: 'smooth' })
-                  }}
-                  className="text-xs gap-1.5 mt-2 bg-blue-500/5 border-blue-500/20 text-blue-400 hover:bg-blue-500/10"
-                >
-                  <Play size={12} />
-                  Get Started
-                </Button>
+              {allJobs.length === 0 ? (
+                <>
+                  <div className="relative">
+                    <Layers size={48} className="opacity-10" />
+                    <Sparkles size={20} className="absolute -top-1 -right-1 text-blue-400/30 animate-pulse" />
+                    <Zap size={16} className="absolute -bottom-1 -left-1 text-purple-400/30 animate-pulse delay-500" />
+                  </div>
+                  <div className="space-y-1 max-w-xs">
+                    <p className="text-sm font-medium text-foreground/60">No batch jobs yet</p>
+                    <p className="text-xs text-muted-foreground/60 leading-relaxed">
+                      Configure your settings above, choose your prompt templates, then hit <span className="text-blue-400 font-semibold">Start Batch</span> to generate multiple videos autonomously.
+                    </p>
+                  </div>
+                  {!inProgress && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        const header = document.querySelector('header')
+                        header?.scrollIntoView({ behavior: 'smooth' })
+                      }}
+                      className="text-xs gap-1.5 mt-2 bg-blue-500/5 border-blue-500/20 text-blue-400 hover:bg-blue-500/10"
+                    >
+                      <Play size={12} />
+                      Get Started
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="relative mb-2">
+                    <Layers size={40} className="opacity-10" />
+                  </div>
+                  <div className="space-y-1 max-w-xs">
+                    <p className="text-sm font-medium text-foreground/60">
+                      {TAB_EMPTY_STATES[filterTab]?.title || `No ${filterTab.toLowerCase()} jobs`}
+                    </p>
+                    <p className="text-xs text-muted-foreground/60 leading-relaxed">
+                      {TAB_EMPTY_STATES[filterTab]?.desc || 'No jobs match this filter.'}
+                    </p>
+                  </div>
+                  {filterTab !== 'All' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setFilterTab('All')}
+                      className="text-xs mt-3 bg-secondary/50 hover:bg-secondary/70 border-border/50 text-foreground/80 h-auto py-1.5 px-3"
+                    >
+                      View All Jobs
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           )}

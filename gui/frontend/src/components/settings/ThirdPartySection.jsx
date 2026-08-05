@@ -22,6 +22,20 @@ export default function ThirdPartySection({ settings, onChange }) {
           />
         </div>
         <div className="flex flex-col gap-2">
+          <Label className="text-sm font-medium">TikTok Session ID</Label>
+          <Input
+            type="password"
+            name="tiktok_sessionid"
+            value={settings.tiktok_sessionid || ''}
+            onChange={onChange}
+            placeholder="Optional"
+            className="input-base"
+          />
+          <p className="text-xs text-muted-foreground">
+            Your TikTok sessionid cookie. Obtain via mitmproxy or cookie export. Expires ~30 days.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2">
           <Label className="text-sm font-medium">Sentry DSN (Error Tracking)</Label>
           <Input
             type="text"

@@ -54,6 +54,10 @@ if [ -f "requirements.txt" ]; then
     fi
 fi
 
+# Install playwright browser for TikTok uploader
+info "Installing Playwright Chromium for TikTok uploader..."
+python3 -m playwright install --with-deps chromium
+
 # Ensure NLTK punkt_tab is available
 info "Ensuring NLTK punkt_tab is downloaded..."
 python3 -m nltk.downloader punkt_tab

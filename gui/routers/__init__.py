@@ -6,4 +6,5 @@ Sub-modules:
     batch       — Batch generation start, status, cancel, retry, report.
     integrations — Pexels search/download, YouTube download/search.
     settings    — App settings, presets, state, voices, LLM model listing.
+    tiktok      — TikTok video upload.
 """

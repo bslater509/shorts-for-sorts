@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
-import { Film, RefreshCw, Trash2, Clapperboard } from 'lucide-react'
+import { Film, RefreshCw, Trash2, Clapperboard, CheckCircle2, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import * as api from '@/lib/api'
+import { postToTikTok, getTikTokStatus } from '@/lib/api'
 import GallerySkeleton from '@/components/gallery/GallerySkeleton'
 import VideoCard from '@/components/gallery/VideoCard'
 
 export default function Gallery() {
   const [videos, setVideos] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [tiktokUploading, setTiktokUploading] = useState(null)
+  const [tiktokResult, setTiktokResult] = useState(null)
 
   const loadGallery = async () => {
     setIsLoading(true)
@@ -110,6 +113,31 @@ export default function Gallery() {
     }
   }
 
+  const handleTikTok = async (video) => {
+    if (tiktokUploading) return
+    setTiktokUploading(video.filename)
+    setTiktokResult(null)
+    try {
+      await postToTikTok(video.filename)
+      // Upload started in background; poll /api/tiktok/status every 3s until not uploading
+      const poll = setInterval(async () => {
+        try {
+          const s = await getTikTokStatus()
+          if (s.state !== 'uploading') {
+            clearInterval(poll)
+            setTiktokUploading(null)
+            setTiktokResult({ filename: video.filename, success: s.state === 'done', error: s.error })
+            setTimeout(() => setTiktokResult(null), 6000)
+          }
+        } catch { clearInterval(poll); setTiktokUploading(null) }
+      }, 3000)
+    } catch (err) {
+      setTiktokUploading(null)
+      setTiktokResult({ filename: video.filename, success: false, error: err.message })
+      setTimeout(() => setTiktokResult(null), 6000)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto flex flex-col min-h-0 md:min-h-[calc(100dvh-6rem)]">
       {/* ── Header ── */}
@@ -150,6 +178,28 @@ export default function Gallery() {
         </div>
       </header>
 
+      {/* ── TikTok Upload Result Banner ── */}
+      {tiktokResult && (
+        <div
+          className={`shrink-0 flex items-center gap-2.5 px-4 py-3 rounded-xl border animate-in fade-in slide-in-from-top-2 duration-300 ${
+            tiktokResult.success
+              ? "bg-green-500/10 border-green-500/30 text-green-400"
+              : "bg-red-500/10 border-red-500/30 text-red-400"
+          }`}
+        >
+          {tiktokResult.success ? (
+            <CheckCircle2 size={16} className="shrink-0" />
+          ) : (
+            <XCircle size={16} className="shrink-0" />
+          )}
+          <span className="text-sm font-medium">
+            {tiktokResult.success
+              ? `Posted to TikTok: ${tiktokResult.filename}`
+              : `TikTok upload failed: ${tiktokResult.error}`}
+          </span>
+        </div>
+      )}
+
       {/* ── Content ── */}
       <div className="flex-1 md:overflow-y-auto overscroll-contain touch-pan-y">
         {isLoading ? (
@@ -167,6 +217,8 @@ export default function Gallery() {
                   onCopyHashtags={handleCopyHashtags}
                   onShare={handleShare}
                   onDelete={handleDelete}
+                  onTikTok={handleTikTok}
+                  tiktokUploading={tiktokUploading === v.filename}
                 />
               </div>
             ))}

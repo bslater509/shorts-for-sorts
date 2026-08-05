@@ -15,6 +15,7 @@ export default function SettingsPage() {
     llm_profiles: [],
     active_llm_profile_id: '',
     pexels_api_key: '',
+    tiktok_sessionid: '',
     local_whisper: true,
     local_whisper_model: 'tiny',
     whisper_api_key: '',

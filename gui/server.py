@@ -42,6 +42,7 @@ from gui.routers.assets import router as assets_router
 from gui.routers.batch import router as batch_router
 from gui.routers.integrations import router as integrations_router
 from gui.routers.settings import router as settings_router
+from gui.routers.tiktok import router as tiktok_router
 from gui.utils import check_system_dependencies, download_default_assets_if_empty
 from gui.ws_manager import manager, set_main_loop
 
@@ -239,6 +240,7 @@ app.include_router(assets_router)
 app.include_router(integrations_router)
 app.include_router(batch_router)
 app.include_router(admin_router)
+app.include_router(tiktok_router)
 
 
 @app.get("/{full_path:path}")

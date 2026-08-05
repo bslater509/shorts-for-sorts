@@ -14,3 +14,4 @@ kokoro-onnx
 numpy<2.0.0
 rich
 Pillow
+tiktok-uploader
