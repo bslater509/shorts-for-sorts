@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 from gui.config import logger
+from gui.exceptions import BatchCancelledError
 
 # --- Constants ---
 
@@ -73,6 +74,8 @@ def retry_with_backoff(
     for attempt in range(max_attempts):
         try:
             return func()
+        except BatchCancelledError:
+            raise
         except Exception as e:
             err_str: str = str(e).lower()
 

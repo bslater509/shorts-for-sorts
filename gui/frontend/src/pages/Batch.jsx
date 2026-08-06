@@ -53,6 +53,7 @@ export default function Batch() {
   const batchMetaTemp = useAppStore((s) => s.appState?.batch_meta_temp ?? s.settings?.llm_temp_metadata ?? 0.7)
   const batchMaxWorkers = useAppStore((s) => s.appState?.batch_max_workers ?? s.settings?.max_workers ?? 1)
   const batchLlmMaxWorkers = useAppStore((s) => s.appState?.batch_llm_max_workers ?? s.settings?.llm_max_workers ?? 5)
+  const batchPostToTikTok = useAppStore((s) => s.appState?.batch_post_to_tiktok ?? false)
   const updateAppState = useAppStore((s) => s.updateAppState)
   const saveCurrentState = useAppStore((s) => s.saveCurrentState)
   const [batchData, setBatchData] = useState(null)
@@ -241,6 +242,7 @@ export default function Batch() {
         metaTemp: batchMetaTemp,
         maxWorkers: batchMaxWorkers,
         llmMaxWorkers: batchLlmMaxWorkers,
+        postToTikTok: batchPostToTikTok,
       })
       toast.success("Batch started", { description: `Generating ${numShorts} videos across ${selectedPrompts.length} prompt sets.` })
       fetchStatus()
@@ -254,7 +256,7 @@ export default function Batch() {
   const handleCancel = async () => {
     try {
       await api.cancelBatch()
-      toast.info("Cancellation requested", { description: "The batch will stop once current jobs finish." })
+      toast.info("Cancelling batch", { description: "Stopping all running jobs now..." })
     } catch (err) {
       toast.error("Cancel failed", { description: err.message })
     }
@@ -401,6 +403,8 @@ export default function Batch() {
         emojiThrowMaxCount={emojiThrowMaxCount}
         handleStart={handleStart}
         isStarting={isStarting}
+        postToTikTok={batchPostToTikTok}
+        onPostToTikTokChange={(v) => { updateAppState({ batch_post_to_tiktok: v }); saveCurrentState() }}
       />
 
       <div className="flex-1 bg-card border border-border rounded-xl shadow-sm md:overflow-hidden flex flex-col">

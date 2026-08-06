@@ -16,9 +16,11 @@ import re
 import select
 import subprocess
 import time
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import ffmpeg
+
+from gui.exceptions import BatchCancelledError
 
 # --- Logger ---
 
@@ -245,6 +247,7 @@ def compile_video(
     render_resolution: str = "720p",
     video_encoder: str = "libx264",
     progress_callback: ProgressCallback | None = None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> None:
     """Render the final vertical-format video using FFmpeg.
 
@@ -279,6 +282,10 @@ def compile_video(
             ``"libx265"``, ``"h264_nvenc"``).
         progress_callback: Optional callable receiving a ``float``
             percentage ``[0.0, 100.0]`` as rendering progresses.
+        should_abort: Optional zero-argument callable returning ``True``
+            when rendering should be aborted (e.g. batch cancellation).
+            When triggered, the FFmpeg subprocess is killed immediately
+            and :class:`gui.exceptions.BatchCancelledError` is raised.
 
     Raises:
         ValueError: If video dimensions cannot be determined.
@@ -457,6 +464,7 @@ def compile_video(
         cwd=subs_dir or None,
         audio_duration=audio_duration,
         progress_callback=progress_callback,
+        should_abort=should_abort,
     )
 
 
@@ -566,6 +574,7 @@ def _run_ffmpeg_with_progress(
     cwd: str | None,
     audio_duration: float,
     progress_callback: ProgressCallback | None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> None:
     """Execute an FFmpeg command with progress monitoring and timeout.
 
@@ -603,6 +612,10 @@ def _run_ffmpeg_with_progress(
     try:
         with subprocess.Popen(cmd, **popen_kwargs) as process:
             while True:
+                if should_abort is not None and should_abort():
+                    process.kill()
+                    process.wait()
+                    raise BatchCancelledError("Batch cancelled: FFmpeg render interrupted")
                 remaining: float = ffmpeg_deadline - time.monotonic()
                 if remaining <= 0:
                     logger.error(
@@ -642,6 +655,8 @@ def _run_ffmpeg_with_progress(
             process.wait()
             return_code = process.returncode
 
+    except BatchCancelledError:
+        raise
     except Exception as e:
         logger.error(
             "Failed to execute FFmpeg command compiled via ffmpeg-python: %s",

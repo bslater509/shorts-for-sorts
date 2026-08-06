@@ -5,12 +5,15 @@ import * as api from '@/lib/api'
 import { postToTikTok, getTikTokStatus } from '@/lib/api'
 import GallerySkeleton from '@/components/gallery/GallerySkeleton'
 import VideoCard from '@/components/gallery/VideoCard'
+import VideoPreviewModal from '@/components/gallery/VideoPreviewModal'
 
 export default function Gallery() {
   const [videos, setVideos] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [tiktokUploading, setTiktokUploading] = useState(null)
   const [tiktokResult, setTiktokResult] = useState(null)
+  const [tiktokProgress, setTiktokProgress] = useState({ stage: '', percent: 0 })
+  const [previewVideo, setPreviewVideo] = useState(null)
 
   const loadGallery = async () => {
     setIsLoading(true)
@@ -117,22 +120,32 @@ export default function Gallery() {
     if (tiktokUploading) return
     setTiktokUploading(video.filename)
     setTiktokResult(null)
+    setTiktokProgress({ stage: '', percent: 0 })
     try {
       await postToTikTok(video.filename)
       // Upload started in background; poll /api/tiktok/status every 3s until not uploading
       const poll = setInterval(async () => {
         try {
           const s = await getTikTokStatus()
-          if (s.state !== 'uploading') {
+          if (s.state === 'uploading') {
+            setTiktokProgress({ stage: s.stage || '', percent: s.percent ?? 0 })
+          } else {
             clearInterval(poll)
             setTiktokUploading(null)
-            setTiktokResult({ filename: video.filename, success: s.state === 'done', error: s.error })
+            setTiktokProgress({ stage: '', percent: 0 })
+            const succeeded = s.state === 'done'
+            if (succeeded) {
+              try { await api.deleteGalleryVideo(video.filename) } catch { /* ignore */ }
+              await loadGallery()
+            }
+            setTiktokResult({ filename: video.filename, success: succeeded, error: s.error })
             setTimeout(() => setTiktokResult(null), 6000)
           }
-        } catch { clearInterval(poll); setTiktokUploading(null) }
+        } catch { clearInterval(poll); setTiktokUploading(null); setTiktokProgress({ stage: '', percent: 0 }) }
       }, 3000)
     } catch (err) {
       setTiktokUploading(null)
+      setTiktokProgress({ stage: '', percent: 0 })
       setTiktokResult({ filename: video.filename, success: false, error: err.message })
       setTimeout(() => setTiktokResult(null), 6000)
     }
@@ -205,7 +218,7 @@ export default function Gallery() {
         {isLoading ? (
           <GallerySkeleton count={4} />
         ) : videos.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 pb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6 pb-6">
             {videos.map((v, i) => (
               <div
                 key={v.filename}
@@ -218,7 +231,9 @@ export default function Gallery() {
                   onShare={handleShare}
                   onDelete={handleDelete}
                   onTikTok={handleTikTok}
+                  onPreview={setPreviewVideo}
                   tiktokUploading={tiktokUploading === v.filename}
+                  tiktokProgress={tiktokUploading === v.filename ? tiktokProgress : null}
                 />
               </div>
             ))}
@@ -244,6 +259,10 @@ export default function Gallery() {
           </div>
         )}
       </div>
+
+      {previewVideo && (
+        <VideoPreviewModal video={previewVideo} onClose={() => setPreviewVideo(null)} />
+      )}
     </div>
   )
 }

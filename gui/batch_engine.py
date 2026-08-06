@@ -27,6 +27,7 @@ from gui.config import (
     MUSIC_DIR,
     logger,
 )
+from gui.exceptions import BatchCancelledError
 from gui.ws_manager import broadcast_batch_status, notify_clients
 
 # ---------------------------------------------------------------------------
@@ -129,7 +130,7 @@ batch_state: dict[str, Any] = {
     "_cancelled_job_configs": [],
     "_dismissed_jobs": set(),
     "max_workers": 1,
-    "llm_max_workers": 5,
+    "llm_max_workers": 2,
     "_smoothed_eta": {},
     "_phase_weights": None,
     "_phase_rates": {},
@@ -761,6 +762,45 @@ def _log_memory_warning() -> None:
         pass
 
 
+def _wait_for_memory(threshold_mb: int = 2000, poll_interval: float = 5.0) -> None:
+    """Block until available system memory is above ``threshold_mb``.
+
+    Called before submitting a video compilation job to avoid OOM kills.
+    Logs a warning on the first wait, then polls silently until memory frees.
+
+    Args:
+        threshold_mb: Minimum available MB required to proceed.
+        poll_interval: Seconds between memory re-checks.
+    """
+    import time as _time
+
+    warned = False
+    while True:
+        if batch_state["should_cancel"]:
+            raise BatchCancelledError("Batch cancelled: low-memory wait interrupted")
+        try:
+            with open("/proc/meminfo") as f:
+                data = f.read()
+            mem_map: dict[str, int] = {}
+            for line in data.splitlines():
+                parts = line.split(":")
+                if len(parts) == 2:
+                    mem_map[parts[0].strip()] = int(parts[1].strip().split()[0])
+            avail_mb: int = mem_map.get("MemAvailable", 0) // 1024
+        except Exception:
+            return  # can't read, proceed anyway
+        if avail_mb >= threshold_mb:
+            return
+        if not warned:
+            logger.warning(
+                "Low memory (%dMB available) — pausing video job submission until %dMB is free",
+                avail_mb,
+                threshold_mb,
+            )
+            warned = True
+        _time.sleep(poll_interval)
+
+
 # ---------------------------------------------------------------------------
 # Job-config building
 # ---------------------------------------------------------------------------
@@ -783,6 +823,7 @@ def _build_job_configs(
     bg_music_path: str | None = None,
     script_temp: float | None = None,
     meta_temp: float | None = None,
+    post_to_tiktok: bool = False,
 ) -> tuple[dict[int, dict[str, Any]], str]:
     """Build job configuration dicts for a batch run.
 
@@ -1085,6 +1126,7 @@ def _build_job_configs(
             "output_filename": output_filename,
             "model": model,
             "system_prompt": system_prompt,
+            "post_to_tiktok": post_to_tiktok,
             "settings": shared_state.settings.copy(),
         }
 
@@ -1132,7 +1174,7 @@ def _run_pipeline(
     import hashlib
 
     max_workers: int = _resolve_worker_count("max_workers", 1)
-    llm_max_workers: int = _resolve_worker_count("llm_max_workers", 5)
+    llm_max_workers: int = _resolve_worker_count("llm_max_workers", 2)
     if max_workers_override is not None:
         max_workers = max(1, int(max_workers_override))
     if llm_max_workers_override is not None:
@@ -1161,6 +1203,21 @@ def _run_pipeline(
         max_workers=max_workers, mp_context=ctx, max_tasks_per_child=1
     )
     batch_state["llm_executor"] = ThreadPoolExecutor(max_workers=llm_max_workers)
+
+    # Set up TikTok post worker if posting is enabled
+    if batch_state.get("post_to_tiktok"):
+        import queue as _queue_mod
+        import threading as _threading_mod
+        post_q: _queue_mod.Queue = _queue_mod.Queue()
+        batch_state["tiktok_post_queue"] = post_q
+        batch_state["tiktok_post_results"] = {}
+        post_thread = _threading_mod.Thread(
+            target=_tiktok_post_worker, args=(post_q,), daemon=True
+        )
+        post_thread.start()
+        batch_state["tiktok_post_thread"] = post_thread
+        logger.info("[Batch] TikTok post worker started")
+
     log_memory_usage("Before LLM phase")
 
     llm_futures: list[tuple[int, Any]] = []
@@ -1176,6 +1233,8 @@ def _run_pipeline(
     batch_state["futures"] = []
 
     _sync_progress(batch_state, num_shorts)
+
+    _last_mem_log: float = 0.0
     while llm_futures or video_futures:
         if batch_state["should_cancel"]:
             for _, f in llm_futures:
@@ -1219,7 +1278,10 @@ def _run_pipeline(
         )
 
         if not llm_futures and video_futures:
-            log_memory_usage("LLM phase complete")
+            _now = time.time()
+            if _now - _last_mem_log >= 60.0:
+                log_memory_usage("LLM phase complete")
+                _last_mem_log = _now
 
         if batch_state["should_cancel"]:
             continue
@@ -1233,6 +1295,18 @@ def _run_pipeline(
             continue
 
         time.sleep(PIPELINE_POLL_INTERVAL)
+
+    # Drain and join the TikTok post worker if running
+    post_q = batch_state.get("tiktok_post_queue")  # type: ignore
+    post_thread = batch_state.get("tiktok_post_thread")
+    if post_q is not None and post_thread is not None and post_thread.is_alive():
+        logger.info("[Batch] Waiting for TikTok post worker to drain…")
+        post_q.put(None)  # Send sentinel
+        post_thread.join(timeout=300)  # Wait up to 5 min for uploads to complete
+        if post_thread.is_alive():
+            logger.warning("[Batch] TikTok post worker did not finish in time")
+        else:
+            logger.info("[Batch] TikTok post worker finished")
 
 
 def _process_llm_futures(
@@ -1265,6 +1339,9 @@ def _process_llm_futures(
                     batch_state["shared_progress"][i] = "Waiting for Compilation"
                     batch_state["shared_progress"][f"{i}_phase_llm_end"] = time.time()
                     from gui.batch import video_job_worker
+                    _wait_for_memory()
+                    if batch_state["should_cancel"]:
+                        break
                     vf = batch_state["executor"].submit(
                         video_job_worker, job_configs[i], batch_state["shared_progress"]
                     )
@@ -1275,6 +1352,8 @@ def _process_llm_futures(
                     )
                     if batch_state["should_cancel"]:
                         break
+            except BatchCancelledError:
+                break
             except Exception as e:
                 logger.error("[Batch Thread] LLM job %d exception: %s", i, e)
                 _handle_job_failure(
@@ -1304,6 +1383,11 @@ def _process_video_futures(
                 idx, success, msg = f.result()
                 if success:
                     logger.info("[Batch] Job #%d — video done: %s", idx, msg)
+                    # If post-to-TikTok is enabled, enqueue this job for upload
+                    post_queue = batch_state.get("tiktok_post_queue")
+                    if post_queue is not None and batch_state.get("post_to_tiktok"):
+                        batch_state["shared_progress"][idx] = "Posting to TikTok…"
+                        post_queue.put(idx)
                 else:
                     logger.warning("[Batch] Job #%d — video failed: %s", idx, msg)
                     batch_state["failed_job_configs"].append(job_configs.get(i))
@@ -1323,6 +1407,9 @@ def _process_video_futures(
                         batch_state["should_cancel"] = True
                         batch_state["shared_progress"][idx] = f"Failed: {msg}"
                         break
+            except BatchCancelledError:
+                batch_state["shared_progress"][i] = "Cancelled"
+                continue
             except Exception as e:
                 logger.error("[Batch Thread] Video job %d exception: %s", i, e)
                 batch_state["failed_job_configs"].append(job_configs.get(i))
@@ -1372,6 +1459,149 @@ def _handle_job_failure(
     )
     if failure_mode == "stop_all":
         batch_state["should_cancel"] = True
+
+
+def _delete_posted_video(output_filename: str) -> None:
+    """Delete an output video and its sidecar files after a successful TikTok post.
+
+    Removes the video file, its ``.txt`` sidecar, and its thumbnail — mirroring
+    the Gallery's ``delete_gallery_video`` behaviour.
+
+    Args:
+        output_filename: The video filename inside ``OUTPUT_DIR``.
+    """
+    from gui.config import OUTPUT_DIR, THUMBNAIL_DIR
+
+    basename: str = os.path.splitext(output_filename)[0]
+    for path in (
+        os.path.join(OUTPUT_DIR, output_filename),
+        os.path.join(OUTPUT_DIR, f"{basename}.txt"),
+        os.path.join(THUMBNAIL_DIR, f"{basename}.jpg"),
+    ):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                logger.info("[TikTok Post] Deleted %s", path)
+        except OSError as e:
+            logger.warning("[TikTok Post] Failed to delete %s: %s", path, e)
+
+
+def _tiktok_post_worker(post_queue: "Any") -> None:
+    """Background daemon worker that posts completed batch videos to TikTok.
+
+    Dequeues job indices from ``post_queue``, uploads each video, deletes the
+    file on success, and records the result in ``batch_state``.  Stops when it
+    receives ``None`` as a sentinel value.
+
+    Args:
+        post_queue: Queue of job indices (or ``None`` to stop).
+    """
+    import asyncio as _asyncio
+    import queue as _queue
+    import threading as _threading_mod
+
+    # Playwright's sync API raises if it detects an asyncio event loop running
+    # in the current thread.  This worker thread inherits the FastAPI process's
+    # loop reference, so we clear it here before any upload attempt.
+    try:
+        _asyncio.set_event_loop(None)
+    except Exception:
+        pass
+
+    sessionid: str = str(
+        shared_state.settings.get("tiktok_sessionid", "") or ""
+    ).strip()
+
+    while True:
+        try:
+            idx = post_queue.get(timeout=5.0)
+        except _queue.Empty:
+            # Keep waiting — only the None sentinel stops this worker
+            continue
+
+        if idx is None:
+            # Sentinel — stop the worker
+            post_queue.task_done()
+            break
+
+        if batch_state.get("should_cancel"):
+            logger.info("[TikTok Post] Skipping job #%d — batch cancelled", idx)
+            if "tiktok_post_results" not in batch_state:
+                batch_state["tiktok_post_results"] = {}
+            batch_state["tiktok_post_results"][idx] = {
+                "status": "skipped",
+                "error": "Batch cancelled",
+            }
+            batch_state["shared_progress"][idx] = "Done"
+            post_queue.task_done()
+            continue
+
+        config = batch_state.get("job_configs", {}).get(idx, {})
+        output_filename: str = config.get("output_filename", "")
+
+        try:
+            from gui.config import OUTPUT_DIR
+            from gui.routers.tiktok import _build_description, post_video_blocking
+
+            path: str = os.path.join(OUTPUT_DIR, output_filename)
+            description: str = _build_description(output_filename, path)
+
+            logger.info("[TikTok Post] Uploading job #%d: %s", idx, output_filename)
+            batch_state["shared_progress"][idx] = "Posting to TikTok…"
+
+            # Broadcast updated status to clients
+            from gui.routers.batch import build_batch_status
+            broadcast_batch_status(build_batch_status())
+
+            # Spawn a fresh thread for the upload to ensure a clean event loop
+            upload_thread = _threading_mod.Thread(
+                target=post_video_blocking,
+                args=(path, description, sessionid),
+                daemon=True,
+            )
+            upload_thread.start()
+            upload_thread.join()
+
+            # Success — delete the file and record result
+            _delete_posted_video(output_filename)
+            if "tiktok_post_results" not in batch_state:
+                batch_state["tiktok_post_results"] = {}
+            batch_state["tiktok_post_results"][idx] = {"status": "posted"}
+            batch_state["shared_progress"][idx] = "Done"
+            logger.info("[TikTok Post] Job #%d posted and deleted successfully", idx)
+            notify_clients(
+                "tiktok_upload",
+                "success",
+                f"Job #{idx} posted to TikTok!",
+                level="success",
+                metadata={"filename": output_filename, "error": None},
+            )
+
+        except Exception as e:
+            logger.error("[TikTok Post] Job #%d upload failed: %s", idx, e, exc_info=True)
+            if "tiktok_post_results" not in batch_state:
+                batch_state["tiktok_post_results"] = {}
+            batch_state["tiktok_post_results"][idx] = {
+                "status": "failed",
+                "error": str(e),
+            }
+            batch_state["shared_progress"][idx] = "Done"
+            notify_clients(
+                "tiktok_upload",
+                "error",
+                f"Job #{idx} TikTok post failed: {e}",
+                level="error",
+                metadata={"filename": output_filename, "error": str(e)},
+            )
+
+        finally:
+            # Always broadcast updated status and mark the queue item done
+            try:
+                from gui.routers.batch import build_batch_status
+                broadcast_batch_status(build_batch_status())
+            except Exception:
+                pass
+            post_queue.task_done()
 
 
 # ---------------------------------------------------------------------------
@@ -1686,6 +1916,7 @@ def batch_worker_thread(
     meta_temp: float | None = None,
     max_workers: int | None = None,
     llm_max_workers: int | None = None,
+    post_to_tiktok: bool = False,
 ) -> None:
     """Entry point for the background batch worker thread.
 
@@ -1723,6 +1954,15 @@ def batch_worker_thread(
         {"total": num_shorts},
     )
     batch_state["should_cancel"] = False
+    # Determine posting mode: new flag OR any stored job config carries it (retries)
+    retry_cfgs: list[dict] = batch_state.get("_retry_configs") or []
+    effective_post = post_to_tiktok or any(
+        cfg.get("post_to_tiktok") for cfg in retry_cfgs
+    )
+    batch_state["post_to_tiktok"] = effective_post
+    batch_state["tiktok_post_queue"] = None
+    batch_state["tiktok_post_thread"] = None
+    batch_state["tiktok_post_results"] = {}
     batch_state["failed_job_configs"] = []
     batch_state["batch_results"] = []
     loaded = _load_phase_weights()
@@ -1758,6 +1998,7 @@ def batch_worker_thread(
             bg_music_path=bg_music_path,
             script_temp=script_temp,
             meta_temp=meta_temp,
+            post_to_tiktok=effective_post,
         )
         batch_state["job_configs"] = job_configs
 

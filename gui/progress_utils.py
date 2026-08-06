@@ -129,6 +129,8 @@ def get_progress_percentage(status: str) -> int | None:
         return PROGRESS_RENDER_BASE
     elif status == "Done":
         return PROGRESS_DONE
+    elif status.startswith("Posting to TikTok"):
+        return PROGRESS_DONE
     elif status == "Cancelled" or status.startswith("Failed"):
         return None
     return PROGRESS_QUEUED

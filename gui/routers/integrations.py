@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 import gui.state as shared_state
+import gui.thumbnail_cache as thumbnail_cache
 from gui.config import GUI_STATE_FILE, VIDEOS_DIR, logger
 from gui.models import (
     PexelsDownloadRequest,
@@ -166,6 +167,7 @@ def download_pexels_video(
                 f"Pexels video downloaded and set as {pos} video!",
                 level="success",
             )
+            thumbnail_cache.enqueue(dest, thumbnail_cache.local_thumb_path(dest))
         except Exception as e:
             logger.error(
                 "[Pexels Download] Error downloading video: %s", e, exc_info=True
@@ -290,6 +292,13 @@ def download_youtube_video(
                     "YouTube download completed!",
                     level="success",
                 )
+                import glob as _glob
+                pattern = os.path.join(VIDEOS_DIR, f"youtube_{timestamp}_*")
+                for match in _glob.glob(pattern):
+                    if os.path.isfile(match):
+                        thumbnail_cache.enqueue(
+                            match, thumbnail_cache.local_thumb_path(match)
+                        )
         except Exception as e:
             logger.error(
                 "[YouTube] Error downloading video: %s", e, exc_info=True

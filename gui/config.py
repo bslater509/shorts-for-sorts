@@ -40,9 +40,19 @@ VIDEOS_DIR: str = os.path.join(BASE_DIR, "videos")
 MUSIC_DIR: str = os.path.join(BASE_DIR, "music")
 LOGS_DIR: str = os.path.join(BASE_DIR, "logs")
 TEMP_DIR: str = os.path.join(BASE_DIR, "temp")
+LOCAL_VIDEO_THUMBNAIL_DIR: str = os.path.join(CACHE_DIR, "thumbnails", "videos")
 
 # Ensure all directories exist
-for _dir in (CACHE_DIR, OUTPUT_DIR, CONFIG_DIR, VIDEOS_DIR, MUSIC_DIR, LOGS_DIR, TEMP_DIR):
+for _dir in (
+    CACHE_DIR,
+    OUTPUT_DIR,
+    CONFIG_DIR,
+    VIDEOS_DIR,
+    MUSIC_DIR,
+    LOGS_DIR,
+    TEMP_DIR,
+    LOCAL_VIDEO_THUMBNAIL_DIR,
+):
     os.makedirs(_dir, exist_ok=True)
 
 # --- Console ---

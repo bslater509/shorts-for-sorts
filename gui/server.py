@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.websockets import WebSocketDisconnect
 
+import gui.thumbnail_cache as thumbnail_cache
 from gui.config import (
     FRONTEND_DIST_DIR,
     MUSIC_DIR,
@@ -105,6 +106,21 @@ async def cleanup_temp_dir() -> None:
         logger.info("Cleaned up orphaned files in temp directory on startup.")
     except Exception as e:
         logger.warning("Failed to clean temp directory on startup: %s", e)
+
+
+@app.on_event("startup")
+async def start_thumbnail_worker() -> None:
+    """Start the background thumbnail worker and enqueue a precache scan."""
+    import threading
+
+    thumbnail_cache.start_thumbnail_worker()
+    threading.Thread(target=thumbnail_cache.precache_all, daemon=True).start()
+
+
+@app.on_event("shutdown")
+async def stop_thumbnail_worker() -> None:
+    """Gracefully stop the background thumbnail worker pool."""
+    thumbnail_cache.stop_thumbnail_worker()
 
 
 # ---------------------------------------------------------------------------

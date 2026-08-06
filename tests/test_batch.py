@@ -5,6 +5,8 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from gui.batch import BatchJobConfig, ProgressConsole
+from gui.batch_engine import _process_video_futures, _wait_for_memory, batch_state
+from gui.exceptions import BatchCancelledError
 from gui.progress_utils import format_elapsed, get_progress_percentage, make_progress_bar
 
 
@@ -323,6 +325,50 @@ class TestMakeProgressBar(unittest.TestCase):
         result = make_progress_bar(50, "Compiling")
         self.assertIn("50%", result)
         self.assertIn("Compiling...", result)
+
+
+class TestBatchCancellation(unittest.TestCase):
+    """Tests for near-instant batch cancellation behaviour."""
+
+    def setUp(self):
+        self._orig_should_cancel = batch_state["should_cancel"]
+        self._orig_shared_progress = batch_state["shared_progress"]
+        self._orig_failed = list(batch_state["failed_job_configs"])
+
+    def tearDown(self):
+        batch_state["should_cancel"] = self._orig_should_cancel
+        batch_state["shared_progress"] = self._orig_shared_progress
+        batch_state["failed_job_configs"] = self._orig_failed
+
+    def test_wait_for_memory_aborts_on_cancel(self):
+        """_wait_for_memory() must raise BatchCancelledError immediately once cancel is set.
+
+        The check fires at the top of the poll loop, before reading /proc/meminfo,
+        so it raises regardless of available memory.
+        """
+        batch_state["should_cancel"] = True
+        try:
+            with self.assertRaises(BatchCancelledError):
+                _wait_for_memory(threshold_mb=2000)
+        finally:
+            batch_state["should_cancel"] = False
+
+    def test_process_video_futures_marks_cancelled(self):
+        """A video future whose result() raises BatchCancelledError is marked
+        'Cancelled' (not 'Failed') and does not grow failed_job_configs."""
+
+        class FakeFuture:
+            def done(self):
+                return True
+
+            def result(self):
+                raise BatchCancelledError("Batch cancelled: FFmpeg render interrupted")
+
+        batch_state["shared_progress"] = {}
+        _process_video_futures([(1, FakeFuture())], {}, "stop_all")
+
+        self.assertEqual(batch_state["shared_progress"][1], "Cancelled")
+        self.assertEqual(batch_state["failed_job_configs"], [])
 
 
 if __name__ == "__main__":

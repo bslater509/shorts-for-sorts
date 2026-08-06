@@ -98,6 +98,16 @@ const JobCard = ({ job, onClick, progressSegments, streamingScript, onRetry, onD
         }`}>
           {job.enable_emojis ? '😊 Emoji' : '🚫 No Emoji'}
         </span>
+        {job.tiktok_posted && (
+          <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black text-white border border-white/20">
+            𝕋 Posted
+          </span>
+        )}
+        {job.tiktok_post_failed && (
+          <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20">
+            𝕋 Post Failed
+          </span>
+        )}
       </p>
 
       {/* Size/duration badges for done jobs */}

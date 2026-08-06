@@ -123,6 +123,7 @@ class StateModel(BaseModel):
     batch_meta_temp: float | None = None
     batch_max_workers: int | None = None
     batch_llm_max_workers: int | None = None
+    batch_post_to_tiktok: bool | None = None
 
 
 class PexelsSearchRequest(BaseModel):
@@ -182,3 +183,4 @@ class BatchStartRequest(BaseModel):
     meta_temp: float | None = None
     max_workers: int | None = None
     llm_max_workers: int | None = None
+    post_to_tiktok: bool | None = None

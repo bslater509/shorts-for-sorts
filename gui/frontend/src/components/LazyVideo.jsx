@@ -1,4 +1,5 @@
 import useInView from '@/hooks/useInView'
+import RetryingImage from '@/components/RetryingImage'
 
 export default function LazyVideo({ src, poster, ...props }) {
   const [ref, isInView] = useInView()
@@ -17,11 +18,10 @@ export default function LazyVideo({ src, poster, ...props }) {
         />
       ) : (
         poster ? (
-          <img
+          <RetryingImage
             src={poster}
             alt=""
             className="absolute inset-0 w-full h-full object-cover opacity-60"
-            loading="lazy"
           />
         ) : (
           <div className="absolute inset-0 bg-secondary/30" />

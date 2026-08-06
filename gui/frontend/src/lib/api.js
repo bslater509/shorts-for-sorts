@@ -176,6 +176,7 @@ export async function startBatch(numShorts, prompts = [], options = {}, ...legac
     metaTemp = null,
     maxWorkers = null,
     llmMaxWorkers = null,
+    postToTikTok = false,
   } = opts
 
   // UI sentinels — "Random" / "Default" mean "let the backend decide" and are
@@ -204,6 +205,7 @@ export async function startBatch(numShorts, prompts = [], options = {}, ...legac
       meta_temp: metaTemp,
       max_workers: maxWorkers,
       llm_max_workers: llmMaxWorkers,
+      post_to_tiktok: postToTikTok,
     })
   });
 }

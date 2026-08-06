@@ -94,6 +94,7 @@ state: dict[str, Any] = {
     "batch_meta_temp": None,
     "batch_max_workers": None,
     "batch_llm_max_workers": None,
+    "batch_post_to_tiktok": None,
 }
 """Active session state dictionary.
 

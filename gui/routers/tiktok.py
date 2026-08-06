@@ -17,13 +17,54 @@ import gui.state as shared_state
 from gui.config import OUTPUT_DIR, logger
 from gui.ws_manager import notify_clients
 
+import threading
+
 router: APIRouter = APIRouter()
 
-_last_status: dict[str, Any] = {"state": "idle", "filename": None, "error": None}
+_last_status: dict[str, Any] = {
+    "state": "idle",
+    "filename": None,
+    "error": None,
+    "stage": "idle",
+    "percent": 0,
+}
 """Last TikTok upload result, exposed via ``GET /api/tiktok/status``."""
+
+_upload_progress: dict[str, Any] = {"stage": "idle", "percent": 0}
+"""Live upload progress, updated from the worker thread during an upload."""
 
 _upload_lock: asyncio.Lock = asyncio.Lock()
 """Serialises uploads so two uploads can never run concurrently."""
+
+_upload_thread_lock: threading.Lock = threading.Lock()
+"""Serialises uploads across both gallery (async) and batch (thread) callers."""
+
+
+def _set_progress(stage: str, percent: int, filename: str) -> None:
+    """Update the live upload progress and broadcast it to clients.
+
+    Updates ``_upload_progress`` and the ``stage``/``percent`` keys of
+    ``_last_status`` so both the websocket notifications and the poll
+    endpoint stay in sync.  Safe to call from the worker thread —
+    ``notify_clients`` schedules the broadcast on the event loop via
+    ``asyncio.run_coroutine_threadsafe``.
+
+    Args:
+        stage: Human-readable description of the current stage.
+        percent: Approximate completion percentage (0-100).
+        filename: The video file currently being uploaded.
+    """
+    global _upload_progress, _last_status
+    _upload_progress = {"stage": stage, "percent": percent}
+    # Update _last_status in place too so the poll endpoint always has fresh data
+    _last_status = {**_last_status, "stage": stage, "percent": percent}
+    notify_clients(
+        "tiktok_upload",
+        "progress",
+        stage,
+        level="info",
+        metadata={"filename": filename, "stage": stage, "percent": percent, "error": None},
+    )
 
 
 def _do_upload(path: str, description: str, sessionid: str) -> None:
@@ -37,9 +78,12 @@ def _do_upload(path: str, description: str, sessionid: str) -> None:
     from tiktok_uploader.upload import TikTokUploader
     import tiktok_uploader.upload as tu_upload
 
+    filename: str = os.path.basename(path)
+
     # Monkey-patch to remove TikTok's onboarding overlay which intercepts clicks
     original_set_description = tu_upload._set_description
     def patched_set_description(page, desc):
+        _set_progress("Writing caption…", 65, filename)
         try:
             page.evaluate('''
                 const joyride = document.getElementById("react-joyride-portal");
@@ -56,6 +100,7 @@ def _do_upload(path: str, description: str, sessionid: str) -> None:
     # Monkey-patch _post_video to also clean up overlays just in case they appear late
     original_post_video = tu_upload._post_video
     def patched_post_video(page):
+        _set_progress("Posting to TikTok…", 85, filename)
         try:
             page.evaluate('''
                 const cookieBanner = document.querySelector("tiktok-cookie-banner");
@@ -63,10 +108,38 @@ def _do_upload(path: str, description: str, sessionid: str) -> None:
             ''')
         except Exception:
             pass
-        return original_post_video(page)
+        result = original_post_video(page)
+        _set_progress("Waiting for confirmation…", 95, filename)
+        return result
+
+    # Monkey-patch complete_upload_form to report progress for each stage.
+    # complete_upload_form calls _go_to_upload, _set_video, _set_description
+    # and _post_video in order; the sub-steps that can't be patched directly
+    # are reported before/after the wrapped calls below.
+    original_complete_upload_form = tu_upload.complete_upload_form
+
+    def patched_complete_upload_form(page, path, description, schedule, skip_split_window, *args, **kwargs):
+        # Stage: navigating to upload page
+        _set_progress("Navigating to upload page…", 10, filename)
+        # _go_to_upload is harder to intercept; instead wrap _set_video within
+        # this context to report the file-upload and processing stages.
+        original_set_video = tu_upload._set_video
+        def patched_set_video(page, path="", **kw):
+            _set_progress("Uploading video file…", 20, filename)
+            result = original_set_video(page, path=path, **kw)
+            _set_progress("Video processing…", 50, filename)
+            return result
+        tu_upload._set_video = patched_set_video
+
+        try:
+            result = original_complete_upload_form(page, path, description, schedule, skip_split_window, *args, **kwargs)
+        finally:
+            tu_upload._set_video = original_set_video
+        return result
 
     tu_upload._set_description = patched_set_description
     tu_upload._post_video = patched_post_video
+    tu_upload.complete_upload_form = patched_complete_upload_form
 
     try:
         # Pass the sessionid directly in a correctly formed cookie dict to bypass a bug in tiktok-uploader
@@ -77,6 +150,7 @@ def _do_upload(path: str, description: str, sessionid: str) -> None:
     finally:
         tu_upload._set_description = original_set_description
         tu_upload._post_video = original_post_video
+        tu_upload.complete_upload_form = original_complete_upload_form
 
     if not success:
         raise RuntimeError("TikTok upload failed. The session ID may have expired or the browser timed out.")
@@ -126,6 +200,37 @@ def _build_description(filename: str, path: str) -> str:
     return description[:300]
 
 
+def post_video_blocking(path: str, description: str, sessionid: str) -> None:
+    """Upload a video to TikTok synchronously from a background thread.
+
+    Acquires ``_upload_thread_lock`` so it cannot run concurrently with a
+    gallery upload.  Resets ``_last_status`` / ``_upload_progress`` to idle
+    on completion (success or failure).
+
+    Args:
+        path: Absolute path to the video file to upload.
+        description: Caption text for the post.
+        sessionid: TikTok session cookie value.
+
+    Raises:
+        RuntimeError: If the upload fails.
+    """
+    global _last_status, _upload_progress
+    filename: str = os.path.basename(path)
+    with _upload_thread_lock:
+        try:
+            _do_upload(path, description, sessionid)
+        finally:
+            _last_status = {
+                "state": "idle",
+                "filename": None,
+                "error": None,
+                "stage": "idle",
+                "percent": 0,
+            }
+            _upload_progress = {"stage": "idle", "percent": 0}
+
+
 async def _background_upload(path: str, description: str, sessionid: str) -> None:
     """Run the blocking upload in a dedicated thread and broadcast the result.
 
@@ -135,11 +240,18 @@ async def _background_upload(path: str, description: str, sessionid: str) -> Non
         sessionid: TikTok session cookie value.
     """
     import threading
-    global _last_status
+    global _last_status, _upload_progress
     filename: str = os.path.basename(path)
 
     async with _upload_lock:
-        _last_status = {"state": "uploading", "filename": filename, "error": None}
+        _last_status = {
+            "state": "uploading",
+            "filename": filename,
+            "error": None,
+            "stage": "Starting…",
+            "percent": 5,
+        }
+        _set_progress("Starting…", 5, filename)
         notify_clients(
             "tiktok_upload",
             "info",
@@ -153,7 +265,8 @@ async def _background_upload(path: str, description: str, sessionid: str) -> Non
         
         def target():
             try:
-                _do_upload(path, description, sessionid)
+                with _upload_thread_lock:
+                    _do_upload(path, description, sessionid)
                 loop.call_soon_threadsafe(future.set_result, None)
             except Exception as e:
                 loop.call_soon_threadsafe(future.set_exception, e)
@@ -163,7 +276,14 @@ async def _background_upload(path: str, description: str, sessionid: str) -> Non
             thread.start()
             await future
         except Exception as e:
-            _last_status = {"state": "error", "filename": filename, "error": str(e)}
+            _last_status = {
+                "state": "error",
+                "filename": filename,
+                "error": str(e),
+                "stage": "Failed",
+                "percent": 0,
+            }
+            _upload_progress = {"stage": "idle", "percent": 0}
             logger.error(
                 "[TikTok Upload] Failed for %s: %s", filename, e, exc_info=True
             )
@@ -176,7 +296,15 @@ async def _background_upload(path: str, description: str, sessionid: str) -> Non
             )
             return
 
-        _last_status = {"state": "done", "filename": filename, "error": None}
+        _set_progress("Done", 100, filename)
+        _last_status = {
+            "state": "done",
+            "filename": filename,
+            "error": None,
+            "stage": "Done",
+            "percent": 100,
+        }
+        _upload_progress = {"stage": "idle", "percent": 0}
         logger.info("[TikTok Upload] Successfully uploaded %s", filename)
         notify_clients(
             "tiktok_upload",
@@ -198,8 +326,8 @@ def get_tiktok_status() -> dict[str, Any]:
 
     Returns:
         Dictionary with ``state`` (``"idle"``, ``"uploading"``, ``"done"``
-        or ``"error"``), the affected ``filename``, and an optional
-        ``error`` message.
+        or ``"error"``), the affected ``filename``, an optional ``error``
+        message, and the live ``stage``/``percent`` progress keys.
     """
     return dict(_last_status)
 

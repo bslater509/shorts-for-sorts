@@ -61,7 +61,9 @@ const BatchHeader = ({
   emojiHoldDuration,
   emojiThrowMaxCount,
   handleStart,
-  isStarting
+  isStarting,
+  postToTikTok = false,
+  onPostToTikTokChange,
 }) => {
   const failureMode = useAppStore((s) => s.settings?.batch_failure_mode)
   const updateSettings = useAppStore((s) => s.updateSettings)
@@ -531,6 +533,21 @@ const BatchHeader = ({
           {failureMode === 'stop_on_failure' ? 'Stop' : 'Continue'}
         </Button>
 
+        {/* TikTok Post Toggle */}
+        <Button
+          variant="outline"
+          onClick={() => onPostToTikTokChange && onPostToTikTokChange(!postToTikTok)}
+          disabled={inProgress}
+          className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium border h-auto transition-all duration-200 ${
+            postToTikTok
+              ? 'bg-black text-white border-white/20'
+              : 'bg-muted/50 text-muted-foreground/60 border-border/30'
+          } disabled:opacity-50`}
+          title={postToTikTok ? 'Post to TikTok after render' : 'TikTok posting disabled'}
+        >
+          𝕋 TikTok
+        </Button>
+
         <Button
           variant="default"
           onClick={handleStart}
@@ -616,6 +633,21 @@ const BatchHeader = ({
                   <AlertOctagon size={12} className="flex-shrink-0" />
                   <span className="truncate">{failureMode === 'stop_on_failure' ? 'Stop on fail' : 'Cont. on fail'}</span>
                 </span>
+              </Button>
+
+              {/* TikTok Post mobile tile */}
+              <Button
+                variant="outline"
+                onClick={() => onPostToTikTokChange && onPostToTikTokChange(!postToTikTok)}
+                disabled={inProgress}
+                className={`w-full flex items-center justify-between gap-1 px-2 py-2 rounded-lg text-xs font-medium border h-auto min-h-[44px] shadow-sm transition-all duration-200 ${
+                  postToTikTok
+                    ? 'bg-black text-white border-white/20'
+                    : 'bg-muted/50 text-muted-foreground/60 border-border/30'
+                } disabled:opacity-50`}
+              >
+                <span className="truncate">𝕋 TikTok Post</span>
+                <span className={`h-2 w-2 rounded-full flex-shrink-0 ${postToTikTok ? 'bg-white' : 'bg-muted-foreground/30'}`} />
               </Button>
               
               <Button

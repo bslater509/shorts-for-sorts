@@ -13,10 +13,10 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 import gui.state as shared_state
+import gui.thumbnail_cache as thumbnail_cache
 from generator import get_video_info
 from gui.assets_utils import list_music_files, list_video_files
 from gui.config import MUSIC_DIR, OUTPUT_DIR, THUMBNAIL_DIR, VIDEOS_DIR
-from gui.media import generate_video_thumbnail
 
 router: APIRouter = APIRouter()
 
@@ -60,6 +60,7 @@ def list_assets_videos() -> list[dict[str, Any]]:
                 "url": f"/videos/{f}",
                 "size": size,
                 "modified": modified,
+                "thumbnail": f"/api/assets/videos/thumbnail/{f}?v={int(modified)}",
             }
         )
     return videos
@@ -91,6 +92,7 @@ def upload_assets_video(file: UploadFile = File(...)) -> dict[str, str]:
 
         with open(dest_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
+        thumbnail_cache.enqueue(dest_path, thumbnail_cache.local_thumb_path(dest_path))
         return {
             "status": "success",
             "filename": filename,
@@ -126,9 +128,38 @@ def delete_assets_video(filename: str) -> dict[str, str]:
             shared_state.state["bg_video_path"] = None
         if shared_state.state["bg_video_bottom_path"] == dest_path:
             shared_state.state["bg_video_bottom_path"] = None
+        try:
+            tp = thumbnail_cache.local_thumb_path(dest_path)
+            if os.path.exists(tp):
+                os.remove(tp)
+        except OSError:
+            pass
         return {"status": "success", "message": "Video deleted successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete video: {e}") from e
+
+
+@router.get("/api/assets/videos/thumbnail/{filename}")
+def get_assets_video_thumbnail(filename: str) -> FileResponse:
+    """Serve (or enqueue) a thumbnail for a local-library video.
+
+    Returns the cached JPEG if it exists; otherwise enqueues background
+    generation and returns HTTP 404 so the frontend can retry.
+
+    Args:
+        filename: The video filename (must exist in VIDEOS_DIR).
+    """
+    filename = os.path.basename(filename)
+    video_path = os.path.join(VIDEOS_DIR, filename)
+    if not os.path.exists(video_path):
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    thumb_path = thumbnail_cache.local_thumb_path(video_path)
+    if os.path.exists(thumb_path):
+        return FileResponse(thumb_path, media_type="image/jpeg")
+
+    thumbnail_cache.enqueue(video_path, thumb_path)
+    raise HTTPException(status_code=404, detail="Thumbnail not yet generated")
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +409,15 @@ def list_gallery_videos() -> list[dict[str, Any]]:
                     _backfill_duration(entry["filename"], probed)
 
     videos.sort(key=lambda x: x["modified"], reverse=True)
+
+    # Enqueue missing gallery thumbnails for background generation
+    for v in videos:
+        base = os.path.splitext(v["filename"])[0]
+        thumb = os.path.join(THUMBNAIL_DIR, base + ".jpg")
+        if not os.path.exists(thumb):
+            fp = os.path.join(OUTPUT_DIR, v["filename"])
+            thumbnail_cache.enqueue(fp, thumb)
+
     return videos
 
 
@@ -445,16 +485,10 @@ def delete_all_gallery_videos() -> dict[str, str]:
 
 @router.get("/api/gallery/thumbnail/{filename}")
 def get_gallery_thumbnail(filename: str) -> FileResponse:
-    """Serve or generate a thumbnail for a gallery video.
+    """Serve or enqueue a thumbnail for a gallery output video.
 
-    Args:
-        filename: The thumbnail filename (``{basename}.jpg``).
-
-    Returns:
-        The thumbnail image file.
-
-    Raises:
-        HTTPException: If the thumbnail cannot be found or generated (404).
+    Returns the cached JPEG if it exists; otherwise enqueues background
+    generation and returns HTTP 404 so the frontend can retry.
     """
     filename = os.path.basename(filename)
     thumb_path = os.path.join(THUMBNAIL_DIR, filename)
@@ -466,10 +500,7 @@ def get_gallery_thumbnail(filename: str) -> FileResponse:
     for ext in VIDEO_EXTENSIONS:
         video_path = os.path.join(OUTPUT_DIR, base_name + ext)
         if os.path.exists(video_path):
-            if generate_video_thumbnail(video_path, thumb_path) and os.path.exists(
-                thumb_path
-            ):
-                return FileResponse(thumb_path, media_type="image/jpeg")
-            break
+            thumbnail_cache.enqueue(video_path, thumb_path)
+            raise HTTPException(status_code=404, detail="Thumbnail not yet generated")
 
     raise HTTPException(status_code=404, detail="Thumbnail not found")

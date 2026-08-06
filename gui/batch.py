@@ -15,7 +15,9 @@ from dataclasses import dataclass, fields
 from typing import Any
 
 from gui import state as shared_state
+from gui.batch_engine import batch_state
 from gui.config import console, logger
+from gui.exceptions import BatchCancelledError
 from gui.llm_utils import parse_title_hashtags, retry_with_backoff
 from gui.progress_utils import log_memory_usage
 from gui.utils import resolve_preset_path
@@ -393,6 +395,8 @@ def llm_job_worker(
                 _token_buf: str = ""          # accumulate deltas for batched send
                 _token_buf_ts: float = time.time()
                 for chunk in response:
+                    if batch_state["should_cancel"]:
+                        raise BatchCancelledError("Batch cancelled: LLM generation interrupted")
                     if (
                         chunk.choices
                         and chunk.choices[0].delta
@@ -434,6 +438,8 @@ def llm_job_worker(
                 if not is_retryable or attempt == LLM_RETRY_ATTEMPTS - 1:
                     raise
                 progress_dict[idx] = f"LLM Script (retry {attempt + 1}/{LLM_RETRY_ATTEMPTS})"
+                if batch_state["should_cancel"]:
+                    raise BatchCancelledError("Batch cancelled: LLM generation interrupted")
                 time.sleep(1.0 * (2**attempt))
 
         script_text = script_text.strip()
@@ -470,6 +476,8 @@ def llm_job_worker(
         )
         return True, script_text, None
 
+    except BatchCancelledError:
+        raise
     except Exception as e:
         logger.warning("[Batch LLM #%d] Failed: %s", idx, str(e))
         return False, None, str(e)
@@ -557,6 +565,7 @@ def video_job_worker(
                 skip_confirm=True,
                 custom_output_filename=output_filename,
                 progress_callback=progress_console.print,
+                abort_check=lambda: batch_state["should_cancel"],
             )
         )
         if success:
@@ -601,6 +610,8 @@ def video_job_worker(
                     exc_info=True,
                 )
             return (idx, False, "Compilation failed (check logs/app.log)")
+    except BatchCancelledError:
+        raise
     except Exception as e:
         logger.error(
             "Batch job %d exception: %s\n%s",

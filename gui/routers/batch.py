@@ -130,6 +130,20 @@ def start_batch(data: BatchStartRequest) -> dict[str, str]:
             detail="Number of shorts must be between 1 and 100.",
         )
 
+    # Validate TikTok session ID if posting is enabled
+    if data.post_to_tiktok:
+        sessionid: str = str(
+            __import__("gui.state", fromlist=["settings"]).settings.get(
+                "tiktok_sessionid", ""
+            )
+            or ""
+        ).strip()
+        if not sessionid:
+            raise HTTPException(
+                status_code=400,
+                detail="TikTok session ID is missing. Add it in the Settings panel before enabling Post to TikTok.",
+            )
+
     # Create expensive manager outside lock so we don't block for too long
     new_manager = multiprocessing.Manager()
     new_shared = new_manager.dict()
@@ -168,6 +182,7 @@ def start_batch(data: BatchStartRequest) -> dict[str, str]:
             data.meta_temp,
             data.max_workers,
             data.llm_max_workers,
+            data.post_to_tiktok or False,
         ),
         daemon=True,
     )
@@ -408,6 +423,8 @@ def build_batch_status() -> dict[str, Any]:
                     "thumbnail": thumbnail,
                     "size": size,
                     "duration": duration,
+                    "tiktok_posted": batch_state.get("tiktok_post_results", {}).get(i, {}).get("status") == "posted",
+                    "tiktok_post_failed": batch_state.get("tiktok_post_results", {}).get(i, {}).get("status") == "failed",
                 }
             )
 
@@ -459,6 +476,7 @@ def build_batch_status() -> dict[str, Any]:
         "cancelledCount": cancelled_count,
         "failedCount": failed_count,
         "progress_segments": PROGRESS_SEGMENTS,
+        "post_to_tiktok": batch_state.get("post_to_tiktok", False),
     }
 
 
@@ -636,6 +654,8 @@ def get_batch_job_detail(job_id: int) -> dict[str, Any]:
         "generated_title": config.get("generated_title", ""),
         "generated_hashtags": config.get("generated_hashtags", ""),
         "script_text": config.get("script_text", ""),
+        "tiktok_posted": batch_state.get("tiktok_post_results", {}).get(job_id, {}).get("status") == "posted",
+        "tiktok_post_failed": batch_state.get("tiktok_post_results", {}).get(job_id, {}).get("status") == "failed",
     }
 
 
