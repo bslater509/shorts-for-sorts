@@ -1546,6 +1546,20 @@ def _tiktok_post_worker(post_queue: "Any") -> None:
             path: str = os.path.join(OUTPUT_DIR, output_filename)
             description: str = _build_description(output_filename, path)
 
+            # Apply per-job stagger delay (e.g., for scheduled human-like posting)
+            delays: dict[int, float] = batch_state.get("tiktok_delays", {}) or {}
+            delay: float = delays.get(idx, 0)
+            if delay > 0:
+                logger.info(
+                    "[TikTok Post] Delaying job #%d by %.0f min", idx, delay / 60
+                )
+                batch_state["shared_progress"][
+                    idx
+                ] = f"Posting to TikTok… (in ~{int(delay / 60)}m)"
+                from gui.routers.batch import build_batch_status
+                broadcast_batch_status(build_batch_status())
+                time.sleep(delay)
+
             logger.info("[TikTok Post] Uploading job #%d: %s", idx, output_filename)
             batch_state["shared_progress"][idx] = "Posting to TikTok…"
 
@@ -1917,6 +1931,7 @@ def batch_worker_thread(
     max_workers: int | None = None,
     llm_max_workers: int | None = None,
     post_to_tiktok: bool = False,
+    tiktok_delays: dict[int, float] | None = None,
 ) -> None:
     """Entry point for the background batch worker thread.
 
@@ -1960,6 +1975,7 @@ def batch_worker_thread(
         cfg.get("post_to_tiktok") for cfg in retry_cfgs
     )
     batch_state["post_to_tiktok"] = effective_post
+    batch_state["tiktok_delays"] = tiktok_delays or {}
     batch_state["tiktok_post_queue"] = None
     batch_state["tiktok_post_thread"] = None
     batch_state["tiktok_post_results"] = {}

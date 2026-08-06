@@ -184,3 +184,46 @@ class BatchStartRequest(BaseModel):
     max_workers: int | None = None
     llm_max_workers: int | None = None
     post_to_tiktok: bool | None = None
+    tiktok_delays: dict[int, float] | None = None
+
+
+class ScheduleModel(BaseModel):
+    """Schedule for automated batch generation and TikTok posting.
+
+    Defines a recurring batch job with configurable cadence (daily / weekly
+    / every-N-hours), randomised timing via jitter and per-video stagger
+    delays, and full batch-generation overrides.
+    """
+
+    id: str | None = None
+    name: str = ""
+    enabled: bool = True
+    cadence: str = "daily"  # "daily" | "weekly" | "interval"
+    times: list[str] = []  # HH:MM base times
+    days: list[int] = []  # 1=Mon .. 7=Sun (weekly only)
+    interval_hours: int = 3  # every N hours (interval cadence)
+    interval_start: str = "08:00"  # HH:MM
+    interval_end: str = "23:00"  # HH:MM
+    jitter_minutes: int = 45
+    stagger_enabled: bool = False
+    stagger_min_minutes: int = 60
+    stagger_max_minutes: int = 240
+    post_to_tiktok: bool = True
+    num_shorts: int = Field(default=5, ge=1, le=100)
+    prompts: list[str] = []
+    enable_emojis: bool = True
+    enable_emoji_animation: bool = True
+    emoji_scale_factor: float = 1.5
+    emoji_hold_duration: float = 0.5
+    emoji_throw_max_count: int = 3
+    emoji_styles: list[str] | None = None
+    layout: str | None = None
+    voice_id: str | None = None
+    sub_animation_style: str | None = None
+    words_per_screen: str | None = None
+    single_word_mode: bool | None = None
+    bg_music_path: str | None = None
+    script_temp: float | None = None
+    meta_temp: float | None = None
+    max_workers: int | None = None
+    llm_max_workers: int | None = None

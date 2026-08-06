@@ -144,7 +144,26 @@ def start_batch(data: BatchStartRequest) -> dict[str, str]:
                 detail="TikTok session ID is missing. Add it in the Settings panel before enabling Post to TikTok.",
             )
 
-    # Create expensive manager outside lock so we don't block for too long
+    return _launch_batch(data)
+
+
+def _launch_batch(
+    data: BatchStartRequest,
+    tiktok_delays: dict[int, float] | None = None,
+) -> dict[str, str]:
+    """Acquire the batch lock, set up shared state, and spawn the worker thread.
+
+    Args:
+        data: Validated batch parameters.
+        tiktok_delays: Optional per-job stagger delays (seconds) for scheduled runs.
+
+    Returns:
+        ``{"status": "started", ...}`` on success.
+
+    Raises:
+        HTTPException: If a batch is already in progress.
+    """
+    num_shorts: int = data.num_shorts
     new_manager = multiprocessing.Manager()
     new_shared = new_manager.dict()
 
@@ -160,6 +179,8 @@ def start_batch(data: BatchStartRequest) -> dict[str, str]:
         batch_state["job_configs"] = {}
         batch_state["manager"] = new_manager
         batch_state["shared_progress"] = new_shared
+
+    batch_state["tiktok_delays"] = tiktok_delays or {}
 
     t = threading.Thread(
         target=batch_worker_thread,
@@ -183,6 +204,7 @@ def start_batch(data: BatchStartRequest) -> dict[str, str]:
             data.max_workers,
             data.llm_max_workers,
             data.post_to_tiktok or False,
+            tiktok_delays,
         ),
         daemon=True,
     )

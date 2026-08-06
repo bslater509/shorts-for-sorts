@@ -273,3 +273,45 @@ export async function postToTikTok(filename) {
 export async function getTikTokStatus() {
   return await apiFetch('/api/tiktok/status');
 }
+
+export async function fetchSchedules() {
+  return await apiFetch('/api/schedules');
+}
+
+export async function createSchedule(data) {
+  return await apiFetch('/api/schedules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function updateSchedule(id, data) {
+  return await apiFetch(`/api/schedules/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+}
+
+export async function deleteSchedule(id) {
+  return await apiFetch(`/api/schedules/${encodeURIComponent(id)}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function toggleSchedule(id) {
+  return await apiFetch(`/api/schedules/${encodeURIComponent(id)}/toggle`, {
+    method: 'POST'
+  });
+}
+
+export async function runScheduleNow(id) {
+  return await apiFetch(`/api/schedules/${encodeURIComponent(id)}/run`, {
+    method: 'POST'
+  });
+}
+
+export async function fetchScheduleStatus() {
+  return await apiFetch('/api/schedules/status');
+}

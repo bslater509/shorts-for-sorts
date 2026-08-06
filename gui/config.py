@@ -131,6 +131,7 @@ BATCH_STATS_FILE: str = os.path.join(CONFIG_DIR, "batch_stats.json")
 FAILED_CONFIGS_FILE: str = os.path.join(CONFIG_DIR, "failed_batch_configs.json")
 CANCELLED_CONFIGS_FILE: str = os.path.join(CONFIG_DIR, "cancelled_batch_configs.json")
 DISMISSED_JOBS_FILE: str = os.path.join(CONFIG_DIR, "dismissed_jobs.json")
+SCHEDULES_FILE: str = os.path.join(CONFIG_DIR, "schedules.json")
 THUMBNAIL_DIR: str = os.path.join(OUTPUT_DIR, "thumbnails")
 FRONTEND_DIST_DIR: str = os.path.join(BASE_DIR, "gui/frontend/dist")
 

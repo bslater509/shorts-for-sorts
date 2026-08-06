@@ -5,6 +5,7 @@ import Gallery from "./pages/Gallery"
 import SettingsPage from "./pages/SettingsPage"
 import Analytics from "./pages/Analytics"
 import Batch from "./pages/Batch"
+import Schedule from "./pages/Schedule"
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="batch" element={<Batch />} />
+        <Route path="schedule" element={<Schedule />} />
       </Route>
     </Routes>
   )

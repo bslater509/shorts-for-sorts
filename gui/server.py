@@ -43,6 +43,7 @@ from gui.routers.assets import router as assets_router
 from gui.routers.batch import router as batch_router
 from gui.routers.integrations import router as integrations_router
 from gui.routers.settings import router as settings_router
+from gui.routers.schedule import router as schedule_router
 from gui.routers.tiktok import router as tiktok_router
 from gui.utils import check_system_dependencies, download_default_assets_if_empty
 from gui.ws_manager import manager, set_main_loop
@@ -117,10 +118,26 @@ async def start_thumbnail_worker() -> None:
     threading.Thread(target=thumbnail_cache.precache_all, daemon=True).start()
 
 
+@app.on_event("startup")
+async def start_scheduler() -> None:
+    """Start the background schedule-based batch runner."""
+    from gui.scheduler import start_scheduler_thread
+
+    start_scheduler_thread()
+
+
 @app.on_event("shutdown")
 async def stop_thumbnail_worker() -> None:
     """Gracefully stop the background thumbnail worker pool."""
     thumbnail_cache.stop_thumbnail_worker()
+
+
+@app.on_event("shutdown")
+async def stop_scheduler() -> None:
+    """Gracefully stop the scheduler daemon thread."""
+    from gui.scheduler import stop_scheduler_thread
+
+    stop_scheduler_thread()
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +273,7 @@ app.include_router(assets_router)
 app.include_router(integrations_router)
 app.include_router(batch_router)
 app.include_router(admin_router)
+app.include_router(schedule_router)
 app.include_router(tiktok_router)
 
 
