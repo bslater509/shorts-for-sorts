@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -127,9 +127,15 @@ class ThumbnailCacheTestCase(unittest.TestCase):
 
     def test_enqueue_dedupe_same_thumb_path(self):
         """Enqueuing the same video+thumb twice only adds one queue item."""
-        from gui.thumbnail_cache import enqueue, _queue, _in_progress, _in_progress_lock, stop_thumbnail_worker, _WORKER_POOL_SIZE
         # Start workers to drain the queue
         import gui.thumbnail_cache as tc
+        from gui.thumbnail_cache import (
+            _in_progress,
+            _in_progress_lock,
+            _queue,
+            enqueue,
+            stop_thumbnail_worker,
+        )
 
         tc._workers_started = False  # allow start in test
         tc.start_thumbnail_worker()
@@ -161,7 +167,7 @@ class ThumbnailCacheTestCase(unittest.TestCase):
     @patch("gui.thumbnail_cache.generate_video_thumbnail", return_value=True)
     def test_precache_output_enqueues_missing(self, _mock_gen):
         """precache_all enqueues output videos with missing thumbs."""
-        from gui.thumbnail_cache import precache_all, _queue, _in_progress, _in_progress_lock
+        from gui.thumbnail_cache import _in_progress, _in_progress_lock, _queue, precache_all
 
         # Don't start real workers — they'd consume items from the queue.
         # Just clear any residual state.
@@ -201,7 +207,13 @@ class ThumbnailCacheTestCase(unittest.TestCase):
     @patch("gui.thumbnail_cache.generate_video_thumbnail", return_value=True)
     def test_precache_local_enqueues_missing(self, _mock_gen):
         """precache_all enqueues local videos with missing cached thumbs."""
-        from gui.thumbnail_cache import precache_all, _queue, local_thumb_path, _in_progress, _in_progress_lock
+        from gui.thumbnail_cache import (
+            _in_progress,
+            _in_progress_lock,
+            _queue,
+            local_thumb_path,
+            precache_all,
+        )
 
         # Don't start real workers — they'd consume items from the queue.
         while not _queue.empty():

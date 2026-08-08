@@ -7,6 +7,7 @@ and the main ``batch_worker_thread`` orchestrator.
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import json
 import os
@@ -100,7 +101,7 @@ DEFAULT_LLM_DURATION: float = 30.0
 DEFAULT_VIDEO_DURATION: float = 60.0
 
 # Low-memory warning threshold (MB)
-LOW_MEMORY_THRESHOLD_MB: int = 1024
+LOW_MEMORY_THRESHOLD_MB: int = 2000
 
 # Pipeline progress: LLM-end threshold for video phase
 LLM_VIDEO_THRESHOLD: float = 20.0
@@ -758,15 +759,19 @@ def _log_memory_warning() -> None:
                 avail_mb,
                 total_mb,
             )
+            from gui.progress_utils import log_top_memory_processes
+
+            log_top_memory_processes()
     except Exception:
         pass
 
 
-def _wait_for_memory(threshold_mb: int = 2000, poll_interval: float = 5.0) -> None:
+def _wait_for_memory(threshold_mb: int = 3000, poll_interval: float = 5.0) -> None:
     """Block until available system memory is above ``threshold_mb``.
 
     Called before submitting a video compilation job to avoid OOM kills.
-    Logs a warning on the first wait, then polls silently until memory frees.
+    Logs a warning on the first wait, then polls silently while re-logging
+    top memory consumers and the self OOM score periodically.
 
     Args:
         threshold_mb: Minimum available MB required to proceed.
@@ -775,6 +780,7 @@ def _wait_for_memory(threshold_mb: int = 2000, poll_interval: float = 5.0) -> No
     import time as _time
 
     warned = False
+    _poll_count = 0
     while True:
         if batch_state["should_cancel"]:
             raise BatchCancelledError("Batch cancelled: low-memory wait interrupted")
@@ -798,6 +804,16 @@ def _wait_for_memory(threshold_mb: int = 2000, poll_interval: float = 5.0) -> No
                 threshold_mb,
             )
             warned = True
+        _poll_count += 1
+        if _poll_count >= 12:
+            _poll_count = 0
+            from gui.progress_utils import (
+                log_top_memory_processes,
+                log_self_oom_score,
+            )
+
+            log_top_memory_processes()
+            log_self_oom_score()
         _time.sleep(poll_interval)
 
 
@@ -1165,13 +1181,12 @@ def _run_pipeline(
         max_workers_override: Optional video worker count override.
         llm_max_workers_override: Optional LLM worker count override.
     """
+    import hashlib
     import multiprocessing
     from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
-    from gui.batch import llm_job_worker, video_job_worker
+    from gui.batch import llm_job_worker
     from gui.progress_utils import log_memory_usage
-
-    import hashlib
 
     max_workers: int = _resolve_worker_count("max_workers", 1)
     llm_max_workers: int = _resolve_worker_count("llm_max_workers", 2)
@@ -1486,7 +1501,7 @@ def _delete_posted_video(output_filename: str) -> None:
             logger.warning("[TikTok Post] Failed to delete %s: %s", path, e)
 
 
-def _tiktok_post_worker(post_queue: "Any") -> None:
+def _tiktok_post_worker(post_queue: Any) -> None:
     """Background daemon worker that posts completed batch videos to TikTok.
 
     Dequeues job indices from ``post_queue``, uploads each video, deletes the
@@ -1503,10 +1518,8 @@ def _tiktok_post_worker(post_queue: "Any") -> None:
     # Playwright's sync API raises if it detects an asyncio event loop running
     # in the current thread.  This worker thread inherits the FastAPI process's
     # loop reference, so we clear it here before any upload attempt.
-    try:
+    with contextlib.suppress(Exception):
         _asyncio.set_event_loop(None)
-    except Exception:
-        pass
 
     sessionid: str = str(
         shared_state.settings.get("tiktok_sessionid", "") or ""
@@ -1991,11 +2004,14 @@ def batch_worker_thread(
     failure_mode: str = shared_state.settings.get("batch_failure_mode", "stop_all")
 
     _log_mem = None
+    _memory_telemetry_stop = None
     try:
         from gui.progress_utils import log_memory_usage
+        from gui.progress_utils import start_memory_telemetry
 
         _log_mem = log_memory_usage
         log_memory_usage("After model unloading")
+        _memory_telemetry_stop = start_memory_telemetry(interval_seconds=60.0)
 
         job_configs, _timestamp = _build_job_configs(
             num_shorts,
@@ -2034,6 +2050,10 @@ def batch_worker_thread(
         )
         logger.exception("Exception occurred")
     finally:
+        if _memory_telemetry_stop is not None:
+            from gui.progress_utils import stop_memory_telemetry
+
+            stop_memory_telemetry(_memory_telemetry_stop)
         if batch_state.get("executor"):
             batch_state["executor"].shutdown(wait=True, cancel_futures=True)
         if batch_state.get("llm_executor"):

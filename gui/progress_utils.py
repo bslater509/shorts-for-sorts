@@ -6,9 +6,14 @@ percentages, render visual progress bars, and log memory usage.
 
 from __future__ import annotations
 
+import os
 import re
+import time as _time
+from collections.abc import Callable
 
 import psutil
+
+import time as _system_time
 
 from gui.config import logger
 
@@ -68,6 +73,197 @@ def log_memory_usage(stage: str) -> None:
     )
 
 
+def log_top_memory_processes(n: int = 5) -> None:
+    """Log the top *n* processes by RSS for memory diagnostics.
+
+    Args:
+        n: Maximum number of processes to log.
+    """
+    procs: list[tuple[float, int, str]] = []
+    for proc in psutil.process_iter(["pid", "name", "memory_info"]):
+        try:
+            rss_mb: float = proc.info["memory_info"].rss / 1024 / 1024  # type: ignore[index]
+            if rss_mb > 10.0:
+                name: str = proc.info["name"] or "?"  # type: ignore[index]
+                procs.append((rss_mb, proc.info["pid"], name))  # type: ignore[index]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    procs.sort(reverse=True)
+    logger.info("[Batch Memory] Top %d processes by RSS:", min(n, len(procs)))
+    for rss_mb, pid, name in procs[:n]:
+        logger.info("  PID %d %s = %.0fMB", pid, name, rss_mb)
+
+
+def log_self_oom_score() -> None:
+    """Log this process's OOM score and adjustment value.
+
+    Reads ``/proc/self/oom_score`` and ``/proc/self/oom_score_adj``.  Silently
+    skips on permission or read errors.
+    """
+    try:
+        with open("/proc/self/oom_score", encoding="utf-8") as fh:
+            score: int = int(fh.read().strip())
+        with open("/proc/self/oom_score_adj", encoding="utf-8") as fh:
+            score_adj: int = int(fh.read().strip())
+    except (OSError, ValueError):
+        return
+    logger.info(
+        "[Batch Memory] Self OOM: score=%d, score_adj=%d", score, score_adj
+    )
+
+
+def wait_for_available_memory(
+    threshold_mb: int = 2500,
+    poll_interval: float = 5.0,
+    abort_check: Callable[[], bool] | None = None,
+    log_interval_seconds: float = 60.0,
+) -> None:
+    """Block until available system memory is above ``threshold_mb``.
+
+    On the first wait iteration, logs a warning and the top memory-consuming
+    processes for diagnostics.  Every ``log_interval_seconds`` worth of polling,
+    re-logs the top memory processes and self OOM score.  Polls silently
+    otherwise.
+
+    Args:
+        threshold_mb: Minimum available MB required to proceed.
+        poll_interval: Seconds between memory re-checks.
+        abort_check: Optional callback; if it returns ``True``, raises
+            ``BatchCancelledError``.
+        log_interval_seconds: Polling time (``poll_count * poll_interval``)
+            after which to periodically re-log top memory processes and the
+            self OOM score while still waiting.
+
+    Raises:
+        BatchCancelledError: If ``abort_check`` returns ``True``.
+    """
+    warned = False
+    poll_count = 0
+    while True:
+        if abort_check is not None and abort_check():
+            from gui.exceptions import BatchCancelledError  # noqa: PLC0415
+
+            raise BatchCancelledError("Batch cancelled: low-memory wait interrupted")
+        mem: psutil.svmem = psutil.virtual_memory()
+        avail_mb: float = mem.available / 1024 / 1024
+        if avail_mb >= threshold_mb:
+            if warned:
+                logger.info(
+                    "[Batch Memory] Memory recovered to %.0fMB, proceeding",
+                    avail_mb,
+                )
+            return
+        if not warned:
+            logger.warning(
+                "Low memory (%.0fMB available) — pausing until %.0fMB is free (phase: transcription)",
+                avail_mb,
+                threshold_mb,
+            )
+            log_top_memory_processes()
+            warned = True
+        poll_count += 1
+        if (poll_count * poll_interval) >= log_interval_seconds:
+            log_top_memory_processes()
+            log_self_oom_score()
+            poll_count = 0
+        _time.sleep(poll_interval)
+
+
+def start_memory_telemetry(interval_seconds: float = 60.0) -> "threading.Event":
+    """Start a background thread that periodically logs memory diagnostics.
+
+    The daemon thread wakes every ``interval_seconds`` and logs RSS/available
+    memory, the top *5* processes by RSS, this process's OOM score, and (when
+    cgroup v2 is available) cgroup memory usage/peak.
+
+    Args:
+        interval_seconds: Seconds between telemetry log batches.
+
+    Returns:
+        A ``threading.Event`` used as the stop signal; pass it to
+        :func:`stop_memory_telemetry` to stop the thread.
+    """
+    import threading
+
+    stop_event: threading.Event = threading.Event()
+
+    def _run() -> None:
+        while not stop_event.wait(interval_seconds):
+            log_memory_usage("telemetry")
+            log_top_memory_processes(n=5)
+            log_self_oom_score()
+            if os.path.exists("/sys/fs/cgroup/memory.current"):
+                try:
+                    with open("/sys/fs/cgroup/memory.current", encoding="utf-8") as fh:
+                        current: int = int(fh.read().strip())
+                    with open("/sys/fs/cgroup/memory.peak", encoding="utf-8") as fh:
+                        peak: int = int(fh.read().strip())
+                except (OSError, ValueError):
+                    continue
+                logger.info(
+                    "[Batch Memory] Cgroup memory.current=%.0fMB, memory.peak=%.0fMB",
+                    current / 1024 / 1024,
+                    peak / 1024 / 1024,
+                )
+
+    thread: threading.Thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return stop_event
+
+
+def stop_memory_telemetry(stop_event: "threading.Event") -> None:
+    """Stop the memory telemetry thread started by :func:`start_memory_telemetry`.
+
+    Sets the stop event; does not join the (daemon) thread so shutdown is not
+    blocked.
+
+    Args:
+        stop_event: The event returned by :func:`start_memory_telemetry`.
+    """
+    stop_event.set()
+    logger.info("[Batch Memory] Memory telemetry stopped")
+
+
+# --- Subprocess accounting helpers ---
+
+
+def log_subprocess_start(name: str, cmd_preview: str = "") -> float:
+    """Log the start of an external subprocess and return the start timestamp.
+
+    Call :func:`log_subprocess_end` with the returned timestamp when the
+    subprocess completes to log elapsed time and (optionally) the PID.
+
+    Args:
+        name: Human-readable subprocess label (e.g. ``"ffmpeg-thumbnail"``).
+        cmd_preview: Optional truncated command for log context.
+
+    Returns:
+        The ``time.monotonic()`` value captured at call time.
+    """
+    start: float = _system_time.monotonic()
+    logger.info(
+        "[Subprocess] Starting %s%s", name, f" ({cmd_preview})" if cmd_preview else ""
+    )
+    return start
+
+
+def log_subprocess_end(
+    name: str, start: float, pid: int | None = None
+) -> None:
+    """Log subprocess completion with elapsed time and optional PID.
+
+    Args:
+        name: Same label passed to :func:`log_subprocess_start`.
+        start: Timestamp returned by :func:`log_subprocess_start`.
+        pid: Optional subprocess PID for process-tree identification.
+    """
+    elapsed: float = _system_time.monotonic() - start
+    pid_info: str = f" (pid={pid})" if pid is not None else ""
+    logger.info(
+        "[Subprocess] Finished %s%s in %.1fs", name, pid_info, elapsed
+    )
+
+
 def get_progress_percentage(status: str) -> int | None:
     """Map a job status string to an estimated completion percentage.
 
@@ -83,9 +279,7 @@ def get_progress_percentage(status: str) -> int | None:
         return PROGRESS_QUEUED
     elif status.startswith("Connecting to LLM"):
         return 2
-    elif status == "Waiting for LLM":
-        return PROGRESS_WAITING_LLM
-    elif status == "LLM Script (0 words)":
+    elif status == "Waiting for LLM" or status == "LLM Script (0 words)":
         return PROGRESS_WAITING_LLM
     elif status.startswith("LLM Script"):
         match = _WORD_COUNT_RE.search(status)
@@ -127,9 +321,7 @@ def get_progress_percentage(status: str) -> int | None:
             pct = float(match.group(1))
             return PROGRESS_RENDER_BASE + int((pct / 100) * PROGRESS_RENDER_RANGE)
         return PROGRESS_RENDER_BASE
-    elif status == "Done":
-        return PROGRESS_DONE
-    elif status.startswith("Posting to TikTok"):
+    elif status == "Done" or status.startswith("Posting to TikTok"):
         return PROGRESS_DONE
     elif status == "Cancelled" or status.startswith("Failed"):
         return None

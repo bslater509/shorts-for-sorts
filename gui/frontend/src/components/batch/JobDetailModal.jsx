@@ -30,7 +30,7 @@ const JobDetailModal = ({ job, onClose, progress, streamingScript }) => {
       setTimeout(() => setVisibleSections(prev => new Set(prev).add('details')), sectionIds.length * 60)
     }, 100)
     return () => clearTimeout(timer)
-  }, [job?.id])
+  }, [job])
 
   if (!job) return null
 

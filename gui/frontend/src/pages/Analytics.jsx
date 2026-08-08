@@ -86,11 +86,11 @@ export default function Analytics() {
     return () => clearInterval(interval)
   }, [])
 
-  const perJobStats = stats?.per_job_stats || []
+  const perJobStats = useMemo(() => stats?.per_job_stats || [], [stats?.per_job_stats])
   const sampleCount = stats?.sample_count || 0
   const avgLlmDuration = stats?.avg_llm_duration
   const avgVideoDuration = stats?.avg_video_duration
-  const phaseRatios = stats?.phase_ratios || {}
+  const phaseRatios = useMemo(() => stats?.phase_ratios || {}, [stats?.phase_ratios])
 
   // Phase distribution data for pie chart
   const phaseData = useMemo(() => {

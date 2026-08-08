@@ -60,7 +60,7 @@ python3 -m playwright install --with-deps chromium
 
 # Ensure NLTK punkt_tab is available
 info "Ensuring NLTK punkt_tab is downloaded..."
-python3 -m nltk.downloader punkt_tab
+python3 -c "import nltk; nltk.download('punkt_tab')"
 
 # Build frontend if package.json exists
 if [ -d "gui/frontend" ]; then
@@ -91,5 +91,54 @@ for arg in "$@"; do
     fi
 done
 
-info "Starting the server..."
-exec python3 gui/server.py "${ARGS[@]}"
+info "Starting the server (auto-restart enabled)..."
+while true; do
+    python3 gui/server.py "${ARGS[@]}"
+    EXIT_CODE=$?
+    if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 143 ]; then
+        info "Server stopped normally (exit code $EXIT_CODE)."
+        break
+    fi
+    # Capture crash diagnostics before restarting
+    CRASH_FILE="logs/crash_$(date +%Y%m%d_%H%M%S).txt"
+    warn "Server exited with code $EXIT_CODE. Capturing crash diagnostics to $CRASH_FILE..."
+    {
+        echo "=== Crash Diagnostics ==="
+        echo "Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        echo "Exit code: $EXIT_CODE"
+        echo ""
+        echo "=== Free Memory ==="
+        free -m
+        echo ""
+        echo "=== Top Memory Processes ==="
+        ps aux --sort=-rss | head -12
+        echo ""
+        echo "=== Cgroup Memory Events ==="
+        for events in /sys/fs/cgroup/user.slice/user-0.slice/user@0.service/*/memory.events /sys/fs/cgroup/memory.events; do
+            if [ -f "$events" ]; then
+                echo "--- $events ---"
+                cat "$events" 2>/dev/null
+            fi
+        done
+        echo ""
+        echo "=== Cgroup Memory Peak ==="
+        for peak in /sys/fs/cgroup/user.slice/user-0.slice/user@0.service/*/memory.peak /sys/fs/cgroup/memory.peak; do
+            if [ -f "$peak" ]; then
+                echo "--- $peak ---"
+                val=$(cat "$peak" 2>/dev/null)
+                echo "$val bytes ($((val / 1048576))MB)"
+            fi
+        done
+        echo ""
+        echo "=== OOM Score (self) ==="
+        cat /proc/self/oom_score /proc/self/oom_score_adj 2>/dev/null
+        echo ""
+        echo "=== Systemd OOM Events (last 30 min) ==="
+        journalctl --since "30 min ago" 2>/dev/null | grep -i "oom\|killed process" | tail -20
+        echo ""
+        echo "=== Tail of server log ==="
+        tail -30 logs/server.json.log 2>/dev/null
+    } > "$CRASH_FILE" 2>/dev/null
+    warn "Server exited unexpectedly (code $EXIT_CODE). Restarting in 10 seconds..."
+    sleep 10
+done

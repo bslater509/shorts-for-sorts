@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from gui.llm_utils import parse_title_hashtags, retry_with_backoff
+from gui.llm_utils import parse_title_hashtags, retry_with_backoff, strip_think_blocks
 
 
 # ===================================================================
@@ -248,6 +248,60 @@ class TestRetryWithBackoff(unittest.TestCase):
 
         result = retry_with_backoff(succeed)
         self.assertEqual(result, "defaults work")
+
+
+# ===================================================================
+# strip_think_blocks
+# ===================================================================
+class TestStripThinkBlocks(unittest.TestCase):
+    """Tests for :func:`gui.llm_utils.strip_think_blocks`."""
+
+    def test_single_block_removed(self) -> None:
+        """A single <think> block is removed, content after preserved."""
+        result = strip_think_blocks(
+            "<think>\nwhy am i saying hi?\n</think>\n\nHello there, friend!"
+        )
+        self.assertEqual(result, "Hello there, friend!")
+
+    def test_multiple_blocks_removed(self) -> None:
+        """Multiple <think> blocks are all removed."""
+        result = strip_think_blocks(
+            "<think>first</think>\nStart.\n<think>second</think>\nEnd."
+        )
+        self.assertEqual(result, "Start.\n\nEnd.")
+
+    def test_title_hashtags_preserved(self) -> None:
+        """TITLE and HASHTAGS lines after think block survive."""
+        result = strip_think_blocks(
+            "<think>\nplanning the story\n</think>\n\n"
+            "A short story here.\n\n"
+            "TITLE: My Story\n"
+            "HASHTAGS: #viral #fyp"
+        )
+        self.assertIn("A short story here.", result)
+        self.assertIn("TITLE: My Story", result)
+        self.assertIn("HASHTAGS: #viral #fyp", result)
+        self.assertNotIn("<think>", result)
+        self.assertNotIn("planning", result)
+
+    def test_no_block_unchanged(self) -> None:
+        """Text without think blocks passes through unchanged."""
+        text = "Just a normal script\nwith multiple lines."
+        self.assertEqual(strip_think_blocks(text), text)
+
+    def test_extra_newlines_collapsed(self) -> None:
+        """Gaps left by removed blocks collapse to at most 2 consecutive newlines."""
+        result = strip_think_blocks(
+            "Line one.\n\n<think>x</think>\n\n\nLine two."
+        )
+        self.assertEqual(result, "Line one.\n\nLine two.")
+
+    def test_tags_with_attributes(self) -> None:
+        """<think> tags with mode/type attributes are stripped."""
+        result = strip_think_blocks(
+            '<think mode="deep">internal monologue</think>\nThe end.'
+        )
+        self.assertEqual(result, "The end.")
 
 
 if __name__ == "__main__":

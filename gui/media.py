@@ -129,6 +129,8 @@ def generate_video_thumbnail(
     Returns:
         ``True`` if the thumbnail was generated successfully, ``False`` otherwise.
     """
+    from gui.progress_utils import log_subprocess_start, log_subprocess_end
+
     cmd: list[str] = [
         "ffmpeg",
         "-y",
@@ -143,7 +145,9 @@ def generate_video_thumbnail(
         thumb_path,
     ]
     try:
+        t0 = log_subprocess_start("ffmpeg-gallery-thumbnail")
         subprocess.run(cmd, capture_output=True, check=True, timeout=FFMPEG_THUMBNAIL_TIMEOUT)
+        log_subprocess_end("ffmpeg-gallery-thumbnail", t0)
         return True
     except Exception:
         logger.error(

@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from "react-router-dom"
+import { Outlet, useLocation } from "react-router"
 import { useEffect, useRef } from "react"
 import Sidebar from "./Sidebar"
 import { useAppStore } from "@/store/useAppStore"

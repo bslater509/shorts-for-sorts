@@ -18,11 +18,11 @@ from gui import state as shared_state
 from gui.batch_engine import batch_state
 from gui.config import console, logger
 from gui.exceptions import BatchCancelledError
-from gui.llm_utils import parse_title_hashtags, retry_with_backoff
+from gui.llm_utils import parse_title_hashtags, retry_with_backoff, strip_think_blocks
 from gui.progress_utils import log_memory_usage
 from gui.utils import resolve_preset_path
 from gui.video_compiler import compile_video_flow
-from gui.ws_manager import stream_llm_token, stream_llm_event
+from gui.ws_manager import stream_llm_event, stream_llm_token
 
 # --- Constants ---
 
@@ -396,7 +396,7 @@ def llm_job_worker(
                 _token_buf_ts: float = time.time()
                 for chunk in response:
                     if batch_state["should_cancel"]:
-                        raise BatchCancelledError("Batch cancelled: LLM generation interrupted")
+                        raise BatchCancelledError("Batch cancelled: LLM generation interrupted") from None
                     if (
                         chunk.choices
                         and chunk.choices[0].delta
@@ -439,10 +439,11 @@ def llm_job_worker(
                     raise
                 progress_dict[idx] = f"LLM Script (retry {attempt + 1}/{LLM_RETRY_ATTEMPTS})"
                 if batch_state["should_cancel"]:
-                    raise BatchCancelledError("Batch cancelled: LLM generation interrupted")
+                    raise BatchCancelledError("Batch cancelled: LLM generation interrupted") from None
                 time.sleep(1.0 * (2**attempt))
 
         script_text = script_text.strip()
+        script_text = strip_think_blocks(script_text)
         script_text, title, hashtags = parse_title_hashtags(script_text)
 
         # Generate safe output filename from title

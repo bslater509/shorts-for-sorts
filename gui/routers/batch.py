@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import multiprocessing
 import os
@@ -241,38 +242,24 @@ def _collect_system_stats() -> dict[str, Any]:
         "cpu_count": 1,
     }
 
-    try:
+    with contextlib.suppress(Exception):
         stats["cpu_percent"] = psutil.cpu_percent(interval=None)
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         stats["memory_percent"] = psutil.virtual_memory().percent
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         stats["rss_mb"] = psutil.Process().memory_info().rss / (1024 * 1024)
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         stats["swap_percent"] = psutil.swap_memory().percent
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         stats["cpu_count"] = psutil.cpu_count() or 1
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(OSError, AttributeError):
         stats["load_avg"] = os.getloadavg()[0]
-    except (OSError, AttributeError):
-        pass
     try:
         stats["disk_percent"] = psutil.disk_usage(OUTPUT_DIR).percent
     except Exception:
         # Fall back to the filesystem root, then give up silently.
-        try:
+        with contextlib.suppress(Exception):
             stats["disk_percent"] = psutil.disk_usage("/").percent
-        except Exception:
-            pass
     return stats
 
 
@@ -405,10 +392,8 @@ def build_batch_status() -> dict[str, Any]:
                 out_path = os.path.join(OUTPUT_DIR, out_filename)
                 if os.path.exists(out_path):
                     video_url = f"/output/{out_filename}"
-                    try:
+                    with contextlib.suppress(OSError):
                         size = os.path.getsize(out_path)
-                    except OSError:
-                        pass
 
                 txt_path = os.path.join(OUTPUT_DIR, f"{basename}.txt")
                 if os.path.exists(txt_path):
@@ -598,10 +583,8 @@ def get_batch_job_detail(job_id: int) -> dict[str, Any]:
         out_path = os.path.join(OUTPUT_DIR, out_filename)
         if os.path.exists(out_path):
             video_url = f"/output/{out_filename}"
-            try:
+            with contextlib.suppress(OSError):
                 size = os.path.getsize(out_path)
-            except OSError:
-                pass
 
         txt_path = os.path.join(OUTPUT_DIR, f"{basename}.txt")
         if os.path.exists(txt_path):

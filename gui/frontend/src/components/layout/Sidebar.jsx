@@ -1,5 +1,5 @@
-import { NavLink } from "react-router-dom"
-import { Wand2, Image as ImageIcon, Film, Settings, Layers, Menu, X, RefreshCw, Loader2, BarChart3, CalendarClock } from "lucide-react"
+import { NavLink } from "react-router"
+import { Image as ImageIcon, Film, Settings, Layers, Menu, X, RefreshCw, Loader2, BarChart3, CalendarClock } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import SystemStats from "./SystemStats"

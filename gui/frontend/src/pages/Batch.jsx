@@ -68,7 +68,6 @@ export default function Batch() {
   const [selectedPrompts, setSelectedPrompts] = useState([])
   const [showPromptDropdown, setShowPromptDropdown] = useState(false)
   const [isRetrying, setIsRetrying] = useState(false)
-  const [isRetryingJob, setIsRetryingJob] = useState(null)
   const [isRetryingCancelled, setIsRetryingCancelled] = useState(false)
   const [connectionError, setConnectionError] = useState(false)
   const [initialLoading, setInitialLoading] = useState(true)
@@ -275,14 +274,11 @@ export default function Batch() {
   }
 
   const handleRetryJob = async (jobId) => {
-    setIsRetryingJob(jobId)
     try {
       await api.retryBatchJob(jobId)
       toast.success(`Job #${jobId} queued for retry`, { description: "It will be re-generated shortly." })
-      setIsRetryingJob(null)
     } catch (err) {
       toast.error(`Retry job #${jobId} failed`, { description: err.message })
-      setIsRetryingJob(null)
     }
   }
 

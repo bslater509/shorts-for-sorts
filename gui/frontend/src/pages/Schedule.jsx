@@ -113,7 +113,7 @@ const toForm = (s) => ({
   name: s.name || '',
   enabled: s.enabled !== false,
   cadence: s.cadence || 'daily',
-  times: (s.times && s.times.length ? s.times : ['09:00']),
+  times: (s.times && s.times.length ? [...s.times].sort() : ['09:00']),
   days: (s.days && s.days.length ? s.days : [1, 2, 3, 4, 5]),
   interval_hours: s.interval_hours || 3,
   interval_start: s.interval_start || '08:00',
@@ -328,14 +328,14 @@ export default function Schedule() {
   const updateTime = (index, value) => setForm((prev) => {
     const times = [...prev.times]
     times[index] = value
-    return { ...prev, times }
+    return { ...prev, times: times.sort() }
   })
 
-  const addTime = () => setForm((prev) => ({ ...prev, times: [...prev.times, '09:00'] }))
+  const addTime = () => setForm((prev) => ({ ...prev, times: [...prev.times, '09:00'].sort() }))
 
   const removeTime = (index) => setForm((prev) => ({
     ...prev,
-    times: prev.times.filter((_, i) => i !== index),
+    times: prev.times.filter((_, i) => i !== index).sort(),
   }))
 
   const toggleDay = (day) => setForm((prev) => ({

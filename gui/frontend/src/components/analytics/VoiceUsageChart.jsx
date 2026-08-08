@@ -23,7 +23,7 @@ const VOICE_NAMES = {
   'ZQe5CZ4zR8r0Gk6yLm': 'Olivia',
 }
 
-const CustomTooltip = ({ active, payload, label }) => {
+const CustomTooltip = ({ active, payload, _label }) => {
   if (!active || !payload?.length) return null
   const entry = payload[0]
   const pct = entry.payload.pct

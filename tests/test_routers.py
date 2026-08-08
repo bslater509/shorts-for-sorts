@@ -8,11 +8,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from gui.batch_engine import _batch_state_lock, batch_state
 from gui.routers.admin import router as admin_router
 from gui.routers.batch import build_batch_status
 from gui.routers.batch import router as batch_router
 from gui.routers.settings import router as settings_router
-from gui.batch_engine import _batch_state_lock, batch_state
 
 app = FastAPI()
 app.include_router(admin_router)

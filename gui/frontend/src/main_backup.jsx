@@ -1,10 +1,11 @@
 import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import './index.css'
 import App from './App.jsx'
 
 // Helper to set dark mode class if system prefers it
+// oxlint-disable-next-line react/only-export-components
 function ThemeProvider({ children }) {
   useEffect(() => {
     // For now we default to dark theme for that premium aesthetic
@@ -27,7 +28,7 @@ if (import.meta.env.PROD) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ level: 'error', message: msg })
       }).catch(() => {});
-    } catch (e) {
+    } catch {
       // Ignore circular JSON errors
     }
   };

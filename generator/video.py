@@ -16,7 +16,8 @@ import re
 import select
 import subprocess
 import time
-from typing import Any, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
 import ffmpeg
 
@@ -156,6 +157,8 @@ def get_video_info(
         RuntimeError: If ffprobe fails or returns unparseable data (unless
             ``suppress_errors`` is ``True``).
     """
+    from gui.progress_utils import log_subprocess_end, log_subprocess_start
+
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found at: {video_path}")
 
@@ -173,6 +176,8 @@ def get_video_info(
     ]
 
     _error_result: dict[str, Any] = {"width": 0, "height": 0, "duration": 0.0}
+
+    t0: float = log_subprocess_start("ffprobe", os.path.basename(video_path))
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -203,6 +208,8 @@ def get_video_info(
             f"An unexpected error occurred while running ffprobe on "
             f"'{video_path}': {e}"
         ) from e
+
+    log_subprocess_end("ffprobe", t0)
 
     try:
         info: dict[str, Any] = json.loads(result.stdout)
@@ -256,7 +263,7 @@ def compile_video(
     * Loops one or two background videos, cropped to the target aspect ratio.
     * Burns ASS subtitles onto the video.
     * Adds a voiceover audio track (with optional background music blended in).
-    * Applies fade-in / fade-out transitions.
+    * Applies a fade-out transition.
     * Optionally stacks two background videos in a split-screen layout.
 
     Args:
@@ -413,9 +420,8 @@ def compile_video(
     )
 
     # ------------------------------------------------------------------
-    # 5. Fade transitions
+    # 5. Fade-out transition
     # ------------------------------------------------------------------
-    v_stream = v_stream.filter("fade", type="in", start_time=0, duration=FADE_DURATION)
     v_stream = v_stream.filter(
         "fade",
         type="out",
@@ -592,6 +598,8 @@ def _run_ffmpeg_with_progress(
         RuntimeError: If FFmpeg times out, crashes, or returns a non-zero
             exit code.
     """
+    from gui.progress_utils import log_subprocess_end, log_subprocess_start
+
     # Safety timeout: 3× audio duration or 30 minutes, whichever is larger
     ffmpeg_timeout: float = max(audio_duration * TIMEOUT_MULTIPLIER, MIN_TIMEOUT_SECONDS)
     ffmpeg_deadline: float = time.monotonic() + ffmpeg_timeout
@@ -609,12 +617,15 @@ def _run_ffmpeg_with_progress(
     stderr_lines: list[str] = []
     return_code: int = -1
 
+    t_start: float = log_subprocess_start("ffmpeg-render")
+
     try:
         with subprocess.Popen(cmd, **popen_kwargs) as process:
             while True:
                 if should_abort is not None and should_abort():
                     process.kill()
                     process.wait()
+                    log_subprocess_end("ffmpeg-render", t_start, pid=process.pid)
                     raise BatchCancelledError("Batch cancelled: FFmpeg render interrupted")
                 remaining: float = ffmpeg_deadline - time.monotonic()
                 if remaining <= 0:
@@ -624,6 +635,7 @@ def _run_ffmpeg_with_progress(
                     )
                     process.kill()
                     process.wait()
+                    log_subprocess_end("ffmpeg-render", t_start, pid=process.pid)
                     raise RuntimeError(
                         f"FFmpeg killed after {ffmpeg_timeout:.0f}s timeout "
                         f"(audio_duration={audio_duration:.1f}s)"
@@ -654,10 +666,17 @@ def _run_ffmpeg_with_progress(
 
             process.wait()
             return_code = process.returncode
+            log_subprocess_end("ffmpeg-render", t_start, pid=process.pid)
 
     except BatchCancelledError:
         raise
     except Exception as e:
+        try:
+            log_subprocess_end(
+                "ffmpeg-render", t_start, pid=getattr(locals().get("process"), "pid", None)
+            )
+        except Exception:
+            pass
         logger.error(
             "Failed to execute FFmpeg command compiled via ffmpeg-python: %s",
             e,

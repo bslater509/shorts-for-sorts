@@ -516,6 +516,14 @@ def _transcribe_audio(
             from faster_whisper import WhisperModel
 
             if _WHISPER_MODEL is None or local_model_name != _WHISPER_MODEL_NAME:
+                from gui.progress_utils import wait_for_available_memory
+
+                wait_for_available_memory(threshold_mb=2500, abort_check=abort_check)
+                import logging
+
+                import ctranslate2
+
+                ctranslate2.set_log_level(logging.ERROR)
                 _WHISPER_MODEL = WhisperModel(
                     local_model_name, device="auto", compute_type="int8"
                 )
@@ -580,6 +588,9 @@ def _transcribe_audio(
             from faster_whisper import WhisperModel
 
             if _WHISPER_MODEL is None or local_model_name != _WHISPER_MODEL_NAME:
+                from gui.progress_utils import wait_for_available_memory
+
+                wait_for_available_memory(threshold_mb=2500, abort_check=abort_check)
                 _WHISPER_MODEL = WhisperModel(
                     local_model_name, device="auto", compute_type="int8"
                 )
@@ -884,6 +895,8 @@ def _save_metadata_and_thumbnail(
             ``Duration: <seconds>`` line is written to the metadata sidecar so
             gallery loads can avoid an ffprobe round-trip.
     """
+    from gui.progress_utils import log_subprocess_start, log_subprocess_end
+
     try:
         base_name: str = os.path.splitext(output_filename)[0]
         txt_path: str = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
@@ -901,6 +914,7 @@ def _save_metadata_and_thumbnail(
         os.makedirs(thumb_dir, exist_ok=True)
         thumb_filename: str = os.path.splitext(output_filename)[0] + ".jpg"
         thumb_path: str = os.path.join(thumb_dir, thumb_filename)
+        t0 = log_subprocess_start("ffmpeg-thumbnail")
         subprocess.run(
             [
                 "ffmpeg",
@@ -919,6 +933,7 @@ def _save_metadata_and_thumbnail(
             check=True,
             timeout=15,
         )
+        log_subprocess_end("ffmpeg-thumbnail", t0)
         logger.info("Generated thumbnail: %s", thumb_filename)
     except Exception as e:
         logger.warning("Thumbnail generation skipped (non-critical): %s", e)

@@ -121,6 +121,37 @@ class TestSchedulePersistence(_ScheduleFileTestCase):
         """Deleting a schedule that does not exist returns False."""
         self.assertFalse(delete_schedule("no-such-id"))
 
+    def test_upsert_sorts_times(self):
+        """upsert_schedule normalises times into chronological order."""
+        sched = upsert_schedule(
+            {
+                "id": "sort-test",
+                "name": "Unsorted",
+                "cadence": "daily",
+                "times": ["22:00", "06:00", "14:00", "08:00"],
+            }
+        )
+        self.assertEqual(sched["times"], ["06:00", "08:00", "14:00", "22:00"])
+        # The persisted copy must also be sorted.
+        persisted = get_schedule("sort-test")
+        self.assertIsNotNone(persisted)
+        self.assertEqual(persisted["times"], ["06:00", "08:00", "14:00", "22:00"])
+
+    def test_upsert_no_times_unchanged(self):
+        """Interval-cadence schedules (no times key) are left untouched."""
+        sched = upsert_schedule(
+            {
+                "id": "no-times",
+                "name": "Interval",
+                "cadence": "interval",
+                "interval_hours": 3,
+            }
+        )
+        self.assertNotIn("times", sched)
+        persisted = get_schedule("no-times")
+        self.assertIsNotNone(persisted)
+        self.assertNotIn("times", persisted)
+
 
 class TestStaggerDelays(unittest.TestCase):
     """Tests for compute_stagger_delays() cumulative per-job delays."""

@@ -43,6 +43,9 @@ RETRYABLE_KEYWORDS: tuple[str, ...] = (
 TITLE_RE: re.Pattern = re.compile(r"^title\s*:\s*(.*)", re.I)
 HASHTAGS_RE: re.Pattern = re.compile(r"^hashtags?\s*:\s*(.*)", re.I)
 
+# Regex for stripping <think>...</think> reasoning blocks
+THINK_BLOCK_RE: re.Pattern = re.compile(r"<think[^>]*>.*?</think[^>]*>", re.S | re.I)
+
 
 # --- Public API ---
 
@@ -183,6 +186,25 @@ def generate_title_hashtags(
         title = " ".join(words[:MAX_TITLE_WORDS]) if words else ""
 
     return title, hashtags
+
+
+def strip_think_blocks(text: str) -> str:
+    """Remove ``<think>...</think>`` reasoning blocks from LLM output.
+
+    Collapses 3+ consecutive blank lines to 2 after removal to preserve
+    the chunk-based blank-line formatting expected by the script pipeline.
+
+    Args:
+        text: Raw LLM output potentially containing one or more
+            ``<think>...</think>`` blocks.
+
+    Returns:
+        Cleaned text with all think blocks removed, stripped of
+        leading/trailing whitespace.
+    """
+    cleaned: str = THINK_BLOCK_RE.sub("", text)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 # --- Internal helpers ---

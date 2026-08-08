@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react"
-import { Cpu, MemoryStick } from "lucide-react" // Or whatever icons are available, or simple SVG
 
 export default function SystemStats() {
   const [stats, setStats] = useState({ cpu_percent: 0, memory_percent: 0 })

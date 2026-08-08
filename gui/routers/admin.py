@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -43,8 +44,20 @@ def restart_server(
             raise HTTPException(status_code=403, detail="Invalid admin token")
 
     def _restart() -> None:
-        """Exec run-gui.sh to fully bootstrap and restart the server."""
+        """Cancel in-progress batch, shut down workers, and restart the server."""
         logger.info("Restarting server via run-gui.sh...")
+
+        # Cancel any in-progress batch and shut down workers before
+        # replacing the process so spawn children aren't orphaned.
+        batch_state["should_cancel"] = True
+        for _key in ("executor", "llm_executor"):
+            _ex = batch_state.get(_key)
+            if _ex is not None:
+                with contextlib.suppress(Exception):
+                    _ex.shutdown(wait=False, cancel_futures=True)
+        import time
+        time.sleep(0.5)  # brief window for spawned children to receive SIGTERM
+
         script: str = os.path.join(BASE_DIR, "run-gui.sh")
         os.execv("/bin/bash", ["bash", script] + sys.argv[1:])
 
@@ -120,14 +133,12 @@ def reset_batch_stats() -> dict[str, Any]:
 @router.post("/api/log")
 def client_log(payload: dict[str, Any]) -> dict[str, str]:
     """Accept client-side error reports forwarded from the frontend console."""
-    try:
+    with contextlib.suppress(Exception):
         logger.warning(
             "Frontend %s: %s",
             payload.get("level", "error"),
             str(payload.get("message", ""))[:500],
         )
-    except Exception:
-        pass
     return {"status": "ok"}
 
 

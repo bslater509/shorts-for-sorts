@@ -175,6 +175,8 @@ def generate_voice(
     Raises:
         RuntimeError: If voice generation or FFmpeg post-processing fails.
     """
+    from gui.progress_utils import log_subprocess_start, log_subprocess_end
+
     global _TTS_INSTANCE
 
     # Acquire lock immediately to prevent races
@@ -213,7 +215,9 @@ def generate_voice(
             stream = ffmpeg.filter(stream, "highshelf", g=HIGHSHELF_GAIN, f=HIGHSHELF_FREQ)
 
             stream = ffmpeg.output(stream, output_path, loglevel="error")
+            t0 = log_subprocess_start("ffmpeg-audio-eq")
             ffmpeg.run(stream, overwrite_output=True)
+            log_subprocess_end("ffmpeg-audio-eq", t0)
 
         finally:
             if os.path.exists(tmp_path):

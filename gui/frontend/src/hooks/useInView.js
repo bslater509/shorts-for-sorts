@@ -20,7 +20,7 @@ export default function useInView(options = {}) {
 
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [options])
 
   return [ref, isInView]
 }

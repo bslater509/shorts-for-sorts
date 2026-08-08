@@ -8,7 +8,9 @@ executor so the FastAPI event loop is never stalled.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+import threading
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -16,8 +18,6 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 import gui.state as shared_state
 from gui.config import OUTPUT_DIR, logger
 from gui.ws_manager import notify_clients
-
-import threading
 
 router: APIRouter = APIRouter()
 
@@ -75,8 +75,9 @@ def _do_upload(path: str, description: str, sessionid: str) -> None:
         description: Caption text (title + hashtags) for the post.
         sessionid: TikTok session cookie value used for authentication.
     """
-    from tiktok_uploader.upload import TikTokUploader
     import tiktok_uploader.upload as tu_upload
+    from tiktok_uploader.upload import TikTokUploader
+    from gui.progress_utils import log_subprocess_start, log_subprocess_end
 
     filename: str = os.path.basename(path)
 
@@ -101,13 +102,11 @@ def _do_upload(path: str, description: str, sessionid: str) -> None:
     original_post_video = tu_upload._post_video
     def patched_post_video(page):
         _set_progress("Posting to TikTok…", 85, filename)
-        try:
+        with contextlib.suppress(Exception):
             page.evaluate('''
                 const cookieBanner = document.querySelector("tiktok-cookie-banner");
                 if (cookieBanner) cookieBanner.remove();
             ''')
-        except Exception:
-            pass
         result = original_post_video(page)
         _set_progress("Waiting for confirmation…", 95, filename)
         return result
@@ -145,8 +144,10 @@ def _do_upload(path: str, description: str, sessionid: str) -> None:
         # Pass the sessionid directly in a correctly formed cookie dict to bypass a bug in tiktok-uploader
         # where it creates a sessionid cookie without a domain/path, which Playwright rejects.
         cookie = {"name": "sessionid", "value": sessionid, "domain": ".tiktok.com", "path": "/"}
-        uploader = TikTokUploader(cookies_list=[cookie], headless=True, browser="chromium")
-        success = uploader.upload_video(path, description=description)
+        t0 = log_subprocess_start("playwright-upload")
+        with TikTokUploader(cookies_list=[cookie], headless=True, browser="chromium") as uploader:
+            success = uploader.upload_video(path, description=description)
+        log_subprocess_end("playwright-upload", t0)
     finally:
         tu_upload._set_description = original_set_description
         tu_upload._post_video = original_post_video
@@ -174,7 +175,7 @@ def _build_description(filename: str, path: str) -> str:
     txt_path: str = os.path.splitext(path)[0] + ".txt"
     if os.path.exists(txt_path):
         try:
-            with open(txt_path, "r", encoding="utf-8") as f:
+            with open(txt_path, encoding="utf-8") as f:
                 lines = [ln.strip() for ln in f.read().splitlines() if ln.strip()]
         except OSError as e:
             logger.warning("Failed to read sidecar file %s: %s", txt_path, e)
@@ -216,7 +217,6 @@ def post_video_blocking(path: str, description: str, sessionid: str) -> None:
         RuntimeError: If the upload fails.
     """
     global _last_status, _upload_progress
-    filename: str = os.path.basename(path)
     with _upload_thread_lock:
         try:
             _do_upload(path, description, sessionid)
@@ -259,10 +259,10 @@ async def _background_upload(path: str, description: str, sessionid: str) -> Non
             level="info",
             metadata={"filename": filename, "error": None},
         )
-        
+
         loop = asyncio.get_running_loop()
         future = loop.create_future()
-        
+
         def target():
             try:
                 with _upload_thread_lock:
@@ -270,7 +270,7 @@ async def _background_upload(path: str, description: str, sessionid: str) -> Non
                 loop.call_soon_threadsafe(future.set_result, None)
             except Exception as e:
                 loop.call_soon_threadsafe(future.set_exception, e)
-                
+
         try:
             thread = threading.Thread(target=target)
             thread.start()

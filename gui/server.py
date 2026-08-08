@@ -17,6 +17,8 @@ if BASE_DIR not in sys.path:
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import psutil
 import uvicorn
@@ -42,15 +44,47 @@ from gui.routers.admin import router as admin_router
 from gui.routers.assets import router as assets_router
 from gui.routers.batch import router as batch_router
 from gui.routers.integrations import router as integrations_router
-from gui.routers.settings import router as settings_router
 from gui.routers.schedule import router as schedule_router
+from gui.routers.settings import router as settings_router
 from gui.routers.tiktok import router as tiktok_router
 from gui.utils import check_system_dependencies, download_default_assets_if_empty
 from gui.ws_manager import manager, set_main_loop
 
+# --- Lifespan ---
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Startup and shutdown lifecycle for the FastAPI application."""
+    # Startup
+    set_main_loop(asyncio.get_running_loop())
+    _kill_stale_playwright_browsers()
+    try:
+        for f in os.listdir(TEMP_DIR):
+            file_path: str = os.path.join(TEMP_DIR, f)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        logger.info("Cleaned up orphaned files in temp directory on startup.")
+    except Exception as e:
+        logger.warning("Failed to clean temp directory on startup: %s", e)
+    import threading
+
+    thumbnail_cache.start_thumbnail_worker()
+    threading.Thread(target=thumbnail_cache.precache_all, daemon=True).start()
+    from gui.scheduler import start_scheduler_thread
+
+    start_scheduler_thread()
+    yield
+    # Shutdown
+    thumbnail_cache.stop_thumbnail_worker()
+    from gui.scheduler import stop_scheduler_thread
+
+    stop_scheduler_thread()
+
+
 # --- Application ---
 
-app: FastAPI = FastAPI(title="Shorts for Sorts Web GUI")
+app: FastAPI = FastAPI(title="Shorts for Sorts Web GUI", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -83,61 +117,6 @@ NOISY_LOG_PATHS: tuple[str, ...] = (
     "/api/compile/status",
     "/api/system_stats",
 )
-
-
-# ---------------------------------------------------------------------------
-# Startup events
-# ---------------------------------------------------------------------------
-
-
-@app.on_event("startup")
-async def save_event_loop() -> None:
-    """Store the running event loop reference for WebSocket notification scheduling."""
-    set_main_loop(asyncio.get_running_loop())
-
-
-@app.on_event("startup")
-async def cleanup_temp_dir() -> None:
-    """Remove orphaned temp files on startup."""
-    try:
-        for f in os.listdir(TEMP_DIR):
-            file_path: str = os.path.join(TEMP_DIR, f)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-        logger.info("Cleaned up orphaned files in temp directory on startup.")
-    except Exception as e:
-        logger.warning("Failed to clean temp directory on startup: %s", e)
-
-
-@app.on_event("startup")
-async def start_thumbnail_worker() -> None:
-    """Start the background thumbnail worker and enqueue a precache scan."""
-    import threading
-
-    thumbnail_cache.start_thumbnail_worker()
-    threading.Thread(target=thumbnail_cache.precache_all, daemon=True).start()
-
-
-@app.on_event("startup")
-async def start_scheduler() -> None:
-    """Start the background schedule-based batch runner."""
-    from gui.scheduler import start_scheduler_thread
-
-    start_scheduler_thread()
-
-
-@app.on_event("shutdown")
-async def stop_thumbnail_worker() -> None:
-    """Gracefully stop the background thumbnail worker pool."""
-    thumbnail_cache.stop_thumbnail_worker()
-
-
-@app.on_event("shutdown")
-async def stop_scheduler() -> None:
-    """Gracefully stop the scheduler daemon thread."""
-    from gui.scheduler import stop_scheduler_thread
-
-    stop_scheduler_thread()
 
 
 # ---------------------------------------------------------------------------
@@ -290,9 +269,52 @@ def catch_all(full_path: str) -> Any:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
+
+def _kill_stale_playwright_browsers() -> None:
+    """Kill orphaned Playwright headless Chromium processes from a previous run.
+
+    When the server process exits, Playwright browser trees (chrome-headless-shell
+    and the cli.js run-driver) are reparented to PID 1. This function finds and
+    kills any such orphaned processes so they don't consume memory indefinitely.
+
+    Also cleans up leftover Playwright driver processes (cli.js run-driver) that
+    are reparented to init.
+    """
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                pid: int = proc.pid
+                if proc.ppid() != 1:
+                    continue  # not an orphan — parent still alive
+                name: str = proc.name()
+                cmdline: list[str] = proc.cmdline() or []
+
+                # Kill orphaned headless Chrome browser trees
+                if "chrome-headless-shell" in name or "chrome-headless" in name:
+                    logger.info(
+                        "Killing orphaned Playwright browser process %d (%s)",
+                        pid,
+                        name,
+                    )
+                    proc.kill()
+
+                # Kill orphaned node cli.js run-driver (Playwright wire protocol)
+                elif (
+                    name in ("node", "nodejs")
+                    and any("cli.js" in a for a in cmdline)
+                    and any("run-driver" in a for a in cmdline)
+                ):
+                    logger.info(
+                        "Killing orphaned Playwright driver process %d (%s)",
+                        pid,
+                        name,
+                    )
+                    proc.kill()
+
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+    except Exception as e:
+        logger.info("Error while cleaning up stale Playwright browsers: %s", e)
 
 
 def _free_server_port(port: int) -> None:
@@ -325,6 +347,25 @@ def _free_server_port(port: int) -> None:
                                 proc.pid,
                                 proc.name(),
                             )
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                pass
+
+        # Also kill orphaned multiprocessing spawn children from a
+        # previous run (SIGKILL / OOM / missed shutdown) so they don't
+        # burn CPU rendering video whose parent no longer exists.
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                ppid = proc.ppid()
+                if ppid != 1:
+                    continue  # not orphaned
+                cmdline = proc.cmdline()
+                if cmdline and any("multiprocessing-fork" in a for a in cmdline):
+                    logger.info(
+                        "Killing orphaned multiprocessing worker %d (%s)",
+                        proc.pid,
+                        proc.name(),
+                    )
+                    proc.kill()
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
     except Exception as e:

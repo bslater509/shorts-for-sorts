@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { toast } from "sonner"
-import { useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router"
 
 export function useNotifications() {
   const navigate = useNavigate()

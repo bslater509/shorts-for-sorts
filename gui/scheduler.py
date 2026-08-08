@@ -133,6 +133,8 @@ def upsert_schedule(schedule_data: dict) -> dict:
             if not schedule_data.get("created_at"):
                 schedule_data["created_at"] = datetime.datetime.now().isoformat()
             schedules.append(schedule_data)
+        if "times" in schedule_data:
+            schedule_data["times"] = sorted(schedule_data["times"])
         save_schedules(schedules)
     return schedule_data
 
