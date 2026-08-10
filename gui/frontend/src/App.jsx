@@ -6,6 +6,7 @@ import SettingsPage from "./pages/SettingsPage"
 import Analytics from "./pages/Analytics"
 import Batch from "./pages/Batch"
 import Schedule from "./pages/Schedule"
+import LLMDebug from "./pages/LLMDebug"
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="analytics" element={<Analytics />} />
         <Route path="batch" element={<Batch />} />
         <Route path="schedule" element={<Schedule />} />
+        <Route path="llm-debug" element={<LLMDebug />} />
       </Route>
     </Routes>
   )

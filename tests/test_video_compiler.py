@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from gui.video_compiler import _align_words_to_script
+from gui.word_alignment import align_words_to_script as _align_words_to_script
 
 # ---------------------------------------------------------------------------
 # Helpers

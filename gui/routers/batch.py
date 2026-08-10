@@ -18,11 +18,11 @@ from gui.batch_engine import (
     _PHASE_TRACKING_KEYS,
     _batch_lock,
     _batch_state_lock,
-    _compute_eta,
-    _log_memory_warning,
     batch_state,
     batch_worker_thread,
 )
+from gui.batch_eta import _compute_eta
+from gui.progress_utils import _log_memory_warning
 from gui.config import (
     CANCELLED_CONFIGS_FILE,
     DISMISSED_JOBS_FILE,

@@ -315,3 +315,15 @@ export async function runScheduleNow(id) {
 export async function fetchScheduleStatus() {
   return await apiFetch('/api/schedules/status');
 }
+
+export async function fetchLLMDebugRecords() {
+  return await apiFetch('/api/llm/debug');
+}
+
+export async function fetchLLMDebugRecord(baseName) {
+  return await apiFetch(`/api/llm/debug/${encodeURIComponent(baseName)}`);
+}
+
+export async function deleteLLMDebugRecord(baseName) {
+  return await apiFetch(`/api/llm/debug/${encodeURIComponent(baseName)}`, { method: 'DELETE' });
+}

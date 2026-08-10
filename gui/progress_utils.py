@@ -46,6 +46,9 @@ PROGRESS_DONE: int = 100
 # Number of words at which LLM script percentage is capped
 LLM_SCRIPT_WORD_CAP: int = 400
 
+# Low-memory warning threshold (MB)
+LOW_MEMORY_THRESHOLD_MB: int = 2000
+
 # Regex patterns for extracting progress values from status strings
 _WORD_COUNT_RE: re.Pattern = re.compile(r"\((\d+)\s*words\)")
 _VOICE_FRACTION_RE: re.Pattern = re.compile(r"\((\d+)/(\d+)\)")
@@ -110,6 +113,76 @@ def log_self_oom_score() -> None:
     logger.info(
         "[Batch Memory] Self OOM: score=%d, score_adj=%d", score, score_adj
     )
+
+
+def _log_memory_warning() -> None:
+    """Log a warning if available system memory is below the threshold."""
+    try:
+        with open("/proc/meminfo") as f:
+            data: str = f.read()
+        mem_map: dict[str, int] = {}
+        for line in data.splitlines():
+            parts = line.split(":")
+            if len(parts) == 2:
+                mem_map[parts[0].strip()] = int(parts[1].strip().split()[0])
+        avail_mb: int = mem_map.get("MemAvailable", 0) // 1024
+        total_mb: int = mem_map.get("MemTotal", 0) // 1024
+        if avail_mb < LOW_MEMORY_THRESHOLD_MB:
+            logger.warning(
+                "Low memory: %dMB available / %dMB total — batch may risk OOM",
+                avail_mb,
+                total_mb,
+            )
+            log_top_memory_processes()
+    except Exception:
+        pass
+
+
+def _wait_for_memory(threshold_mb: int = 3000, poll_interval: float = 5.0) -> None:
+    """Block until available system memory is above ``threshold_mb``.
+
+    Called before submitting a video compilation job to avoid OOM kills.
+    Logs a warning on the first wait, then polls silently while re-logging
+    top memory consumers and the self OOM score periodically.
+
+    Args:
+        threshold_mb: Minimum available MB required to proceed.
+        poll_interval: Seconds between memory re-checks.
+    """
+    from gui.batch_engine import batch_state  # noqa: PLC0415
+    from gui.exceptions import BatchCancelledError  # noqa: PLC0415
+
+    warned = False
+    _poll_count = 0
+    while True:
+        if batch_state["should_cancel"]:
+            raise BatchCancelledError("Batch cancelled: low-memory wait interrupted")
+        try:
+            with open("/proc/meminfo") as f:
+                data = f.read()
+            mem_map: dict[str, int] = {}
+            for line in data.splitlines():
+                parts = line.split(":")
+                if len(parts) == 2:
+                    mem_map[parts[0].strip()] = int(parts[1].strip().split()[0])
+            avail_mb: int = mem_map.get("MemAvailable", 0) // 1024
+        except Exception:
+            return  # can't read, proceed anyway
+        if avail_mb >= threshold_mb:
+            return
+        if not warned:
+            logger.warning(
+                "Low memory (%dMB available) — pausing video job submission until %dMB is free",
+                avail_mb,
+                threshold_mb,
+            )
+            warned = True
+        _poll_count += 1
+        if _poll_count >= 12:
+            _poll_count = 0
+            log_top_memory_processes()
+            log_self_oom_score()
+        _time.sleep(poll_interval)
 
 
 def wait_for_available_memory(

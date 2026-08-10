@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
-import difflib
 import gc
 import os
 import random
-import re
 import shutil
 import subprocess
 import time
@@ -25,13 +23,14 @@ import numpy as np
 import soundfile as sf
 from openai import OpenAI
 
-from generator.utils import _release_memory_to_os
 from gui.assets_utils import list_video_files
 from gui.config import CACHE_DIR, OUTPUT_DIR, TEMP_DIR, console, load_emoji_map, logger
 from gui.exceptions import BatchCancelledError
 from gui.progress_utils import log_memory_usage
 from gui.state import settings, state
+from gui.transcriber import transcribe_audio, unload_whisper_model
 from gui.utils import get_active_llm_profile, resolve_preset_path
+from gui.word_alignment import align_words_to_script
 
 # --- Constants ---
 
@@ -40,15 +39,6 @@ TTS_CHUNK_MAX_WORDS: int = 50
 
 TTS_DEFAULT_SAMPLE_RATE: int = 24000
 """Default sample rate for TTS audio generation."""
-
-TRANSCRIPTION_PROGRESS_STEPS: int = 20
-"""Number of progress updates to emit during API transcription."""
-
-TRANSCRIPTION_PROGRESS_PCT_CAP: int = 99
-"""Maximum progress percentage before subtitles phase."""
-
-SCRIPT_INSERT_GAP_S: float = 0.3
-"""Nominal per-word slot (seconds) for script-only words with no timing anchor."""
 
 AUDIO_DURATION_PADDING: float = 0.5
 """Seconds added to the last word end time for the output duration."""
@@ -70,23 +60,6 @@ SUBS_FULL_ALIGNMENT: int = 5
 
 MAX_WORKER_CORES_DIVISOR: int = 1
 """Reserved CPU cores for non-TTS work when computing max TTS workers."""
-
-# --- Module-level shared Whisper model ---
-
-_WHISPER_MODEL = None
-_WHISPER_MODEL_NAME: str | None = None
-
-
-def unload_whisper_model() -> None:
-    """Unload the cached Whisper model from memory."""
-    global _WHISPER_MODEL, _WHISPER_MODEL_NAME
-    if _WHISPER_MODEL is not None:
-        del _WHISPER_MODEL
-        _WHISPER_MODEL = None
-        _WHISPER_MODEL_NAME = None
-        _release_memory_to_os()
-        logger.info("Whisper model unloaded from memory.")
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -208,6 +181,28 @@ def _resolve_background_videos(
     return resolved_top_path, resolved_bottom_path, resolved_music_path
 
 
+def _get_with_fallback(
+    key: str,
+    current_state: dict[str, Any],
+    default: Any,
+) -> Any:
+    """Return the per-job override for ``key`` or the global setting default.
+
+    Args:
+        key: Setting key to look up.
+        current_state: Session state with per-job overrides.
+        default: Fallback value when neither the job nor global settings define it.
+
+    Returns:
+        The per-job value if set (non-``None``), otherwise the global setting,
+        otherwise ``default``.
+    """
+    value: Any = current_state.get(key)
+    if value is not None:
+        return value
+    return settings.get(key, default)
+
+
 def _load_subtitle_options(
     current_state: dict[str, Any]
 ) -> dict[str, Any]:
@@ -222,101 +217,25 @@ def _load_subtitle_options(
     target_h: int = 1920 if (settings.get("render_resolution", "1080p") == "1080p") else 1280
 
     sub_opts: dict[str, Any] = {
-        "font_name": (
-            current_state.get("sub_font")
-            if current_state.get("sub_font") is not None
-            else settings.get("sub_font", "Arial")
-        ),
-        "font_size": int(
-            current_state.get("sub_size")
-            if current_state.get("sub_size") is not None
-            else settings.get("sub_size", 72)
-        ),
-        "primary_color": (
-            current_state.get("sub_color")
-            if current_state.get("sub_color") is not None
-            else settings.get("sub_color", "#FFFFFF")
-        ),
-        "highlight_color": (
-            current_state.get("sub_highlight")
-            if current_state.get("sub_highlight") is not None
-            else settings.get("sub_highlight", "#00FFFF")
-        ),
-        "outline_color": (
-            current_state.get("sub_outline")
-            if current_state.get("sub_outline") is not None
-            else settings.get("sub_outline", "#000000")
-        ),
-        "outline_width": int(
-            current_state.get("sub_outline_width")
-            if current_state.get("sub_outline_width") is not None
-            else settings.get("sub_outline_width", 5)
-        ),
-        "bold": (
-            current_state.get("sub_bold")
-            if current_state.get("sub_bold") is not None
-            else settings.get("sub_bold", True)
-        ),
-        "word_pop": (
-            current_state.get("word_pop")
-            if current_state.get("word_pop") is not None
-            else settings.get("word_pop", True)
-        ),
-        "word_pop_scale": float(
-            current_state.get("word_pop_scale")
-            if current_state.get("word_pop_scale") is not None
-            else settings.get("word_pop_scale", 1.15)
-        ),
-        "inactive_dim": (
-            current_state.get("inactive_dim")
-            if current_state.get("inactive_dim") is not None
-            else settings.get("inactive_dim", True)
-        ),
-        "inactive_alpha": (
-            current_state.get("inactive_alpha")
-            if current_state.get("inactive_alpha") is not None
-            else settings.get("inactive_alpha", "88")
-        ),
-        "enable_emojis": (
-            current_state.get("enable_emojis")
-            if current_state.get("enable_emojis") is not None
-            else settings.get("enable_emojis", True)
-        ),
-        "emoji_position": (
-            current_state.get("emoji_position")
-            if current_state.get("emoji_position") is not None
-            else settings.get("emoji_position", "above")
-        ),
-        "emoji_style": (
-            current_state.get("emoji_style")
-            if current_state.get("emoji_style") is not None
-            else settings.get("emoji_style", "Noto Color Emoji")
-        ),
-        "enable_emoji_animation": (
-            current_state.get("enable_emoji_animation")
-            if current_state.get("enable_emoji_animation") is not None
-            else settings.get("enable_emoji_animation", True)
-        ),
-        "emoji_scale_factor": float(
-            current_state.get("emoji_scale_factor")
-            if current_state.get("emoji_scale_factor") is not None
-            else settings.get("emoji_scale_factor", 1.5)
-        ),
-        "emoji_hold_duration": float(
-            current_state.get("emoji_hold_duration")
-            if current_state.get("emoji_hold_duration") is not None
-            else settings.get("emoji_hold_duration", 0.5)
-        ),
-        "emoji_throw_max_count": int(
-            current_state.get("emoji_throw_max_count")
-            if current_state.get("emoji_throw_max_count") is not None
-            else settings.get("emoji_throw_max_count", 1)
-        ),
-        "words_per_screen": (
-            current_state.get("words_per_screen")
-            if current_state.get("words_per_screen") is not None
-            else settings.get("words_per_screen", "3")
-        ),
+        "font_name": _get_with_fallback("sub_font", current_state, "Arial"),
+        "font_size": int(_get_with_fallback("sub_size", current_state, 72)),
+        "primary_color": _get_with_fallback("sub_color", current_state, "#FFFFFF"),
+        "highlight_color": _get_with_fallback("sub_highlight", current_state, "#00FFFF"),
+        "outline_color": _get_with_fallback("sub_outline", current_state, "#000000"),
+        "outline_width": int(_get_with_fallback("sub_outline_width", current_state, 5)),
+        "bold": _get_with_fallback("sub_bold", current_state, True),
+        "word_pop": _get_with_fallback("word_pop", current_state, True),
+        "word_pop_scale": float(_get_with_fallback("word_pop_scale", current_state, 1.15)),
+        "inactive_dim": _get_with_fallback("inactive_dim", current_state, True),
+        "inactive_alpha": _get_with_fallback("inactive_alpha", current_state, "88"),
+        "enable_emojis": _get_with_fallback("enable_emojis", current_state, True),
+        "emoji_position": _get_with_fallback("emoji_position", current_state, "above"),
+        "emoji_style": _get_with_fallback("emoji_style", current_state, "Noto Color Emoji"),
+        "enable_emoji_animation": _get_with_fallback("enable_emoji_animation", current_state, True),
+        "emoji_scale_factor": float(_get_with_fallback("emoji_scale_factor", current_state, 1.5)),
+        "emoji_hold_duration": float(_get_with_fallback("emoji_hold_duration", current_state, 0.5)),
+        "emoji_throw_max_count": int(_get_with_fallback("emoji_throw_max_count", current_state, 1)),
+        "words_per_screen": _get_with_fallback("words_per_screen", current_state, "3"),
     }
 
     if current_state.get("bg_video_bottom_path"):
@@ -473,323 +392,6 @@ def _concatenate_audio(
     gc.collect()
     log_memory_usage("Video: after audio concatenation")
     return total_duration
-
-
-def _transcribe_audio(
-    audio_path: str,
-    total_duration: float,
-    use_local_whisper: bool,
-    w_client: OpenAI | None,
-    local_model_name: str,
-    script: str,
-    abort_check: Callable[[], bool] | None = None,
-) -> tuple[list[dict[str, Any]], bool]:
-    """Transcribe audio using local faster-whisper or the OpenAI Whisper API.
-
-    Falls back from API to local Whisper if configured.
-
-    Args:
-        audio_path: Path to the audio WAV file.
-        total_duration: Audio duration in seconds (for progress estimation).
-        use_local_whisper: If ``True``, prefer local faster-whisper.
-        w_client: Optional OpenAI client for API-based transcription.
-        local_model_name: faster-whisper model size name.
-        script: Original script text (used as fallback if transcription yields no words).
-
-    Returns:
-        Tuple of ``(words_list, transcribed_flag)`` where each word dict has
-        ``"word"``, ``"start"``, and ``"end"`` keys.
-    """
-    global _WHISPER_MODEL, _WHISPER_MODEL_NAME
-    words: list[dict[str, Any]] = []
-    transcribed: bool = False
-
-    logger.info(
-        "[Compiler] Phase 2 — Transcription starting (%s), audio duration=%.1fs",
-        "local faster-whisper" if (use_local_whisper or w_client is None) else "OpenAI Whisper API",
-        total_duration,
-    )
-
-    # Attempt 1: local faster-whisper
-    if use_local_whisper or w_client is None:
-        try:
-            from faster_whisper import WhisperModel
-
-            if _WHISPER_MODEL is None or local_model_name != _WHISPER_MODEL_NAME:
-                from gui.progress_utils import wait_for_available_memory
-
-                wait_for_available_memory(threshold_mb=2500, abort_check=abort_check)
-                import logging
-
-                import ctranslate2
-
-                ctranslate2.set_log_level(logging.ERROR)
-                _WHISPER_MODEL = WhisperModel(
-                    local_model_name, device="auto", compute_type="int8"
-                )
-                _WHISPER_MODEL_NAME = local_model_name
-            segments, info = _WHISPER_MODEL.transcribe(
-                audio_path, word_timestamps=True
-            )
-            for segment in segments:
-                if abort_check is not None and abort_check():
-                    raise BatchCancelledError("Batch cancelled: transcription interrupted")
-                pct = min(TRANSCRIPTION_PROGRESS_PCT_CAP, int((segment.end / total_duration) * 100))
-                console.print(f"Transcribing audio... {pct}%")
-                if segment.words:
-                    for w in segment.words:
-                        words.append(
-                            {"word": w.word, "start": w.start, "end": w.end}
-                        )
-            if words:
-                transcribed = True
-        except Exception as e:
-            logger.error(
-                "Local Whisper transcription failed: %s", e, exc_info=True
-            )
-
-    # Attempt 2: OpenAI Whisper API
-    if not transcribed and w_client is not None:
-        try:
-            console.print("Transcribing audio... (API)")
-            with open(audio_path, "rb") as f:
-                transcription = w_client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=f,
-                    response_format="verbose_json",
-                    timestamp_granularities=["word"],
-                )
-            if hasattr(transcription, "words") and transcription.words:
-                total_api: int = len(transcription.words)
-                for i, w in enumerate(transcription.words):
-                    if abort_check is not None and abort_check():
-                        raise BatchCancelledError("Batch cancelled: transcription interrupted")
-                    word_data: dict[str, Any] = {
-                        "word": w.get("word") if isinstance(w, dict) else w.word,
-                        "start": w.get("start") if isinstance(w, dict) else w.start,
-                        "end": w.get("end") if isinstance(w, dict) else w.end,
-                    }
-                    words.append(word_data)
-                    if total_api > 1 and (i + 1) % max(1, total_api // TRANSCRIPTION_PROGRESS_STEPS) == 0:
-                        pct = min(
-                            TRANSCRIPTION_PROGRESS_PCT_CAP,
-                            int(((i + 1) / total_api) * 100),
-                        )
-                        console.print(f"Transcribing audio... {pct}%")
-                transcribed = True
-        except Exception as e:
-            logger.error(
-                "Whisper API transcription failed: %s", e, exc_info=True
-            )
-
-    # Attempt 3: fallback local Whisper if API was requested but failed
-    if not transcribed and not use_local_whisper:
-        try:
-            from faster_whisper import WhisperModel
-
-            if _WHISPER_MODEL is None or local_model_name != _WHISPER_MODEL_NAME:
-                from gui.progress_utils import wait_for_available_memory
-
-                wait_for_available_memory(threshold_mb=2500, abort_check=abort_check)
-                _WHISPER_MODEL = WhisperModel(
-                    local_model_name, device="auto", compute_type="int8"
-                )
-                _WHISPER_MODEL_NAME = local_model_name
-            segments, info = _WHISPER_MODEL.transcribe(
-                audio_path, word_timestamps=True
-            )
-            for segment in segments:
-                if abort_check is not None and abort_check():
-                    raise BatchCancelledError("Batch cancelled: transcription interrupted")
-                pct = min(TRANSCRIPTION_PROGRESS_PCT_CAP, int((segment.end / total_duration) * 100))
-                console.print(f"Transcribing audio... {pct}%")
-                if segment.words:
-                    for w in segment.words:
-                        words.append(
-                            {"word": w.word, "start": w.start, "end": w.end}
-                        )
-            if words:
-                transcribed = True
-        except Exception as local_e:
-            logger.error(
-                "Local Whisper fallback failed: %s", local_e, exc_info=True
-            )
-
-    # Ultimate fallback: use the script text as a single word
-    if not words:
-        duration: float = total_duration
-        clean_sentence: str = re.sub(r"\[[^\]]+\]", "", script).strip()
-        words = [{"word": clean_sentence, "start": 0.0, "end": duration}]
-
-    return words, transcribed
-
-
-def _interpolate_inserted_words(
-    tokens: list[str],
-    prev_end: float,
-    next_start: float | None,
-) -> list[dict[str, Any]]:
-    """Assign interpolated timing to script-only words inserted during alignment.
-
-    Inserted words are spread evenly across the ``(prev_end, next_start)``
-    window so they land between the surrounding anchored words.  When no forward
-    anchor exists (inserts at the very end of the script) each word is given a
-    nominal :data:`SCRIPT_INSERT_GAP_S` slot instead.
-
-    Args:
-        tokens: Script word texts to insert.
-        prev_end: End time of the previous anchored word.
-        next_start: Start time of the next anchored word, or ``None``.
-
-    Returns:
-        List of word dicts with interpolated ``"start"``/``"end"`` times.
-    """
-    if not tokens:
-        return []
-    if next_start is None or next_start <= prev_end:
-        out: list[dict[str, Any]] = []
-        cursor: float = prev_end
-        for tok in tokens:
-            out.append(
-                {"word": tok, "start": cursor, "end": cursor + SCRIPT_INSERT_GAP_S}
-            )
-            cursor += SCRIPT_INSERT_GAP_S
-        return out
-    gap: float = (next_start - prev_end) / (len(tokens) + 1)
-    out = []
-    cursor: float = prev_end + gap
-    for tok in tokens:
-        out.append({"word": tok, "start": cursor, "end": cursor + gap})
-        cursor += gap
-    return out
-
-
-def _align_words_to_script(
-    words: list[dict[str, Any]], script: str
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Align transcript word timings to the original script text.
-
-    Uses ``difflib.SequenceMatcher`` to correct mis-transcribed words (e.g.
-    homophones), drop hallucinated/duplicated words, and insert script words the
-    transcription missed with interpolated timing.  ``[tag]`` directives in the
-    script (e.g. ``[pause=1]``) are stripped before matching.
-
-    Args:
-        words: Transcript word dicts with ``"word"``, ``"start"``, ``"end"``.
-        script: The original script text.
-
-    Returns:
-        Tuple of ``(aligned_words, stats)``.  ``stats`` holds ``total``,
-        ``corrected``, ``inserted``, ``removed``, and ``match_pct`` counters.
-    """
-    no_align_stats: dict[str, Any] = {
-        "total": len(words),
-        "corrected": 0,
-        "inserted": 0,
-        "removed": 0,
-        "match_pct": 0.0,
-    }
-
-    clean_script: str = re.sub(r"\[[^\]]+\]", "", script)
-    script_tokens: list[str] = [
-        m.group(0) for m in re.finditer(r"[\w']+", clean_script)
-    ]
-    if len(words) < 2 or not script_tokens:
-        return words, no_align_stats
-
-    transcript_tokens: list[dict[str, Any]] = []
-    for word in words:
-        text: Any = word.get("word", "")
-        if not isinstance(text, str):
-            continue
-        for m in re.finditer(r"[\w']+", text):
-            transcript_tokens.append({"text": m.group(0), "word": word})
-
-    matcher = difflib.SequenceMatcher(
-        None,
-        [t["text"].lower() for t in transcript_tokens],
-        [s.lower() for s in script_tokens],
-        autojunk=False,
-    )
-
-    # planned: (script_token_text, transcript_word | None)
-    # A None transcript word means the script token has no timing anchor yet.
-    planned: list[tuple[str, dict[str, Any] | None]] = []
-    matched: int = 0
-    corrected: int = 0
-    removed: int = 0
-
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag == "equal":
-            matched += i2 - i1
-            for k in range(i2 - i1):
-                planned.append(
-                    (script_tokens[j1 + k], transcript_tokens[i1 + k]["word"])
-                )
-        elif tag == "replace":
-            n_trans: int = i2 - i1
-            n_script: int = j2 - j1
-            paired: int = min(n_trans, n_script)
-            for k in range(paired):
-                stok: str = script_tokens[j1 + k]
-                ttok: dict[str, Any] = transcript_tokens[i1 + k]
-                if stok.lower() == ttok["text"].lower():
-                    matched += 1
-                else:
-                    corrected += 1
-                planned.append((stok, ttok["word"]))
-            if n_script > n_trans:
-                # Leftover script words have no transcript timing -> insert.
-                for k in range(paired, n_script):
-                    planned.append((script_tokens[j1 + k], None))
-            else:
-                # Leftover transcript words are hallucinations -> drop.
-                removed += n_trans - n_script
-        elif tag == "delete":
-            removed += i2 - i1
-        elif tag == "insert":
-            for k in range(j1, j2):
-                planned.append((script_tokens[k], None))
-
-    inserted: int = sum(1 for _, tw in planned if tw is None)
-    aligned: list[dict[str, Any]] = []
-    prev_end: float = 0.0
-    i: int = 0
-    total_planned: int = len(planned)
-    while i < total_planned:
-        stok, tw = planned[i]
-        if tw is not None:
-            aligned.append(
-                {
-                    "word": stok,
-                    "start": float(tw.get("start", 0.0)),
-                    "end": float(tw.get("end", 0.0)),
-                }
-            )
-            prev_end = aligned[-1]["end"]
-            i += 1
-            continue
-        # Run of script-only tokens: interpolate between surrounding anchors.
-        j: int = i
-        gap_tokens: list[str] = []
-        while j < total_planned and planned[j][1] is None:
-            gap_tokens.append(planned[j][0])
-            j += 1
-        next_start: float | None = (
-            float(planned[j][1].get("start", 0.0)) if j < total_planned else None
-        )
-        aligned.extend(_interpolate_inserted_words(gap_tokens, prev_end, next_start))
-        prev_end = aligned[-1]["end"]
-        i = j
-
-    stats: dict[str, Any] = {
-        "total": len(aligned),
-        "corrected": corrected,
-        "inserted": inserted,
-        "removed": removed,
-        "match_pct": round(100.0 * matched / len(script_tokens), 1),
-    }
-    return aligned, stats
 
 
 def _generate_subtitles(
@@ -976,7 +578,6 @@ def compile_video_flow(
     Raises:
         RuntimeError: If any stage fails irrecoverably.
     """
-    global _WHISPER_MODEL, _WHISPER_MODEL_NAME
     _t0: float = time.time()
     current_state: dict[str, Any] = (
         state_override if state_override is not None else state
@@ -1151,7 +752,7 @@ def compile_video_flow(
         # Phase 2: Transcription
         if abort_check is not None and abort_check():
             raise BatchCancelledError("Batch cancelled: compilation interrupted")
-        words, _transcribed = _transcribe_audio(
+        words, _transcribed = transcribe_audio(
             audio_path,
             total_duration,
             use_local_whisper,
@@ -1161,7 +762,7 @@ def compile_video_flow(
             abort_check=abort_check,
         )
         if _transcribed and len(words) > 1:
-            words, stats = _align_words_to_script(words, script)
+            words, stats = align_words_to_script(words, script)
             console.print(f"[green]Script verification: {stats['total']} words, {stats['corrected']} corrected, {stats['inserted']} inserted, {stats['removed']} removed ({stats['match_pct']}% match)[/]")
             logger.info("[Compiler] Phase 2.5 - Alignment stats: %s", stats)
         audio_duration: float = words[-1]["end"] + AUDIO_DURATION_PADDING

@@ -44,6 +44,7 @@ from gui.routers.admin import router as admin_router
 from gui.routers.assets import router as assets_router
 from gui.routers.batch import router as batch_router
 from gui.routers.integrations import router as integrations_router
+from gui.routers.llm_debug import router as llm_debug_router
 from gui.routers.schedule import router as schedule_router
 from gui.routers.settings import router as settings_router
 from gui.routers.tiktok import router as tiktok_router
@@ -254,6 +255,7 @@ app.include_router(batch_router)
 app.include_router(admin_router)
 app.include_router(schedule_router)
 app.include_router(tiktok_router)
+app.include_router(llm_debug_router)
 
 
 @app.get("/{full_path:path}")

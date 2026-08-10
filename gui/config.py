@@ -41,6 +41,10 @@ MUSIC_DIR: str = os.path.join(BASE_DIR, "music")
 LOGS_DIR: str = os.path.join(BASE_DIR, "logs")
 TEMP_DIR: str = os.path.join(BASE_DIR, "temp")
 LOCAL_VIDEO_THUMBNAIL_DIR: str = os.path.join(CACHE_DIR, "thumbnails", "videos")
+LLM_DEBUG_DIR: str = os.path.join(LOGS_DIR, "llm_debug")
+"""Per-video LLM raw-response sidecar files for debugging reasoning/thinking."""
+
+
 
 # Ensure all directories exist
 for _dir in (
@@ -52,6 +56,7 @@ for _dir in (
     LOGS_DIR,
     TEMP_DIR,
     LOCAL_VIDEO_THUMBNAIL_DIR,
+    LLM_DEBUG_DIR,
 ):
     os.makedirs(_dir, exist_ok=True)
 

@@ -61,7 +61,7 @@ class TestAdminBatchStatsRoute(unittest.TestCase):
 class TestAdminBatchStatsResetRoute(unittest.TestCase):
     """Tests for POST /api/batch/stats/reset."""
 
-    @patch("gui.batch_engine.BATCH_STATS_FILE", "/tmp/reset_batch_stats_test.json")
+    @patch("gui.batch_persistence.BATCH_STATS_FILE", "/tmp/reset_batch_stats_test.json")
     def test_reset_clears_stats(self):
         """Reset should wipe dirty stats to defaults, on disk and in memory."""
         import json
@@ -98,7 +98,7 @@ class TestAdminBatchStatsResetRoute(unittest.TestCase):
         with _batch_state_lock:
             self.assertEqual(batch_state["_per_job_stats"], [])
 
-    @patch("gui.batch_engine.BATCH_STATS_FILE", "/tmp/reset_batch_stats_test.json")
+    @patch("gui.batch_persistence.BATCH_STATS_FILE", "/tmp/reset_batch_stats_test.json")
     def test_reset_refuses_during_batch(self):
         """Reset should return 409 while a batch is in progress."""
         with _batch_state_lock:

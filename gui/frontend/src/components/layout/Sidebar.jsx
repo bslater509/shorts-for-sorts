@@ -1,5 +1,5 @@
 import { NavLink } from "react-router"
-import { Image as ImageIcon, Film, Settings, Layers, Menu, X, RefreshCw, Loader2, BarChart3, CalendarClock } from "lucide-react"
+import { Image as ImageIcon, Film, Settings, Layers, Menu, X, RefreshCw, Loader2, BarChart3, CalendarClock, Bug } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
 import SystemStats from "./SystemStats"
@@ -15,6 +15,7 @@ export default function Sidebar() {
     { name: "Video Gallery", path: "/gallery", icon: Film },
     { name: "Analytics", path: "/analytics", icon: BarChart3 },
     { name: "Scheduler", path: "/schedule", icon: CalendarClock },
+    { name: "LLM Debug", path: "/llm-debug", icon: Bug },
     { name: "Settings", path: "/settings", icon: Settings },
   ]
 

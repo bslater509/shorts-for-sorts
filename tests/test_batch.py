@@ -1,13 +1,27 @@
+import json
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from gui.batch import BatchJobConfig, ProgressConsole
-from gui.batch_engine import _process_video_futures, _wait_for_memory, batch_state
+import gui.batch as _batch_module
+from gui.batch import (
+    BatchJobConfig,
+    ProgressConsole,
+    _build_llm_debug_record,
+    _extract_stream_delta,
+    _write_llm_debug_record,
+)
+from gui.batch_engine import _process_video_futures, batch_state
 from gui.exceptions import BatchCancelledError
-from gui.progress_utils import format_elapsed, get_progress_percentage, make_progress_bar
+from gui.progress_utils import (
+    _wait_for_memory,
+    format_elapsed,
+    get_progress_percentage,
+    make_progress_bar,
+)
 
 
 class TestBatchJobConfig(unittest.TestCase):
@@ -369,6 +383,175 @@ class TestBatchCancellation(unittest.TestCase):
 
         self.assertEqual(batch_state["shared_progress"][1], "Cancelled")
         self.assertEqual(batch_state["failed_job_configs"], [])
+
+
+class TestExtractStreamDelta(unittest.TestCase):
+    """Tests for :func:`gui.batch._extract_stream_delta`."""
+
+    @staticmethod
+    def _chunk(content=None, reasoning_content=None, reasoning=None):
+        """Build a minimal mock chunk object for testing."""
+        attrs = {}
+        if content is not None:
+            attrs["content"] = content
+        if reasoning_content is not None:
+            attrs["reasoning_content"] = reasoning_content
+        if reasoning is not None:
+            attrs["reasoning"] = reasoning
+        delta = type("Delta", (), attrs)() if attrs else None
+        choice = type("Choice", (), {"delta": delta})()
+        return type("Chunk", (), {"choices": [choice]})()
+
+    @staticmethod
+    def _empty_chunk():
+        """Build a chunk with no choices."""
+        return type("Chunk", (), {"choices": []})()
+
+    @staticmethod
+    def _none_delta_chunk():
+        """Build a chunk whose delta is None."""
+        choice = type("Choice", (), {"delta": None})()
+        return type("Chunk", (), {"choices": [choice]})()
+
+    def test_content_only(self):
+        content, reasoning = _extract_stream_delta(
+            self._chunk(content="hello")
+        )
+        self.assertEqual(content, "hello")
+        self.assertIsNone(reasoning)
+
+    def test_reasoning_content(self):
+        content, reasoning = _extract_stream_delta(
+            self._chunk(reasoning_content="thinking...")
+        )
+        self.assertIsNone(content)
+        self.assertEqual(reasoning, "thinking...")
+
+    def test_reasoning_fallback_field(self):
+        """When 'reasoning_content' is absent but 'reasoning' is present."""
+        content, reasoning = _extract_stream_delta(
+            self._chunk(reasoning="fallback thinking")
+        )
+        self.assertIsNone(content)
+        self.assertEqual(reasoning, "fallback thinking")
+
+    def test_both_content_and_reasoning(self):
+        content, reasoning = _extract_stream_delta(
+            self._chunk(content="hello", reasoning_content="thinking...")
+        )
+        self.assertEqual(content, "hello")
+        self.assertEqual(reasoning, "thinking...")
+
+    def test_empty_choices(self):
+        content, reasoning = _extract_stream_delta(self._empty_chunk())
+        self.assertIsNone(content)
+        self.assertIsNone(reasoning)
+
+    def test_none_delta(self):
+        content, reasoning = _extract_stream_delta(self._none_delta_chunk())
+        self.assertIsNone(content)
+        self.assertIsNone(reasoning)
+
+
+class TestBuildLLMDebugRecord(unittest.TestCase):
+    """Tests for :func:`gui.batch._build_llm_debug_record`."""
+
+    def test_all_fields_present(self):
+        record = _build_llm_debug_record(
+            job_index=5,
+            model="deepseek-v4-flash-free",
+            script_temp=0.7,
+            system_prompt="You are a writer.",
+            prompt="Write about cats.",
+            raw_response="<think>shall I?</think>\n\nCats are great.\n\nTITLE: Cool Cats\nHASHTAGS: #cats",
+            thinking_content="raw reasoning here",
+            final_script="Cats are great.",
+            title="Cool Cats",
+            hashtags="#cats",
+            output_filename="cool_cats_20240808_5.mp4",
+        )
+        self.assertEqual(record["job_index"], 5)
+        self.assertEqual(record["model"], "deepseek-v4-flash-free")
+        self.assertEqual(record["script_temp"], 0.7)
+        self.assertEqual(record["system_prompt"], "You are a writer.")
+        self.assertEqual(record["prompt"], "Write about cats.")
+        self.assertIn("<think>", record["raw_response"])
+        self.assertEqual(record["thinking_content"], "raw reasoning here")
+        self.assertEqual(record["stripped_script"], "Cats are great.\n\nTITLE: Cool Cats\nHASHTAGS: #cats")
+        self.assertEqual(record["final_script"], "Cats are great.")
+        self.assertEqual(record["title"], "Cool Cats")
+        self.assertEqual(record["hashtags"], "#cats")
+        self.assertEqual(record["output_filename"], "cool_cats_20240808_5.mp4")
+        self.assertIn("generated_at", record)
+        # Diagnostics
+        diag = record["diagnostics"]
+        self.assertGreater(diag["raw_think_count"], 0)
+        self.assertTrue(diag["stripped_removed_anything"])
+        self.assertGreater(diag["stripped_chars_removed"], 0)
+
+    def test_no_thinking_diagnostics(self):
+        """When raw has no <think> tags, diagnostics should reflect that."""
+        record = _build_llm_debug_record(
+            job_index=1,
+            model="gpt-4o-mini",
+            script_temp=0.5,
+            system_prompt="",
+            prompt="Hi",
+            raw_response="Plain script here.",
+            thinking_content="",
+            final_script="Plain script here.",
+            title="",
+            hashtags="",
+            output_filename="out.mp4",
+        )
+        diag = record["diagnostics"]
+        self.assertEqual(diag["raw_think_count"], 0)
+        self.assertFalse(diag["stripped_removed_anything"])
+        self.assertEqual(diag["stripped_chars_removed"], 0)
+
+
+class TestWriteLLMDebugRecord(unittest.TestCase):
+    """Tests for :func:`gui.batch._write_llm_debug_record`."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # Patch LLM_DEBUG_DIR to use our temp dir
+        self._orig_dir = _batch_module.LLM_DEBUG_DIR
+        _batch_module.LLM_DEBUG_DIR = self.tmpdir
+
+    def tearDown(self):
+        _batch_module.LLM_DEBUG_DIR = self._orig_dir
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_writes_json_file(self):
+        record = {
+            "job_index": 1,
+            "output_filename": "test_video.mp4",
+            "raw_response": "hello",
+        }
+        _write_llm_debug_record(record)
+        expected_path = os.path.join(self.tmpdir, "test_video.llm.json")
+        self.assertTrue(os.path.exists(expected_path))
+        with open(expected_path) as f:
+            data = json.load(f)
+        self.assertEqual(data["job_index"], 1)
+        self.assertEqual(data["raw_response"], "hello")
+
+    def test_nonfatal_on_failure(self):
+        """Write to a read-only directory should log a warning but not raise."""
+        ro_dir = os.path.join(self.tmpdir, "readonly")
+        os.makedirs(ro_dir)
+        os.chmod(ro_dir, 0o444)  # read-only
+        _batch_module.LLM_DEBUG_DIR = ro_dir
+        # Should not raise
+        try:
+            _write_llm_debug_record({
+                "output_filename": "should_not_crash.mp4",
+                "raw_response": "test",
+            })
+        except Exception as e:
+            self.fail(f"_write_llm_debug_record raised unexpectedly: {e}")
 
 
 if __name__ == "__main__":

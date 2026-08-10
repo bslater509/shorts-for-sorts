@@ -11,12 +11,8 @@ from typing import Any
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 import gui.state as shared_state
-from gui.batch_engine import (
-    DEFAULT_PHASE_WEIGHTS,
-    _batch_state_lock,
-    _save_phase_weights,
-    batch_state,
-)
+from gui.batch_engine import _batch_state_lock, batch_state
+from gui.batch_persistence import DEFAULT_PHASE_WEIGHTS, _save_phase_weights
 from gui.config import BASE_DIR, BATCH_STATS_FILE, logger
 
 router: APIRouter = APIRouter()

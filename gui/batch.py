@@ -7,6 +7,8 @@ LLM script generation worker, and the video compilation worker for batch mode.
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import re
 import time
@@ -16,7 +18,7 @@ from typing import Any
 
 from gui import state as shared_state
 from gui.batch_engine import batch_state
-from gui.config import console, logger
+from gui.config import LLM_DEBUG_DIR, console, logger
 from gui.exceptions import BatchCancelledError
 from gui.llm_utils import parse_title_hashtags, retry_with_backoff, strip_think_blocks
 from gui.progress_utils import log_memory_usage
@@ -304,6 +306,127 @@ def orchestrate_batch_job(
         return (idx, False, str(e))
 
 
+# --- LLM debug sidecar helpers ---
+
+
+def _extract_stream_delta(chunk: Any) -> tuple[str | None, str | None]:
+    """Extract content and reasoning deltas from a streaming chunk.
+
+    Most providers stream text in ``delta.content`` and optional reasoning
+    in ``delta.reasoning_content`` (used by DeepSeek-R1, o-series, Qwen,
+    and other reasoning models via OpenAI-compatible APIs).  A few providers
+    use ``delta.reasoning`` instead.
+
+    Args:
+        chunk: A raw chunk from ``client.chat.completions.create(stream=True)``.
+
+    Returns:
+        Tuple of ``(content_delta, reasoning_delta)`` — either may be
+        ``None`` when the field is absent or empty in the current chunk.
+    """
+    if not chunk.choices:
+        return None, None
+    delta = chunk.choices[0].delta
+    if delta is None:
+        return None, None
+    content: str | None = getattr(delta, "content", None)
+    reasoning: str | None = getattr(delta, "reasoning_content", None)
+    if reasoning is None:
+        reasoning = getattr(delta, "reasoning", None)
+    return content, reasoning
+
+
+def _build_llm_debug_record(
+    job_index: int,
+    model: str,
+    script_temp: float,
+    system_prompt: str,
+    prompt: str,
+    raw_response: str,
+    thinking_content: str,
+    final_script: str,
+    title: str,
+    hashtags: str,
+    output_filename: str,
+) -> dict[str, Any]:
+    """Build a structured debug record for a single batch LLM generation.
+
+    Captures the raw provider response (including inline ``<think>`` blocks),
+    any separately-streamed thinking (``reasoning_content``), the final
+    stripped script that was used for the video, and diagnostics about
+    whether think blocks were present and successfully removed.
+
+    Args:
+        job_index: The 1-based batch job number.
+        model: LLM model identifier used for this generation.
+        script_temp: Temperature setting for the script LLM call.
+        system_prompt: Full system prompt sent to the LLM.
+        prompt: User prompt sent to the LLM.
+        raw_response: Raw ``delta.content`` stream **before** stripping.
+        thinking_content: Accumulated ``delta.reasoning_content`` (may be empty).
+        final_script: Script text after ``strip_think_blocks`` and title/hashtag
+            extraction — the exact text that is spoken in the video.
+        title: Extracted title (from ``TITLE:`` line or fallback).
+        hashtags: Extracted hashtags (from ``HASHTAGS:`` line or fallback).
+        output_filename: The rendered video filename.
+
+    Returns:
+        Dictionary ready for JSON serialisation.  Includes a ``diagnostics``
+        sub-object with think-block detection counts.
+    """
+    from gui.llm_utils import strip_think_blocks
+
+    stripped: str = strip_think_blocks(raw_response)
+    raw_len: int = len(raw_response)
+    stripped_len: int = len(stripped)
+    think_count: int = raw_response.lower().count("<think")
+
+    return {
+        "job_index": job_index,
+        "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "model": model,
+        "script_temp": script_temp,
+        "system_prompt": system_prompt,
+        "prompt": prompt,
+        "raw_response": raw_response,
+        "thinking_content": thinking_content,
+        "stripped_script": stripped,
+        "final_script": final_script,
+        "title": title,
+        "hashtags": hashtags,
+        "output_filename": output_filename,
+        "diagnostics": {
+            "raw_think_count": think_count,
+            "stripped_chars_removed": raw_len - stripped_len,
+            "stripped_removed_anything": stripped_len < raw_len,
+        },
+    }
+
+
+def _write_llm_debug_record(record: dict[str, Any]) -> None:
+    """Persist an LLM debug record as a JSON sidecar file.
+
+    Writes to ``LLM_DEBUG_DIR/<base_name>.llm.json`` alongside the
+    video's output.  Failures are logged as warnings and never raised
+    (this is a non-critical diagnostics path).
+
+    Args:
+        record: Dict returned by :func:`_build_llm_debug_record`.
+    """
+    output_filename: str = record.get("output_filename", "unknown.mp4")
+    base: str = os.path.splitext(os.path.basename(output_filename))[0]
+    path: str = os.path.join(LLM_DEBUG_DIR, f"{base}.llm.json")
+    try:
+        os.makedirs(LLM_DEBUG_DIR, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(record, f, indent=2, ensure_ascii=False)
+        logger.info("[LLM-Debug] Wrote sidecar: %s", path)
+    except Exception as e:
+        logger.warning(
+            "[LLM-Debug] Failed to write sidecar %s: %s", path, e
+        )
+
+
 # --- Workers ---
 
 
@@ -368,6 +491,7 @@ def llm_job_worker(
         client: OpenAI = _cached_llm_client
 
         script_text: str = ""
+        thinking_text: str = ""
         _last_ts: float = time.time()
         _last_wc: int = 0
 
@@ -377,6 +501,7 @@ def llm_job_worker(
                 # frontend resets the stream on retry.
                 stream_llm_event(idx, "llm_started")
                 script_text = ""
+                thinking_text = ""
                 response = client.chat.completions.create(
                     model=job_config["model"],
                     messages=[
@@ -397,14 +522,10 @@ def llm_job_worker(
                 for chunk in response:
                     if batch_state["should_cancel"]:
                         raise BatchCancelledError("Batch cancelled: LLM generation interrupted") from None
-                    if (
-                        chunk.choices
-                        and chunk.choices[0].delta
-                        and chunk.choices[0].delta.content is not None
-                    ):
-                        delta: str = chunk.choices[0].delta.content
-                        script_text += delta
-                        _token_buf += delta
+                    content_delta, reasoning_delta = _extract_stream_delta(chunk)
+                    if content_delta is not None:
+                        script_text += content_delta
+                        _token_buf += content_delta
                         word_count: int = len(script_text.split())
                         now: float = time.time()
                         # Flush accumulated tokens every ~100ms to avoid
@@ -423,6 +544,8 @@ def llm_job_worker(
                             progress_dict[idx] = f"LLM Script ({word_count} words)"
                             _last_ts = now
                             _last_wc = word_count
+                    if reasoning_delta is not None:
+                        thinking_text += reasoning_delta
                 # Flush any remaining buffered tokens
                 if _token_buf:
                     stream_llm_token(idx, _token_buf, len(script_text.split()))
@@ -442,7 +565,9 @@ def llm_job_worker(
                     raise BatchCancelledError("Batch cancelled: LLM generation interrupted") from None
                 time.sleep(1.0 * (2**attempt))
 
-        script_text = script_text.strip()
+        # Capture raw response *before* stripping for debug investigation
+        raw_script_text: str = script_text.strip()
+        script_text = raw_script_text
         script_text = strip_think_blocks(script_text)
         script_text, title, hashtags = parse_title_hashtags(script_text)
 
@@ -468,6 +593,32 @@ def llm_job_worker(
         except Exception:
             job_config["generated_title"] = TITLE_FALLBACK
             job_config["generated_hashtags"] = HASHTAGS_FALLBACK
+
+        # Persist a sidecar with the raw LLM response (including any
+        # reasoning / <think> blocks) so "thinking not removed" issues
+        # can be investigated without re-running generation.
+        try:
+            _write_llm_debug_record(
+                _build_llm_debug_record(
+                    job_index=idx,
+                    model=job_config.get("model", "?"),
+                    script_temp=job_config.get("script_temp", 0.7),
+                    system_prompt=job_config.get("system_prompt", ""),
+                    prompt=job_config.get("prompt", ""),
+                    raw_response=raw_script_text,
+                    thinking_content=thinking_text,
+                    final_script=script_text,
+                    title=title or TITLE_FALLBACK,
+                    hashtags=hashtags or HASHTAGS_FALLBACK,
+                    output_filename=job_config.get("output_filename", ""),
+                )
+            )
+        except Exception:
+            logger.warning(
+                "[Batch LLM #%d] Failed to write LLM debug record",
+                idx,
+                exc_info=True,
+            )
 
         logger.info(
             "[Batch LLM #%d] Script done: %d words, title=%s",
