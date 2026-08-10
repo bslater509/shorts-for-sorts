@@ -19,6 +19,12 @@ config/settings.json
 config/gui_state.json
 config/batch_stats.json
 config/failed_batch_configs.json
+config/cancelled_batch_configs.json
+config/dismissed_jobs.json
+config/schedules.json
+config/batch_profiles.json
+config/prompts.json
+config/emojis.json
 
 # Virtual environments & IDEs
 .vscode/
